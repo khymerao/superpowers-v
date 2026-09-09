@@ -1817,9 +1817,15 @@ def _agent_isolation_downgraded(job, abs_repo_root):
     """True when the manifest asked for ``worktree`` but the AGENT will run in the
     main checkout anyway — the `depends_on` rule, unless `worktree.baseRef: head`.
 
-    This mirrors the `agent_isolation` expression in build_plan exactly; if that
-    expression changes, this must change with it.
+    Only a CLAUDE job can be downgraded this way. An external backend (codex, cursor,
+    antigravity, …) owns its own worktree: `job_entry` pins its manifest isolation to
+    `direct`, and the gate still runs in worktree mode over the worker's tree via the
+    `externalBackend` branch of the emitted script. Such a job is fully attributable
+    and must NOT be serialized — treating it as downgraded would cost parallelism for
+    nothing.
     """
+    if (job.get("backend") or "claude") != "claude":
+        return False
     if (job.get("isolation") or "direct") != "worktree":
         return False
     if not (job.get("depends_on") or []):
@@ -1856,7 +1862,10 @@ def _serialize_unattributable_waves(waves, abs_repo_root):
         if len(downgraded) < 2:
             out.append(wave)
             continue
-        others = [j for j in wave if j not in downgraded]
+        # Partition by id, not by dict equality: `j not in downgraded` compares job
+        # dicts by VALUE, which is only safe while topo_waves rejects duplicate ids.
+        _down_ids = {j.get("id") for j in downgraded}
+        others = [j for j in wave if j.get("id") not in _down_ids]
         if others:
             out.append(others)
         for job in downgraded:
@@ -6149,6 +6158,31 @@ def selftest():
                    {"isolation": "direct", "depends_on": ["a"]}, _nd) is False
                and _agent_isolation_downgraded(
                    {"isolation": "worktree", "depends_on": ["a"]}, _pw_repo) is False)
+        # An external backend owns its own worktree and is attributable, so it is
+        # never "downgraded" and must keep its parallelism.
+        _check("_agent_isolation_downgraded: an external backend is NOT downgraded",
+               _agent_isolation_downgraded(
+                   {"backend": "codex", "isolation": "worktree",
+                    "depends_on": ["a"]}, _nd) is False)
+        _pw_man_ext = {"run_id": "pwx", "jobs": [
+            {"id": "a", "isolation": "worktree", "write_allowed": ["a/**"]},
+            {"id": "b", "backend": "codex", "isolation": "worktree",
+             "depends_on": ["a"], "write_allowed": ["b/**"], "model": "gpt-5.5"},
+            {"id": "c", "backend": "codex", "isolation": "worktree",
+             "depends_on": ["a"], "write_allowed": ["c/**"], "model": "gpt-5.5"}]}
+        _pw_ext_repo = os.path.join(tmp, "pwx-repo"); os.makedirs(_pw_ext_repo)
+        _pw_man_ext["_manifest_path"] = os.path.join(_pw_ext_repo, "manifest.yaml")
+        _pwx_workers = os.path.join(tmp, "workers-pwx"); os.makedirs(_pwx_workers, exist_ok=True)
+        with open(os.path.join(_pwx_workers, "compound-v-run-codex-worker.sh"), "w") as _fh:
+            _fh.write("#!/bin/sh\nexit 0\n")
+        _pw_ext_plan = build_plan(_with_body(_pw_man_ext), os.path.join(tmp, "pwx-run"),
+                                  _pw_ext_repo, "/usr/bin/python3",
+                                  os.path.abspath(__file__),
+                                  SCOPE_CHECK_DEFAULT, FASTPATH_DEFAULT, _pwx_workers)
+        _pw_ext_waves = [[e["id"] for e in w] for w in _pw_ext_plan["waves"]]
+        _check("external-backend dependents keep their wave (no needless serializing)",
+               any(sorted(i for i in w if i in ("b", "c")) == ["b", "c"]
+                   for w in _pw_ext_waves), str(_pw_ext_waves))
 
         try:
             topo_waves([{"id": "a", "depends_on": ["b"]},
