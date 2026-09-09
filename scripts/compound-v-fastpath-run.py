@@ -222,6 +222,56 @@ def _git(worktree, args, timeout_s=GIT_TIMEOUT_S, cap_bytes=MAX_DIFF_BYTES):
     return _run_supervised(["git", "-C", worktree] + list(args), None, timeout_s, cap_bytes)
 
 
+# A `test_contract` command is a COMMAND, and a manifest author writes one the way
+# they would type it: with a glob, a `$(...)`, an `&&` chain. `shlex.split` + argv
+# exec turns every one of those into a LITERAL argument --
+# `node --test $(ls test/*.test.js) && swiftc …` becomes
+# ['node','--test','$(ls','test/*.test.js)','&&','swiftc',…] and exits 1 -- which in
+# the receipt is indistinguishable from a genuinely failing suite. So a string that
+# carries shell syntax is run BY a shell; a plain-argv string keeps the faster,
+# quote-exact argv path it has always had.
+#
+# POSIX-sh metacharacters only (no brace expansion, no `~`): every one of these
+# changes what the string MEANS, and `/bin/sh` is what the author was writing for.
+_SHELL_META = frozenset("$`&|;<>()*?[\n")
+
+
+def _test_command_argv(raw):
+    """``(argv, spelling, via_shell)`` for one configured test command.
+
+    ``spelling`` stays the ORIGINAL string: `" ".join(shlex.split(x))` is lossy --
+    `sh -c "exit 0"` comes back as `sh -c exit 0`, a different command -- and B2
+    recomputes the next run's "previously failing" set from these strings.
+    """
+    if not isinstance(raw, str):
+        cmd = list(raw)
+        return cmd, " ".join(shlex.quote(part) for part in cmd), False
+    if any(ch in _SHELL_META for ch in raw):
+        return ["/bin/sh", "-c", raw], raw, True
+    return shlex.split(raw), raw, False
+
+
+TEST_OUTPUT_TAIL_BYTES = 2000
+
+
+def _output_tail(out, cap=TEST_OUTPUT_TAIL_BYTES):
+    """The last ``cap`` bytes of a command's captured stdout, decoded lossily.
+
+    The receipt used to record only `rc=1`, so a failing floor said nothing about
+    WHICH command failed or why, and a broken command was indistinguishable from a
+    broken test. `_run_supervised` already captures bounded stdout and the caller
+    discarded it (`rc, _ = …`). Note the supervisor discards stderr, so this is the
+    stdout tail only -- honest about what it is rather than claiming full output.
+    """
+    if not out:
+        return ""
+    if isinstance(out, bytes):
+        out = out[-cap:].decode("utf-8", "replace")
+    else:
+        out = out[-cap:]
+    return out.strip()
+
+
 # --------------------------------------------------------------------------- #
 # Digests (anti-stale-replay binding; same prefixed-sha256 shape as the receipt).
 # --------------------------------------------------------------------------- #
@@ -1165,29 +1215,38 @@ def run_test_floor(worktree, baseline="HEAD", changed_paths=None, test_cmd=None,
         # that cannot be re-run silently drops coverage instead of restoring it.
         argvs = []
         for raw in resolved:
-            cmd = shlex.split(raw) if isinstance(raw, str) else list(raw)
+            if isinstance(raw, str) and not raw.strip():
+                result["reasons"].append(
+                    "tier-1: configured test command is empty (fail-closed)")
+                return result
+            cmd, spelling, via_shell = _test_command_argv(raw)
             if not cmd:
                 result["reasons"].append(
                     "tier-1: configured test command is empty (fail-closed)")
                 return result
-            spelling = raw if isinstance(raw, str) else " ".join(
-                shlex.quote(part) for part in cmd)
-            argvs.append((cmd, spelling))
+            argvs.append((cmd, spelling, via_shell))
         failed_cmds = []
-        for cmd, spelling in argvs:
-            rc, _ = _run_supervised(cmd, worktree, test_timeout_s)
-            result["checks"].append({"tier": 1, "checker": spelling, "rc": rc,
-                                     "status": "pass" if rc == 0 else "fail"})
+        for cmd, spelling, via_shell in argvs:
+            rc, out = _run_supervised(cmd, worktree, test_timeout_s)
+            check = {"tier": 1, "checker": spelling, "rc": rc,
+                     "status": "pass" if rc == 0 else "fail"}
+            if via_shell:
+                check["via"] = "sh -c"
+            tail = _output_tail(out) if rc != 0 else ""
+            if tail:
+                check["output_tail"] = tail
+            result["checks"].append(check)
             if rc != 0:
-                failed_cmds.append((spelling, rc))
+                failed_cmds.append((spelling, rc, tail))
         if not failed_cmds:
             result["passed"] = True
             result["merge_blocked"] = False
         else:
-            for name, rc in failed_cmds:
+            for name, rc, tail in failed_cmds:
                 result["reasons"].append(
-                    "tier-1: configured tests failed (rc=%s%s): %s"
-                    % (rc, "; timeout" if rc == 124 else "", name))
+                    "tier-1: configured tests failed (rc=%s%s): %s%s"
+                    % (rc, "; timeout" if rc == 124 else "", name,
+                       ("\n%s" % tail) if tail else ""))
         # rc==124 is the supervisor's own timeout signal (never a checker's own exit
         # code — see `_run_supervised`). The identifier gets a distinct label because
         # "sh -c 'sleep 2'" alone does not say WHY it failed, and this is the only
@@ -1197,7 +1256,7 @@ def run_test_floor(worktree, baseline="HEAD", changed_paths=None, test_cmd=None,
         result["failures"] = [
             ("timeout after %s s: %s" % (int(test_timeout_s), name)) if rc == 124
             else name
-            for name, rc in failed_cmds]
+            for name, rc, _tail in failed_cmds]
         return result
 
     # Tiers 2 and 3 cannot work without the diff (soft; fail-closed if underivable).
@@ -1994,6 +2053,43 @@ def _selftest():
         # 2b. tier-1 empty command string → fail-closed.
         res = run_test_floor(r, "HEAD", changed_paths=["a.py"], test_cmd="   ")
         expect("tier-1 empty test command → merge_blocked", res["merge_blocked"] is True)
+
+        # 2c. SHELL SYNTAX IS HONOURED, not tokenised into literal argv.
+        # Each of these three is a DISCRIMINATOR: under the old shlex.split+argv
+        # path it produced the opposite verdict, which is why a floor with a glob
+        # or an `&&` chain read as "my tests are failing".
+        expect("plain argv command stays on the argv path",
+               _test_command_argv("npm test") == (["npm", "test"], "npm test", False))
+        _argv, _spell, _viash = _test_command_argv("node --test $(ls t/*.js) && x")
+        expect("shell syntax routes through sh -c",
+               _viash and _argv[:2] == ["/bin/sh", "-c"]
+               and _argv[2] == "node --test $(ls t/*.js) && x")
+        expect("the ORIGINAL string is kept as the spelling",
+               _spell == "node --test $(ls t/*.js) && x")
+        # `&&` must actually chain: argv-exec ran only the first command and passed.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'exit 0' && sh -c 'exit 1'")
+        expect("&& chain: a later failure blocks (argv-exec passed it)",
+               res["merge_blocked"] is True)
+        # `||` must actually chain: argv-exec ran only the first and blocked.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'exit 1' || sh -c 'exit 0'")
+        expect("|| chain: the fallback passes (argv-exec blocked it)",
+               res["passed"] is True)
+
+        # 2d. A FAILING floor records the command's output, not just `rc=N`.
+        # Eight dispatch attempts were spent on a receipt that said only "rc=1".
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'echo BOOM; exit 3'")
+        _t1 = [c for c in res["checks"] if c.get("tier") == 1]
+        expect("failing floor records rc and the stdout tail",
+               bool(_t1) and _t1[0]["rc"] == 3
+               and "BOOM" in _t1[0].get("output_tail", ""))
+        expect("the failure REASON carries the output too",
+               any("BOOM" in reason for reason in res["reasons"]))
+        expect("_output_tail is bounded and stripped",
+               _output_tail(b"x" * 5000) == "x" * TEST_OUTPUT_TAIL_BYTES
+               and _output_tail(b"") == "")
 
         # 3. tier-2 Python parse-check: valid file → pass; broken file → fail.
         r = new_repo("t2-py")
