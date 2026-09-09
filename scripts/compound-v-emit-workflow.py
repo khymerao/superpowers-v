@@ -1813,6 +1813,65 @@ def _worktree_base_is_head(repo_root):
         return False
 
 
+def _agent_isolation_downgraded(job, abs_repo_root):
+    """True when the manifest asked for ``worktree`` but the AGENT will run in the
+    main checkout anyway — the `depends_on` rule, unless `worktree.baseRef: head`.
+
+    This mirrors the `agent_isolation` expression in build_plan exactly; if that
+    expression changes, this must change with it.
+    """
+    if (job.get("isolation") or "direct") != "worktree":
+        return False
+    if not (job.get("depends_on") or []):
+        return False
+    return not _worktree_base_is_head(abs_repo_root)
+
+
+def _serialize_unattributable_waves(waves, abs_repo_root):
+    """Split a wave that would run TWO OR MORE downgraded jobs at once in ONE tree.
+
+    A downgraded job runs its agent in the main checkout, and direct mode attributes
+    its writes with a single before-image snapshot. One such job per wave is exactly
+    what that snapshot handles, and the comment on `agent_isolation` says so. Two is
+    a different thing: one before-image cannot separate two concurrent writers, so
+    each job's diff contains the other's files and BOTH are BLOCKED for out-of-lane
+    writes — a run that is guaranteed to fail before any code is judged.
+
+    Observed on a seven-job run in a project with no `.claude/settings.json`: wave 2
+    ran `task-1` ∥ `task-2`, both `isolation: worktree`, both `depends_on` the wave-0
+    job; each blocked carrying the other's entire lane.
+
+    The validator REQUIRES `isolation: worktree` for parallel jobs and
+    partition-reviewer verifies it, so the manifest passes an invariant the run then
+    does not honour. Rather than emit that run, give each downgraded job its own
+    wave: a wave is already a barrier, so more barriers is strictly safer, and one
+    writer at a time is the case attribution can actually handle. Jobs that were NOT
+    downgraded keep their real worktrees and stay together.
+
+    Returns ``(waves, notes)``; ``notes`` is empty when nothing was re-ordered.
+    """
+    out, notes = [], []
+    for wave in waves:
+        downgraded = [j for j in wave if _agent_isolation_downgraded(j, abs_repo_root)]
+        if len(downgraded) < 2:
+            out.append(wave)
+            continue
+        others = [j for j in wave if j not in downgraded]
+        if others:
+            out.append(others)
+        for job in downgraded:
+            out.append([job])
+        notes.append(
+            "wave with %s concurrent main-checkout jobs (%s) serialized: their "
+            "manifest `isolation: worktree` is downgraded because they carry "
+            "depends_on and this project has no `worktree.baseRef: \"head\"` in "
+            ".claude/settings.json, and one before-image cannot attribute two "
+            "concurrent writers. Set that key to get real worktrees and full "
+            "parallelism." % (len(downgraded), ", ".join(
+                str(j.get("id")) for j in downgraded)))
+    return out, notes
+
+
 def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
                scope_check, fastpath, workers_dir, recall=True,
                recall_results_root=None, recall_engine=None):
@@ -1851,6 +1910,13 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
     max_parallel = manifest.get("max_parallel") or 4
     jobs = manifest.get("jobs") or []
     waves = topo_waves(jobs, max_parallel)
+    # A wave whose agents were all downgraded into the SAME checkout cannot be
+    # attributed (see _serialize_unattributable_waves). Serialize it here rather
+    # than emit a run that is guaranteed to BLOCK, and tell the operator why —
+    # the downgrade was previously invisible until the gate failed two waves later.
+    waves, _isolation_notes = _serialize_unattributable_waves(waves, abs_repo_root)
+    for _note in _isolation_notes:
+        sys.stderr.write("compound-v: %s\n" % _note)
     # A `test_contract` block is what makes resolution POSSIBLE at all. Without
     # one, `resolve-tests` fails closed and writes no file — and the worker
     # scripts reject a `--test-contract-file` that does not exist (exit 2). So the
@@ -6041,6 +6107,48 @@ def selftest():
         _br_b2 = [e for w in _br_plan2["waves"] for e in w if e["id"] == "b"][0]
         _check("worktree.baseRef: head — a dependent worktree job gets a REAL worktree",
                _br_b2.get("agent_isolation") == "worktree")
+
+        # TWO downgraded jobs in ONE wave are unattributable: a single before-image
+        # cannot separate two concurrent writers in the same checkout, so both jobs
+        # BLOCK carrying each other's lane. Observed live before this guard existed.
+        _pw_repo = os.path.join(tmp, "pw-repo"); os.makedirs(_pw_repo)
+        _pw_man = {"run_id": "pw", "jobs": [
+            {"id": "a", "isolation": "worktree", "write_allowed": ["a/**"]},
+            {"id": "b", "isolation": "worktree", "depends_on": ["a"], "write_allowed": ["b/**"]},
+            {"id": "c", "isolation": "worktree", "depends_on": ["a"], "write_allowed": ["c/**"]}]}
+        _pw_man["_manifest_path"] = os.path.join(_pw_repo, "manifest.yaml")
+        _pw_plan = build_plan(_with_body(_pw_man), os.path.join(tmp, "pw-run"), _pw_repo,
+                              "/usr/bin/python3", os.path.abspath(__file__),
+                              SCOPE_CHECK_DEFAULT, FASTPATH_DEFAULT, tmp)
+        _pw_waves = [[e["id"] for e in w] for w in _pw_plan["waves"]]
+        _check("no baseRef: two downgraded dependents never share a wave",
+               all(len([i for i in w if i in ("b", "c")]) <= 1 for w in _pw_waves),
+               str(_pw_waves))
+        _check("no baseRef: serializing does not drop a job",
+               sorted(i for w in _pw_waves for i in w if i in ("b", "c")) == ["b", "c"],
+               str(_pw_waves))
+        # With real worktrees each job is attributable, so parallelism is kept.
+        os.makedirs(os.path.join(_pw_repo, ".claude"))
+        with open(os.path.join(_pw_repo, ".claude", "settings.json"), "w") as fh:
+            fh.write('{"worktree": {"baseRef": "head"}}')
+        _pw_plan2 = build_plan(_with_body(_pw_man), os.path.join(tmp, "pw-run"), _pw_repo,
+                               "/usr/bin/python3", os.path.abspath(__file__),
+                               SCOPE_CHECK_DEFAULT, FASTPATH_DEFAULT, tmp)
+        _pw_waves2 = [[e["id"] for e in w] for w in _pw_plan2["waves"]]
+        _check("worktree.baseRef: head — the two dependents STAY in one wave",
+               any(sorted(i for i in w if i in ("b", "c")) == ["b", "c"] for w in _pw_waves2),
+               str(_pw_waves2))
+        _nd = os.path.join(tmp, "nd"); os.makedirs(_nd)
+        _check("_agent_isolation_downgraded: worktree + depends_on + no baseRef",
+               _agent_isolation_downgraded(
+                   {"isolation": "worktree", "depends_on": ["a"]}, _nd) is True)
+        _check("_agent_isolation_downgraded: not a downgrade without depends_on, "
+               "for a direct job, or when baseRef is head",
+               _agent_isolation_downgraded({"isolation": "worktree"}, _nd) is False
+               and _agent_isolation_downgraded(
+                   {"isolation": "direct", "depends_on": ["a"]}, _nd) is False
+               and _agent_isolation_downgraded(
+                   {"isolation": "worktree", "depends_on": ["a"]}, _pw_repo) is False)
 
         try:
             topo_waves([{"id": "a", "depends_on": ["b"]},
