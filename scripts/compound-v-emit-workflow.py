@@ -1823,14 +1823,23 @@ def _agent_isolation_downgraded(job, abs_repo_root):
     `externalBackend` branch of the emitted script. Such a job is fully attributable
     and must NOT be serialized — treating it as downgraded would cost parallelism for
     nothing.
+
+    This is the exact NEGATION of the `agent_isolation` expression in `job_entry`,
+    written as one predicate rather than a second copy of the positive condition:
+    the agent runs in the main checkout whenever it does not get a real worktree. A
+    manifest-`direct` claude job is therefore counted too — it is also a main-tree
+    writer, and two of those in one wave is the same unattributable shape (invariant
+    7 makes that unreachable through a validated manifest, but `build_plan` does not
+    validate, so the predicate should not depend on it).
     """
     if (job.get("backend") or "claude") != "claude":
         return False
-    if (job.get("isolation") or "direct") != "worktree":
-        return False
-    if not (job.get("depends_on") or []):
-        return False
-    return not _worktree_base_is_head(abs_repo_root)
+    gets_real_worktree = (
+        (job.get("isolation") or "direct") == "worktree"
+        and (not (job.get("depends_on") or [])
+             or _worktree_base_is_head(abs_repo_root))
+    )
+    return not gets_real_worktree
 
 
 def _serialize_unattributable_waves(waves, abs_repo_root):
@@ -2252,6 +2261,12 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
         "retry": retry_config(manifest),
         "escalation": escalation_map(),
         "waves": [[job_entry(j) for j in wave] for wave in waves],
+        # WHY THE WAVE PLAN MAY NOT MATCH THE PARTITION MAP. A stderr line is gone
+        # the moment emit finishes, and `dispatch.workflow.js` is what gets committed
+        # — an auditor comparing the reviewed partition (N waves) against the run
+        # (N+k) would otherwise have no explanation for the difference. Empty on
+        # every run that was not re-shaped.
+        "isolation_notes": list(_isolation_notes),
     }
 
 
@@ -6151,13 +6166,15 @@ def selftest():
         _check("_agent_isolation_downgraded: worktree + depends_on + no baseRef",
                _agent_isolation_downgraded(
                    {"isolation": "worktree", "depends_on": ["a"]}, _nd) is True)
-        _check("_agent_isolation_downgraded: not a downgrade without depends_on, "
-               "for a direct job, or when baseRef is head",
+        _check("_agent_isolation_downgraded: a job that GETS a real worktree is not one",
                _agent_isolation_downgraded({"isolation": "worktree"}, _nd) is False
                and _agent_isolation_downgraded(
-                   {"isolation": "direct", "depends_on": ["a"]}, _nd) is False
-               and _agent_isolation_downgraded(
                    {"isolation": "worktree", "depends_on": ["a"]}, _pw_repo) is False)
+        # A manifest-`direct` claude job is a main-tree writer too. Invariant 7 makes
+        # two of them in one parallel wave unreachable through a VALIDATED manifest,
+        # but build_plan does not validate, so the predicate does not lean on that.
+        _check("_agent_isolation_downgraded: a manifest-direct claude job counts",
+               _agent_isolation_downgraded({"isolation": "direct"}, _nd) is True)
         # An external backend owns its own worktree and is attributable, so it is
         # never "downgraded" and must keep its parallelism.
         _check("_agent_isolation_downgraded: an external backend is NOT downgraded",
