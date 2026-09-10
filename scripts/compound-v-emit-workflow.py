@@ -4335,6 +4335,7 @@ def external_session_id(run_dir, job_id):
 
 
 def _job_result_from(verdict, job, state_job, tests=None, contract=None,
+                     contract_declared=False,
                      isolation=None, tier=None):
     """The canonical job_result. Enforcement fields come from the GATE, not the
     implementer: `blocked`, `files_changed` and `violations` are git-derived.
@@ -4387,6 +4388,7 @@ def _job_result_from(verdict, job, state_job, tests=None, contract=None,
     # `blocked`, not `error`: nothing is broken about the machinery, the job's work
     # did not pass its own declared tests. Same class as an out-of-lane write, for
     # the same reason — the work is refused, not the pipeline.
+    result_summary_suffix = ""
     tests_block = _tests_block_from_floor(tests, contract, job, tier) if tests else None
     if status == "success" and isinstance(tests_block, dict):
         t_exit = tests_block.get("exit_code")
@@ -4399,27 +4401,47 @@ def _job_result_from(verdict, job, state_job, tests=None, contract=None,
             # consumer of the boolean got the opposite conclusion.
             pass
 
-    # A CONTRACTED FLOOR THAT RAN NOTHING IS NOT A PASS.
+    # A CONTRACTED FLOOR THAT RESOLVED TO NO COMMAND IS NOT A PASS.
     #
-    # The rule above closed the RED floor. This closes the EMPTY one, which the
-    # same run showed is the more dangerous half: `_tests_block_from_floor` returns
-    # None when the floor executed no command ("absent is honest" — the schema says
-    # omit the object rather than report a fabricated zero), and `isinstance(...,
-    # dict)` above is then False, so the job keeps `success` with NO test evidence
-    # at all.
+    # `run_test_floor` initialises every result `{"passed": False, "merge_blocked":
+    # True}` — refusal is the floor's default state — and ADR 0003 relies on it:
+    # "already merge-blocking and already fail-closed on an empty command", with
+    # Consequences: "A job reporting no test command at all is a FAIL, not a pass."
+    # `spec-reviewer.md` enforces that in prose (ISSUE: NO_TEST_EVIDENCE, "Silence
+    # is not success").
     #
-    # Dogfooded: two sibling worktree jobs, same wave. One installed the project's
-    # dependencies so its floor could run, and was BLOCKED for the install. The
-    # other installed nothing, so its floor could not run at all — and PASSED. A job
-    # that made its floor runnable was refused; a job whose floor never ran was
-    # merged. Absent evidence was being read as absence of objection.
+    # The fast path's own consumer honours it (`build_review_spec` gate 1 refuses on
+    # `not passed or merge_blocked`). THIS consumer did not: it reads the floor only
+    # through `_tests_block_from_floor`, which returns None when no check carries a
+    # `checker`, so `merge_blocked: True` was never consulted and the job kept the
+    # scope verdict's `success`. One floor document, two consumers, opposite
+    # conclusions. Dogfood 14 moved the RED half of the rule from prose into this
+    # function; this is the empty half, at the same layer, for the same reason.
     #
-    # Narrow on purpose: this fires ONLY when the manifest actually contracted a
-    # floor. A job with no `test_contract` has nothing to run and stays `success`
-    # (the "no floor at all is not a failure" rule is unchanged). `blocked`, not
-    # `error`: the machinery is fine, the job simply has no evidence it may merge on.
-    if status == "success" and tests_block is None and contract:
-        status = "blocked"
+    # The predicate is the MANIFEST's declaration, not the resolved slice. `contract`
+    # above is read from `jobs/<id>.test-contract.json`, which does not exist when
+    # resolution FAILED — precisely the case that must be caught. Keying on it would
+    # leave the reachable hole open.
+    #
+    # Unchanged: an uncontracted manifest still records `success` with no `tests`
+    # object — "no floor at all is not a failure".
+    if status == "success" and tests_block is None and contract_declared:
+        if tests is None:
+            # No floor document at all: `fastpath-run.py` was absent or died before
+            # writing JSON. The machinery IS broken here, so `error`, not `blocked`.
+            status = "error"
+        else:
+            status = "blocked"
+        _floor_reasons = [str(r) for r in ((tests or {}).get("reasons") or []) if r]
+        if _floor_reasons:
+            # Without this the refusal carries no cause: the floor's own
+            # "test contract did not resolve (fail-closed): ..." is dropped and the
+            # summary falls back to the job title, which is a refusal for an
+            # unstated reason.
+            result_summary_suffix = "; ".join(_floor_reasons[:3])
+        else:
+            result_summary_suffix = ("the manifest declares a test_contract but the "
+                                     "floor resolved to no command")
 
     # The three REQUIRED fields below are typed `string`/`string`/`integer` in the
     # schema, with the empty string and 0 documented as their own "not applicable"
@@ -4458,7 +4480,8 @@ def _job_result_from(verdict, job, state_job, tests=None, contract=None,
         "violations": violations,
         "summary": (("implementer returned no result (turn cap or crash); the registered "
                      "worktree was gated as evidence — " if _impl_no_result else "")
-                    + (verdict.get("reason") or (job.get("title") or job.get("id") or ""))),
+                    + (verdict.get("reason") or (job.get("title") or job.get("id") or ""))
+                    + (" - " + result_summary_suffix if result_summary_suffix else "")),
         "session_id": state_job.get("session_id") or "",  # filled from the events log for an external job (finding 81)
         "worktree": worktree,
         "exit_code": exit_code,
@@ -4734,8 +4757,14 @@ def cmd_record(argv):
 
             state_job["session_id"] = _ext_sid
 
+    # Whether the MANIFEST declared a floor — not whether the slice resolved. The
+    # slice is absent exactly when resolution failed, which is the case that must
+    # not pass silently. Mirrors `declares_contract` in build_plan.
+    _contract_declared = isinstance(manifest.get("test_contract"), dict) and bool(
+        manifest.get("test_contract"))
     result = _job_result_from(verdict, job, state_job, tests=tests,
-                              contract=contract, isolation=isolation, tier=tier)
+                              contract=contract, isolation=isolation, tier=tier,
+                              contract_declared=_contract_declared)
 
     # ---- the workflow's retry log ------------------------------------------
     # It lands in state.json and in this ack, NOT as a new top-level key on the
@@ -6241,27 +6270,45 @@ def selftest():
         _check("no floor at all is not a failure",
                _jr_none["status"] == "success")
 
-        # A CONTRACTED floor that ran nothing must NOT pass: `_tests_block_from_floor`
-        # returns None for an empty `checks` list, so before this rule the job kept
-        # `success` with no test evidence at all. Dogfooded: the sibling job that
-        # installed dependencies so its floor could run was BLOCKED for the install,
-        # while this one — whose floor never ran — merged.
+        # A CONTRACTED floor that resolved to NO COMMAND must not pass.
+        # `_tests_block_from_floor` returns None for an empty `checks` list, so the
+        # red-floor rule above cannot see it and the job kept the scope verdict's
+        # `success` — while the floor document itself said `merge_blocked: True`.
+        _empty_floor = {"phase": "test_floor", "tier_used": 0, "passed": False,
+                        "merge_blocked": True, "checks": [],
+                        "reasons": ["test contract did not resolve (fail-closed)"]}
         _jr_empty = _job_result_from(
             _clean_verdict,
             {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
-            tests={"phase": "test_floor", "tier_used": 0, "passed": False,
-                   "merge_blocked": True, "checks": [], "reasons": ["nothing ran"]},
-            contract={"floor_command": "npm test"})
-        _check("a CONTRACTED floor that ran nothing is blocked, not success",
+            tests=_empty_floor, contract_declared=True)
+        _check("a CONTRACTED floor that resolved to no command is blocked",
                _jr_empty["status"] == "blocked", str(_jr_empty["status"]))
         _check("...and it carries no fabricated tests block",
-               _jr_empty.get("tests") in (None, {}) or "tests" not in _jr_empty)
+               "tests" not in _jr_empty or _jr_empty.get("tests") in (None, {}))
+        _check("...and the refusal states the floor's OWN reason",
+               "did not resolve" in (_jr_empty.get("summary") or ""),
+               str(_jr_empty.get("summary")))
+        # The predicate is the MANIFEST's declaration, not the resolved slice: the
+        # slice is missing exactly when resolution failed, so keying on it would
+        # leave the reachable hole open.
+        _jr_slice = _job_result_from(
+            _clean_verdict,
+            {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
+            tests=_empty_floor, contract={}, contract_declared=True)
+        _check("a declared contract whose SLICE is missing is still caught",
+               _jr_slice["status"] == "blocked", str(_jr_slice["status"]))
+        # No floor document at all is broken machinery, not a refused job.
+        _jr_nodoc = _job_result_from(
+            _clean_verdict,
+            {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
+            tests=None, contract_declared=True)
+        _check("a contracted job whose floor produced NO document is error",
+               _jr_nodoc["status"] == "error", str(_jr_nodoc["status"]))
         # The narrowness is the point: no contract, no obligation.
         _jr_nocontract = _job_result_from(
             _clean_verdict,
             {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
-            tests={"phase": "test_floor", "tier_used": 0, "passed": False,
-                   "merge_blocked": True, "checks": [], "reasons": ["nothing ran"]})
+            tests=_empty_floor)
         _check("an UNcontracted job with no floor evidence still passes",
                _jr_nocontract["status"] == "success", str(_jr_nocontract["status"]))
 
