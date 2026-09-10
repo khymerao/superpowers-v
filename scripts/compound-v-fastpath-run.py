@@ -239,54 +239,64 @@ def _git(worktree, args, timeout_s=GIT_TIMEOUT_S, cap_bytes=MAX_DIFF_BYTES):
     return _run_supervised(["git", "-C", worktree] + list(args), None, timeout_s, cap_bytes)
 
 
-# A `test_contract` command is a COMMAND, and a manifest author writes one the way
-# they would type it: with a glob, a `$(...)`, an `&&` chain. `shlex.split` + argv
-# exec turns every one of those into a LITERAL argument --
-# `node --test $(ls test/*.test.js) && swiftc …` becomes
-# ['node','--test','$(ls','test/*.test.js)','&&','swiftc',…] and exits 1 -- which in
-# the receipt is indistinguishable from a genuinely failing suite. So a string that
-# carries shell syntax is run BY a shell; a plain-argv string keeps the faster,
-# quote-exact argv path it has always had.
+# ONE INTERPRETER FOR ONE `resolved_commands[]` LIST.
 #
-# POSIX-sh metacharacters only (no brace expansion, no `~`): every one of these
-# changes what the string MEANS, and `/bin/sh` is what the author was writing for.
-_SHELL_META = frozenset("$`&|;<>()*?[\n")
+# The plugin runs the SAME resolved commands under two different interpreters. Every
+# external worker runs each one through a shell, byte-identically:
+#
+#   compound-v-run-codex-worker.sh:189   -- /bin/bash -c "$_tc_c"
+#   compound-v-run-cursor-worker.sh:203        (and antigravity, opencode)
+#
+# while this, the claude backend's tier-1 floor, ran `shlex.split(raw)` as argv. So a
+# floor with a glob, a `$(...)` or an `&&` chain PASSES on a codex job and FAILS on a
+# claude job of the same manifest -- and `floor_command` is documented only as
+# "string" (execution-manifest.md), with the validator checking only its type. Two
+# backends disagreeing about what a manifest string means is the defect; argv is the
+# odd one out, not a boundary anyone chose.
+#
+# So: the same `/bin/bash -c` the workers already use, for every command. A heuristic
+# that shelled only "suspicious" strings was the first shape of this fix and was
+# worse -- it added a THIRD semantics (argv here, `sh` there, `bash` in the workers),
+# so `pytest tests/{a,b}` would still mean one thing on codex and another here.
+_TEST_SHELL = ("/bin/bash", "-c")
 
 
 def _test_command_argv(raw):
-    """``(argv, spelling, via_shell)`` for one configured test command.
+    """``(argv, spelling)`` for one configured test command.
 
     ``spelling`` stays the ORIGINAL string: `" ".join(shlex.split(x))` is lossy --
     `sh -c "exit 0"` comes back as `sh -c exit 0`, a different command -- and B2
     recomputes the next run's "previously failing" set from these strings.
-
-    An unbalanced quote makes `shlex.split` raise; that returns an EMPTY argv so the
-    caller fails closed with a reason, rather than the whole floor dying on a
-    traceback.
     """
     if not isinstance(raw, str):
+        # A list is already an argv the author spelled out; quote it back into one
+        # string so it means the same thing to the shell.
         cmd = list(raw)
-        return cmd, " ".join(shlex.quote(part) for part in cmd), False
-    if any(ch in _SHELL_META for ch in raw):
-        return ["/bin/sh", "-c", raw], raw, True
-    try:
-        return shlex.split(raw), raw, False
-    except ValueError:
-        return [], raw, False
+        spelling = " ".join(shlex.quote(part) for part in cmd)
+        return list(_TEST_SHELL) + [spelling], spelling
+    return list(_TEST_SHELL) + [raw], raw
 
 
 TEST_OUTPUT_TAIL_BYTES = 2000
 
 
 def _redact_output(text):
-    """Redact secret-shaped strings using the CANONICAL families, or drop the text.
+    """Redact the canonical secret families from captured output, or drop the text.
 
     The floor's captured output is written into `receipts/<id>.gate.json`, which the
-    wave finalizer `git add`s -- so it is durable and committed. Test output routinely
-    carries env dumps and tokenised URLs, and nothing else on this path redacts. The
-    patterns are imported from compound-v-memory.py rather than re-spelled here (the
-    repo forbids a second copy). If that import is unavailable, the text is DROPPED:
-    no diagnostic is worth committing an unredacted credential.
+    wave finalizer `git add`s -- so it is durable and committed, and nothing else on
+    this path redacts.
+
+    HONEST SCOPE. `cv_memory.redact` covers the families that engine names: PEM key
+    blocks, `sk-`, `ghp_`/`gho_`/`github_pat_`, `AKIA`, `xox*`. It does NOT cover
+    `password=`, a credentialed URL (`postgres://u:p@host`), a bare JWT, or
+    `AWS_SECRET_ACCESS_KEY=` -- `compound-v-epic-arbiter.py` carries wider patterns
+    for its egress path and this does not reuse them. So this reduces the exposure a
+    committed tail creates; it does not eliminate it, and a floor that prints its
+    environment can still leak. Widening it means widening the canonical families,
+    not spelling a second set here (CONVENTIONS.md: imported, never redefined).
+
+    If the import is unavailable the text is DROPPED rather than stored raw.
     """
     try:
         engine = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -769,7 +779,11 @@ def _impacted_for(contract, paths):
                     "'run' are mandatory) — a half-declared rule selects nothing" % i)
             if mod.matches(path, when):
                 matched = True
-                commands.append(run.replace("{path}", path))
+                # QUOTED: the path comes from `git diff` of the worker's tree, and
+                # every command now goes through a shell, so an unquoted path
+                # containing a space, `;` or `$(` would change what runs. This is
+                # what `referencing_tests` already does with `shlex.quote(rel)`.
+                commands.append(run.replace("{path}", shlex.quote(path)))
         if not matched:
             unmapped.append(path)
     return commands, unmapped
@@ -1267,20 +1281,18 @@ def run_test_floor(worktree, baseline="HEAD", changed_paths=None, test_cmd=None,
                 result["reasons"].append(
                     "tier-1: configured test command is empty (fail-closed)")
                 return result
-            cmd, spelling, via_shell = _test_command_argv(raw)
-            if not cmd:
+            cmd, spelling = _test_command_argv(raw)
+            if not spelling.strip():
                 result["reasons"].append(
                     "tier-1: configured test command is empty (fail-closed)")
                 return result
-            argvs.append((cmd, spelling, via_shell))
+            argvs.append((cmd, spelling))
         failed_cmds = []
-        for cmd, spelling, via_shell in argvs:
+        for cmd, spelling in argvs:
             rc, out = _run_supervised(cmd, worktree, test_timeout_s,
                                       capture_stderr=True)
             check = {"tier": 1, "checker": spelling, "rc": rc,
                      "status": "pass" if rc == 0 else "fail"}
-            if via_shell:
-                check["via"] = "/bin/sh -c"
             tail = _output_tail(out) if rc != 0 else ""
             if tail:
                 check["output_tail"] = tail
@@ -2114,14 +2126,20 @@ def _selftest():
         # Each of these three is a DISCRIMINATOR: under the old shlex.split+argv
         # path it produced the opposite verdict, which is why a floor with a glob
         # or an `&&` chain read as "my tests are failing".
-        expect("plain argv command stays on the argv path",
-               _test_command_argv("npm test") == (["npm", "test"], "npm test", False))
-        _argv, _spell, _viash = _test_command_argv("node --test $(ls t/*.js) && x")
-        expect("shell syntax routes through sh -c",
-               _viash and _argv[:2] == ["/bin/sh", "-c"]
-               and _argv[2] == "node --test $(ls t/*.js) && x")
+        # ONE interpreter, the same `/bin/bash -c` every external worker already
+        # uses — so a manifest string cannot mean one thing on codex and another
+        # here. No heuristic: a plain command goes through the shell too.
+        expect("a plain command goes through the same shell",
+               _test_command_argv("npm test")
+               == (["/bin/bash", "-c", "npm test"], "npm test"))
+        _argv, _spell = _test_command_argv("node --test $(ls t/*.js) && x")
+        expect("shell syntax is handed to the shell verbatim",
+               _argv == ["/bin/bash", "-c", "node --test $(ls t/*.js) && x"])
         expect("the ORIGINAL string is kept as the spelling",
                _spell == "node --test $(ls t/*.js) && x")
+        expect("a LIST command is quoted back into one shell string",
+               _test_command_argv(["a b", "c"])
+               == (["/bin/bash", "-c", "'a b' c"], "'a b' c"))
         # `&&` must actually chain: argv-exec ran only the first command and passed.
         res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
                              test_cmd="sh -c 'exit 0' && sh -c 'exit 1'")
@@ -2554,13 +2572,16 @@ def _selftest():
         expect("B1: later commands still RUN (no short-circuit ⇒ complete failures)",
                os.path.isfile(marker))
         # Recorded VERBATIM, not shlex-joined. B2 rebuilds the next run's
-        # "previously failing" set from these strings, so the test asserts the
-        # property that matters — the recorded spelling re-parses to the argv
-        # that actually ran — rather than a particular rendering of it.
+        # "previously failing" set from these strings, so the property that matters
+        # is that the recorded spelling is RE-RUNNABLE THROUGH THE SAME ROUTER --
+        # `_test_command_argv` hands it to the shell unchanged. (It is no longer
+        # "re-parses to the argv that ran": nothing is shlex-split on the way to
+        # execution any more, which is the point of running one interpreter.)
         expect("B1: the failing command is recorded by name",
                res.get("failures") == ["sh -c 'exit 1'"])
-        expect("B1: the recorded failure is re-runnable, not lossily joined",
-               shlex.split(res.get("failures", [""])[0]) == ["sh", "-c", "exit 1"])
+        expect("B1: the recorded failure re-runs through the same router",
+               _test_command_argv(res.get("failures", [""])[0])[0]
+               == ["/bin/bash", "-c", "sh -c 'exit 1'"])
         res = run_test_floor(r, base, changed_paths=["a.py"],
                              test_commands=["sh -c 'exit 0'", "sh -c 'exit 0'"])
         expect("B1: an all-green resolved set passes the floor",
