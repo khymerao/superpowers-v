@@ -4399,6 +4399,28 @@ def _job_result_from(verdict, job, state_job, tests=None, contract=None,
             # consumer of the boolean got the opposite conclusion.
             pass
 
+    # A CONTRACTED FLOOR THAT RAN NOTHING IS NOT A PASS.
+    #
+    # The rule above closed the RED floor. This closes the EMPTY one, which the
+    # same run showed is the more dangerous half: `_tests_block_from_floor` returns
+    # None when the floor executed no command ("absent is honest" — the schema says
+    # omit the object rather than report a fabricated zero), and `isinstance(...,
+    # dict)` above is then False, so the job keeps `success` with NO test evidence
+    # at all.
+    #
+    # Dogfooded: two sibling worktree jobs, same wave. One installed the project's
+    # dependencies so its floor could run, and was BLOCKED for the install. The
+    # other installed nothing, so its floor could not run at all — and PASSED. A job
+    # that made its floor runnable was refused; a job whose floor never ran was
+    # merged. Absent evidence was being read as absence of objection.
+    #
+    # Narrow on purpose: this fires ONLY when the manifest actually contracted a
+    # floor. A job with no `test_contract` has nothing to run and stays `success`
+    # (the "no floor at all is not a failure" rule is unchanged). `blocked`, not
+    # `error`: the machinery is fine, the job simply has no evidence it may merge on.
+    if status == "success" and tests_block is None and contract:
+        status = "blocked"
+
     # The three REQUIRED fields below are typed `string`/`string`/`integer` in the
     # schema, with the empty string and 0 documented as their own "not applicable"
     # values ("Empty string when the backend has no resumable session"; "empty
@@ -6218,6 +6240,30 @@ def selftest():
                                      "write_allowed": ["docs/x/**"]}, {})
         _check("no floor at all is not a failure",
                _jr_none["status"] == "success")
+
+        # A CONTRACTED floor that ran nothing must NOT pass: `_tests_block_from_floor`
+        # returns None for an empty `checks` list, so before this rule the job kept
+        # `success` with no test evidence at all. Dogfooded: the sibling job that
+        # installed dependencies so its floor could run was BLOCKED for the install,
+        # while this one — whose floor never ran — merged.
+        _jr_empty = _job_result_from(
+            _clean_verdict,
+            {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
+            tests={"phase": "test_floor", "tier_used": 0, "passed": False,
+                   "merge_blocked": True, "checks": [], "reasons": ["nothing ran"]},
+            contract={"floor_command": "npm test"})
+        _check("a CONTRACTED floor that ran nothing is blocked, not success",
+               _jr_empty["status"] == "blocked", str(_jr_empty["status"]))
+        _check("...and it carries no fabricated tests block",
+               _jr_empty.get("tests") in (None, {}) or "tests" not in _jr_empty)
+        # The narrowness is the point: no contract, no obligation.
+        _jr_nocontract = _job_result_from(
+            _clean_verdict,
+            {"id": "j", "backend": "claude", "write_allowed": ["docs/x/**"]}, {},
+            tests={"phase": "test_floor", "tier_used": 0, "passed": False,
+                   "merge_blocked": True, "checks": [], "reasons": ["nothing ran"]})
+        _check("an UNcontracted job with no floor evidence still passes",
+               _jr_nocontract["status"] == "success", str(_jr_nocontract["status"]))
 
         _check("a lane-declaring job with no observable worktree is RECORDED",
                rc_nw == 0 and isinstance(nw_res, dict), str(rc_nw))
