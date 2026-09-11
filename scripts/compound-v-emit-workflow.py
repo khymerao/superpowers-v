@@ -1758,18 +1758,27 @@ def _provision_spec(manifest, job):
     scripts and the register-lane prompt both need a number, and an implicit one
     is how `--test-timeout-sec` came to default to a figure no document named.
     """
+    # MANIFEST-LEVEL ONLY. A job entry carrying these keys is IGNORED, and `job`
+    # stays in the signature because every caller has it and a reader deserves to
+    # see that it is deliberately unused rather than forgotten.
+    #
+    # The first draft read the job entry first. That shipped per-job provisioning,
+    # which the 3.6.0 spec names under Out of scope, and it shipped it UNVALIDATED:
+    # `_validate_provision` reads the manifest only, and the validator rejects no
+    # unknown job key, so the single-line check that exists at top level never ran
+    # on a job-level value. A multi-line string on a job entry would have passed
+    # validation clean and reached `/bin/bash -c` inside the worktree — the exact
+    # value the top-level check exists to refuse, with a selftest row naming it.
+    # Found by the Review Gate, not by a test: no gate compares code with a spec's
+    # Out of scope list.
     command = None
-    for source in (job or {}, manifest or {}):
-        raw = source.get("provision_command") if isinstance(source, dict) else None
-        if isinstance(raw, str) and raw.strip():
-            command = raw.strip()
-            break
+    raw = (manifest or {}).get("provision_command") if isinstance(manifest, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        command = raw.strip()
     timeout = PROVISION_TIMEOUT_DEFAULT
-    for source in (job or {}, manifest or {}):
-        raw = source.get("provision_timeout_s") if isinstance(source, dict) else None
-        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
-            timeout = raw
-            break
+    raw = (manifest or {}).get("provision_timeout_s") if isinstance(manifest, dict) else None
+    if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+        timeout = raw
     return command, timeout
 
 
@@ -9704,6 +9713,22 @@ def selftest():
             _check("A/B: ...and a job with nothing to provision is told nothing "
                    "about a timeout it does not need",
                    "timeout: 180000" not in _pg_plain)
+            # PER-JOB PROVISIONING IS NOT A FEATURE. The 3.6.0 spec names it
+            # under Out of scope, and the first draft shipped it anyway by
+            # reading the job entry FIRST -- unvalidated, because
+            # `_validate_provision` reads the manifest only and the validator
+            # rejects no unknown job key. A multi-line value on a job entry would
+            # then have reached `/bin/bash -c` without the single-line check the
+            # top-level key gets. Reverting this assertion re-opens that path.
+            _pj_cmd, _pj_timeout = _provision_spec(
+                {"run_id": "r", "jobs": []},
+                {"id": "impl", "isolation": "worktree",
+                 "provision_command": "npm ci\nrm -rf /",
+                 "provision_timeout_s": 1800})
+            _check("a provision_command on a JOB ENTRY is ignored, not executed",
+                   _pj_cmd is None, str(_pj_cmd))
+            _check("...and its timeout is ignored too, so the pair cannot half-apply",
+                   _pj_timeout == PROVISION_TIMEOUT_DEFAULT, str(_pj_timeout))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

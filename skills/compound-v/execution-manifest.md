@@ -181,9 +181,9 @@ same way; see [`backend-launcher/SKILL.md`](../backend-launcher/SKILL.md).
 
 **`provision_timeout_s` defaults to 600 seconds** and the validator accepts `1..1800` (an integer, and
 a bool is not one). `provision_command` must be a non-empty, single-line string. Both keys are
-**optional**: every manifest committed before v3.6 has neither, and absence is valid. A job entry may
-carry its own pair, which the emitter prefers over the manifest-level one; the validator checks the
-top-level pair.
+**optional**: every manifest committed before v3.6 has neither, and absence is valid. Both are
+**manifest-level only** — a job entry carrying either key is ignored, because a job-level value would
+reach `/bin/bash -c` without passing the single-line check the top-level key gets.
 
 **Two rules the author owns, because no gate can enforce them.**
 
@@ -205,6 +205,27 @@ needs, not a reason for the pipeline to refuse to start.
 This is the **only** way provisioning is subtracted. Nothing is forgiven by extension and nothing by
 name: a job with no `provision_command` that installs its own `node_modules/` is BLOCKED, exactly as
 before.
+
+**The form to write, per ecosystem.** Rule 2 is the whole safety property, and every ecosystem spells
+it differently. The obvious command is usually the wrong one: it reconciles a drifted lockfile by
+**rewriting** it, and a lockfile is a tracked file, so the before-image cannot subtract it and the job
+is BLOCKED for a write it did not mean to make.
+
+| Ecosystem | Write this | The trap in the obvious alternative |
+|---|---|---|
+| npm | `npm ci` | `npm install` rewrites the lockfile when it has drifted; `npm ci` errors instead. |
+| pnpm | `pnpm install --frozen-lockfile` | pnpm freezes implicitly only when `CI` is set, and a provisioning shell is not CI, so a bare `pnpm install` can rewrite `pnpm-lock.yaml`. |
+| Yarn Berry (v2+) | `yarn install --immutable` | `--frozen-lockfile` is deprecated in Berry, so a line copied from a Yarn 1 project enforces nothing. Berry also freezes implicitly only under `CI`. |
+| Yarn Classic (v1) | `yarn install --frozen-lockfile` | The Berry spelling fails outright on v1. |
+| Python (uv) | `uv sync --frozen` | `uv sync` without `--frozen` re-locks and rewrites the tracked `uv.lock`. |
+| Python (pip) | `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` | Installing without a venv contaminates the host interpreter; `pip freeze > requirements.txt` rewrites a tracked file. |
+| Rust | `cargo fetch --locked` | Plain `cargo build` updates `Cargo.lock` when `Cargo.toml` has drifted. |
+| Go | `go mod download` | `go mod tidy` rewrites `go.mod` and `go.sum`. Whether `go mod download` can itself add a `go.sum` entry is **unverified** and has shifted across Go versions, so check the two files are unchanged after your first run. |
+| Ruby | `BUNDLE_FROZEN=true bundle install` | Plain `bundle install` rewrites `Gemfile.lock`. The near miss `bundle config set --local frozen true` writes `.bundle/config`, which is itself sometimes tracked — set the environment variable instead. |
+
+Two npm properties worth knowing, because they generalise. `npm ci` **requires** a lockfile and errors
+without one, so a package in a subdirectory needs `cd sub && npm ci` — `/bin/bash -c` supports it. And
+it removes an existing `node_modules/` before installing, which is what makes it idempotent.
 
 ---
 

@@ -6,6 +6,153 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-09-11
+
+### Fixed — six machinery defects a downstream user found, built as the widest dispatch this repository has run
+
+@khymerao dispatched one seven-job feature through Compound V on a real project, thirteen times over
+three days, and filed what broke. **None of it was in the code under test.** The scope gate, the
+integration authority and the Review Gate were right every time they spoke. Every halt came from the
+machinery around them. Issue #19 is that report; this release closes it.
+
+**A. and B. A fresh worktree had no dependencies, and no job was allowed to install them.**
+A `worktree` job gets a clean checkout, so `node_modules/` is absent and a floor that needs it cannot
+run. Installing is a write; writes must be declared; and no two jobs may declare the same path — so at
+most one job in a manifest could legally provision, and every other worktree job was left with a floor
+it could not run. The exemption list is closed by design and stays closed.
+
+The manifest now carries an optional `provision_command` (with `provision_timeout_s`, default 600),
+and the worktree's before-image is taken **after** it runs. That is the subtraction direct mode has
+always had — *files this job never created are not attributed to it* — applied where it was missing.
+No exemption class was added, the partition rule is untouched, and a job with no `provision_command`
+that installs its own `node_modules/` is still BLOCKED, exactly as before. The four external worker
+scripts take the same two flags.
+
+Two things the pre-flight audits caught that the first draft had wrong. `register-lane` runs as an
+ordinary agent `Bash` call, and its emitted prompt set no timeout — so the harness default of 120 s
+would have killed an `npm ci` long before `provision_timeout_s`, resurfacing the very violations this
+feature removes; the prompt now carries an explicit timeout derived from the declared value. And
+because a lockfile is a **tracked** file, a provision command that rewrites one produces a change the
+before-image cannot subtract: `execution-manifest.md` now names the frozen-install form for nine
+ecosystems, with the trap in each obvious alternative spelled out, because "npm ci, not npm install"
+does not generalise by itself.
+
+**C. The wave finalizer could not commit into a repository that gitignores `docs/`.** A common
+arrangement, and the wave halted *after* the work had merged. Run-directory artefacts are now
+force-added. The first draft of this fix aimed at `_stage_paths`; the archaeology pre-flight found
+the production failure in a separate, unguarded `git add -A` inside the finalizer that never calls
+`_stage_paths` at all — so the draft would have passed its own test and left the reported bug alive.
+
+**D. A job whose receipt said `pass` was recorded `error`, with an asserted cause the code cannot
+establish.** The comparison establishes only that two values differ. It cannot establish which one
+changed, because neither side's provenance is recorded — yet the message named a cause, and sent the
+reader hunting for a second writer. Record now states what is known: both values, verbatim,
+disagreeing, in a `verdict_disagreement` field on the ack and on `state.json`, and claims no cause.
+The receipt wins, because it is the deterministic script's own output and the transport agent's echo
+has no corroboration. The `diff_digest` comparison stays an `error` and is now checked **first**, so
+a receipt that mismatches both surfaces the forgery signal rather than the benign one.
+
+**E. `lane-guard-unresolved.jsonl` filed records under the wrong run, and its wording hid the one
+cause that was always true.** Every record said the write was not lane-checked and offered three
+causes, none of which was what happened: the guard fires on `register-lane` itself, the very call
+that creates the mapping it would need. The bootstrap call is now recognised and recorded nowhere; any
+other unresolved call is filed under one run, with `candidate_runs` naming every live lane map so the
+ambiguity is visible rather than guessed. The recogniser keys on the command text, which is a weaker
+subject than a process identity, and says so where it is implemented.
+
+**This one reproduced on our own run while we were fixing it.** The ten-job dispatch that built this
+release collected **eleven records, one per worktree, every one `tool: Bash`, each at its job's
+start** — exactly the signature the report described. Every subsequent write resolved.
+
+**F. The documented agent-memory lane was not where memory resolves.** Four documents told an author
+to declare `.claude/agent-memory/spec-reviewer/**`. A project that has run these agents actually has
+`.claude/agent-memory/superpowers-v-spec-reviewer/` — the harness names the directory after the
+agent's **full** name, and a plugin agent's full name carries the plugin. So a reviewer that saved a
+learning wrote outside its declared lane and was blocked for it, on every use. Every author-facing
+document now names the namespaced form, and the validator raises `MEMORY_LANE_UNNAMESPACED` on the
+bare one. This is field evidence from one downstream project, stated as such: the official
+sub-agents documentation names only `<agent>`.
+
+### Added — a stronger model judges at the decision points, natively
+
+Claude Code has an **advisor tool**: a second, stronger model the running model consults mid-task,
+server-side, with the full transcript. It is exactly this project's model policy — Opus judges,
+Sonnet executes — implemented by the harness instead of by our prose.
+
+`/v:init` now offers `advisorModel` in the project's settings file, and this repository advises with
+**Fable 5.1**. Subagents inherit it and pair by their own model, so a Sonnet-executed junior slice and
+an Opus reviewer both get the same senior second look. Agent frontmatter still never names Fable; the
+advisor is how Fable reaches routine work. `implementer` and `spec-reviewer` carry consultation
+points: before committing to an approach, when an error recurs, before reporting done. Advice is
+evidence, re-verified against the tree — advice that contradicts a lane or the scope gate is refused
+and reported.
+
+Live-probed on 2.1.263 before any of it was written: a `server_tool_use` block named `advisor` and an
+`advisor_tool_result` in the main transcript, the same two blocks in a spawned subagent's own
+transcript, and a Fable main model refusing an Opus advisor because an advisor must be at least as
+capable as the model it advises.
+
+**A second opinion for projects that have no Codex.** The complaint was concrete: a user with only
+Claude Code got no independent review of a spec or a diff at all. The ladder is now explicit — Codex
+when it is installed, else an advisor-assisted look by a read-only Opus reviewer over the same bytes,
+else a skip with a notice. Rung two is an honest downgrade and is labelled as one everywhere it is
+rendered, including a machine-readable `cross_model: false` on the receipt, because a Claude review of
+Claude's code shares its blind spots. A project that can install Codex should.
+
+### Added — `/skill-doctor` in `/v:init`, and what it cannot tell you
+
+Claude Code reports which loaded skills go unused and what they cost in context. `/v:init` now runs
+it, prints the rows belonging to this plugin and the total, and **changes nothing** — it never
+disables a skill and never writes. It also states the three limits, because the numbers are easy to
+misread: the data is one machine's session history rather than a property of the repository; a phase
+that fires through a hook or a description trigger is not a skill invocation, so a `0×` next to
+`/v:dispatch` does not mean unused; and the report is unavailable over Remote Control and with
+feature-flag fetching turned off.
+
+### Fixed — three defects this release found in itself
+
+- **Record crashed instead of recording a gate failure.** `cmd_record` read an unbound name in the one
+  branch that re-derives isolation — reachable only when the gate produced no receipt at all and the
+  job is a dependent worktree job. Latent since the receipt began carrying the mode; every earlier run
+  had a receipt. The ten-job run reached it: a documentation implementer hit its 80-turn cap three
+  times, the gate failed closed with no mode, and Record crashed rather than writing the evidence that
+  says so. The wave halted with nothing merged, which was correct; the job was left unrecorded, which
+  was not.
+- **The transcript watcher called another run's writes out-of-lane.** It resolves the acting job
+  against the manifest it was given, and rendered "no lane found here" as "outside its lane" — so a
+  watch left pointed at a halted run reported the follow-up run's job editing files squarely inside
+  its own declared lane. Same failure mode as E: a signal that fires when nothing is wrong teaches the
+  reader to ignore the one that matters.
+- **Per-job provisioning shipped although the spec put it out of scope.** The Review Gate caught it,
+  and nothing else could have: no gate compares code against a spec's out-of-scope list. It was also
+  unvalidated — the single-line check the top-level key gets never ran on a job-level value, so a
+  multi-line string would have passed validation and reached `/bin/bash -c`. The job-level read is
+  gone.
+
+### The claim this release retires, and the one it does not make
+
+Since 3.0.2 this CHANGELOG has said Engine C "has still not run a real 18-job dispatch," and that
+sentence was being read as a description of the present. It was not: Engine C has run every dogfood
+build of this repository since 3.0.3 — more than eighty recorded runs, multi-wave with `depends_on`
+(3.0.4), a Codex job (3.4.3). What was genuinely outstanding was a **wide** run; the widest on record
+held five jobs.
+
+This release was built as one: **ten jobs, six of them concurrent in the first wave**, then a
+follow-up run of four after the documentation wave halted. Twelve job results, zero scope violations,
+every floor green. The historical sentences now carry dated corrections rather than being rewritten.
+
+**No speed or cost claim ships with it, and none was measured.** One honest gap, recorded rather than
+papered over: `usage.advisor_calls` is implemented and unit-tested, but no emitted workflow calls the
+extractor, so **no job in either run was measured** and the release cannot show a real `adv=N`. That
+gap predates 3.6.0.
+
+### Contributed
+
+@khymerao — issues #12 and #19, and pull requests #11, #13 and #14. The reproductions were exact, and
+the corrections posted against their own report — five claims withdrawn after re-checking them
+against the run records — are the standard this repository tries to hold.
+
+
 ## [3.5.1] - 2026-09-04
 
 ### Fixed — contributed
