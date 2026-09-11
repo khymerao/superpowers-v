@@ -102,9 +102,12 @@ delegating, the epic inherits Engine C along with everything else.
    > step 8 re-runs the gate run-wide afterwards. The first is what makes a dependent's worktree see
    > its prerequisite; the second is the run-level authority and is cheap. Neither replaces the other.
    >
-   > **Still true, and the reason 3.0.1 existed:** Engine C has now been exercised by 143 selftest
-   > checks and 50 contract assertions, but **not by a real 18-job dispatch**. Treat the first live
-   > run as a first live run.
+   > **The reason 3.0.1 existed, kept as history:** Engine C shipped as the default before it had
+   > run end to end. Since 3.0.3 it has run every dogfood build of this repo — more than eighty
+   > recorded runs under `docs/superpowers/execution/`, multi-wave with `depends_on`, a Codex job on
+   > Engine C (3.4.3), a downstream seven-job feature (issue #19). What was still outstanding on
+   > 2026-09-11 was a *wide* run: the widest recorded held five jobs. The 3.6.0 entry in the
+   > CHANGELOG records the first wide one.
 
 
 
