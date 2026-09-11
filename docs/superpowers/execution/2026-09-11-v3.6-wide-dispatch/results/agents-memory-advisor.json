@@ -1,0 +1,33 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "agents/code-archaeologist.md",
+    "agents/doc-validator.md",
+    "agents/domain-expert.md",
+    "agents/implementer.md",
+    "agents/spec-reviewer.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+    "diff_digest": "sha256:ff53fa7bea1f2ca249690adef95af1d58402411b437a534b09e2fd39330ddde9",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a855145b21864d460f70cd42153cd7d1b5bc8e5e\",\n  \"changed\": [\n    \"agents/code-archaeologist.md\",\n    \"agents/doc-validator.md\",\n    \"agents/domain-expert.md\",\n    \"agents/implementer.md\",\n    \"agents/spec-reviewer.md\"\n  ],\n  \"allowed\": [\n    \"agents/spec-reviewer.md\",\n    \"agents/code-archaeologist.md\",\n    \"agents/domain-expert.md\",\n    \"agents/doc-validator.md\",\n    \"agents/implementer.md\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-AGENTS \u2014 namespaced memory path in four agents; advisor consultation points (#19 F, F7)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo agents-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-23"
+}

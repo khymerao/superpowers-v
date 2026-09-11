@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+  "diff_digest": "sha256:e763ca4b23c58f380cc01ffbb16a19d237b120a425c8821bcdcb5af00302ef35",
+  "exit_code": 0,
+  "job_id": "emitter-19",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/emitter-19.patch",
+  "patch_paths": [
+    "scripts/compound-v-emit-workflow.py"
+  ],
+  "patch_sha256": "sha256:e763ca4b23c58f380cc01ffbb16a19d237b120a425c8821bcdcb5af00302ef35",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a855145b21864d460f70cd42153cd7d1b5bc8e5e\",\n  \"changed\": [\n    \"scripts/compound-v-emit-workflow.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-emit-workflow.py\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "scripts/compound-v-emit-workflow.py"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emitter-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 1 command(s) from 1 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-27"
+}

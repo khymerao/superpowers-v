@@ -101,6 +101,58 @@
         "integrated": true,
         "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
       }
+    },
+    "agents-memory-advisor": {
+      "baseline": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-23",
+      "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+      "status": "done",
+      "merged": {
+        "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "58087b52f9f2925a84eea0e6161d35dac8bfe8a0"
+      }
+    },
+    "emitter-19": {
+      "baseline": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+      "isolation": "worktree",
+      "recall_check": {
+        "evidence": [
+          {
+            "file": "scripts/compound-v-emit-workflow.py",
+            "run": "2026-09-03-v3.4.6-triage-test-scoping-fixes-r5/results/emitter.json",
+            "status": "error"
+          },
+          {
+            "file": "scripts/compound-v-emit-workflow.py",
+            "run": "2026-09-02-df27-full-pass/results/spec-review.json",
+            "status": "blocked"
+          }
+        ],
+        "k": 2,
+        "match_count": 2,
+        "recall_check_ms": 94,
+        "verdict": "tighten"
+      },
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-27",
+      "retries": [
+        {
+          "stage": "implement",
+          "job": "emitter-19",
+          "attempt": 1,
+          "wait_ms": 2000
+        }
+      ],
+      "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+      "status": "done",
+      "merged": {
+        "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "58087b52f9f2925a84eea0e6161d35dac8bfe8a0"
+      }
     }
   },
   "updated_at": "2026-09-11T17:45:00Z",
@@ -123,6 +175,18 @@
         "usage-advisor-calls"
       ],
       "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "agents-memory-advisor",
+        "emitter-19"
+      ],
+      "merged": [
+        "agents-memory-advisor",
+        "emitter-19"
+      ],
+      "commit": "58087b52f9f2925a84eea0e6161d35dac8bfe8a0",
       "integrated": true
     }
   }

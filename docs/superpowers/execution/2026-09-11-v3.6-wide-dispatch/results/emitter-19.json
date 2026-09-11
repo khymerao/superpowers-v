@@ -1,0 +1,37 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-emit-workflow.py"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+    "diff_digest": "sha256:e763ca4b23c58f380cc01ffbb16a19d237b120a425c8821bcdcb5af00302ef35",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a855145b21864d460f70cd42153cd7d1b5bc8e5e\",\n  \"changed\": [\n    \"scripts/compound-v-emit-workflow.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-emit-workflow.py\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "a855145b21864d460f70cd42153cd7d1b5bc8e5e",
+    "verdict": "pass"
+  },
+  "retries": [
+    {
+      "attempt": 1,
+      "job": "emitter-19",
+      "stage": "implement",
+      "wait_ms": 2000
+    }
+  ],
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task E \u2014 the emitter half of #19: finalizer force-adds run-directory paths (C), Record states a verdict disagreement (D), worktree provisioning in register-lane and gate-receipt plus the external launch argv (A/B)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emitter-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-27"
+}
