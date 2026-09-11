@@ -198,6 +198,40 @@ Never Haiku, anywhere. Adding a name to that list is a deliberate act with a rea
 attached — the rule was absolute so that it could not drift, and the allow-list keeps that
 property.
 
+### The advisor — a senior second look inside every job (3.6.0)
+
+**The advisor is Fable 5.1 where the account has Fable access, and Opus where it does not.** It is set
+project-wide as `advisorModel` in the project's own `.claude/settings.json` — a native Claude Code
+setting, not a Compound V key and not `.claude/compound-v.json`. This repository sets
+`"advisorModel": "fable"`.
+
+Every subagent inherits that setting and pairs it against **its own** model, so a Sonnet-executed
+junior slice and an Opus reviewer both get the same senior second look at their decision points:
+before committing to an approach, when stuck, before reporting done or a verdict.
+
+**This is the sanctioned way Fable reaches routine work, and it complements the override above rather
+than replacing it.** Business-critical work still reaches Fable at dispatch time, by the caller's
+per-invocation `model` override. Routine work reaches it as the advisor. Agent frontmatter still never
+names Fable, and `scripts/lint-frontmatter.py` still enforces that.
+
+**The Sonnet carve-out is unchanged by this release.** A senior advisor attached to a junior seat is
+not a reason to widen which job types run on Sonnet; widening it is a later, measured decision.
+
+**The pairing rule constrains the choice.** An advisor must be at least as capable as the session's
+main model, so a Fable 5.1 main accepts only Fable 5.1 — "set `advisorModel` to fable" and "the main
+model is Fable" are not independent choices. [`/v:init`](../../commands/v-init.md) Step 4e offers the
+setting, and carries the cost and the two off switches (`DISABLE_TELEMETRY`,
+`CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`) rather than repeating them here.
+
+**Advice is evidence, never authority.** It is re-verified against the tree before it becomes a
+decision, and advice that contradicts the job's lane or the scope gate is refused and reported. What
+an advisor says never reroutes anything: routing stays the deterministic order below.
+
+The pipeline records the **count**, not the advice — `usage.advisor_calls` per job, measured from the
+transcript and never estimated. `scripts/compound-v-preeval.py` reads a completed run's count as one
+sensor among several (`advisor_hot`): repeated consults are evidence a job outran its tier, and like
+every other pre-eval sensor it can only **escalate** — absence never lowers anything.
+
 ### Effort, and where it is honestly available
 
 Effort is tunable **on Engine C jobs** (`opts.effort`, from the manifest's `effort` field,

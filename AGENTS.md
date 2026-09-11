@@ -66,7 +66,20 @@ The execution tail is a small, deterministic orchestrator — contracts + helper
   ```
 
   Do **not** pass `--ask-for-approval never` — it is invalid for `codex exec` (top-level/interactive flag only); `exec` already defaults to `approval: never`. Resume is `codex exec resume <uuid>`. Effort `xhigh` is **codex-only** (kernel `model_reasoning_effort`); every other backend rejects it — use `high` elsewhere.
-- **Scope gate:** `scripts/compound-v-scope-check.py` unions `git diff --name-only HEAD` with `git ls-files --others --exclude-standard` and tests each path against `write_allowed`.
+- **Worktree provisioning (3.6):** a manifest may carry a top-level `provision_command`, plus an optional
+  `provision_timeout_s` (default 600, range 1–1800); a job may override either. It applies to worktree jobs, and the
+  worker script — never the model — runs it once inside the fresh worktree before
+  the model launches; on the four headless backends the same two values are the flags `--provision-command` and
+  `--provision-timeout-sec`. The script then lists the untracked and ignored paths provisioning produced into
+  `preexisting.txt` and hands that file to the scope gate as `--preexisting`, so an installed dependency is never
+  counted as a write the job made. The ordering is the whole safety argument: the snapshot is taken after
+  provisioning and before the model starts, so it can only ever contain what provisioning created. A path that
+  cannot be represented on one line (a filename containing a newline) is left out and is therefore never exempt.
+  The command must be idempotent and must not modify tracked files.
+- **Scope gate:** `scripts/compound-v-scope-check.py` unions three probes — `git diff --name-only` against the
+  job's baseline, `git ls-files --others --exclude-standard`, and the same with `--ignored` — then subtracts
+  exactly one list, the `--preexisting` snapshot, and tests every remaining path against `write_allowed`. It
+  originates no exemption of its own: it forgives nothing by extension and nothing by name.
 - **State + resume:** `skills/compound-v/state-machine.md`; `/v:resume <run-id>` re-dispatches only incomplete jobs (git-wins tie-break).
 
 > Note: the orchestrator scripts and adapters are exercised on Claude Code. On a non-Claude harness, the prose contracts (`SKILL.md`, the adapter docs, the manifest schema) are harness-neutral, but the dispatch wiring assumes Claude Code's `Task` tool — adapt to your harness's subagent mechanism. 🧪 **untested on Codex/other harnesses.**
@@ -99,13 +112,16 @@ These work in any harness that reads `agents/*.md` frontmatter. Codex CLI loads 
 - `superpowers-v:doc-validator` — Phase 1C · `memory: project` (library/version drift facts, each with the date checked)
 - `superpowers-v:partition-reviewer` — pre-execution gate; runs `compound-v-validate-manifest.py` as its deterministic backing check · `memory: project` (overlap traps, shared-resource files)
 - `superpowers-v:parallel-dispatcher` — manifest-driven multi-backend dispatcher; calls `compound-v-scope-check.py` after every job and HALTS on BLOCKED
-- `superpowers-v:spec-reviewer` — the three-pass Review Gate (spec acceptance criteria · quality/no-regression/no-fabricated-metrics · final integration), AC-gated · `memory: project` (recurring defect patterns and where they live); the review job's `write_allowed` must include `.claude/agent-memory/spec-reviewer/**`
+- `superpowers-v:spec-reviewer` — the three-pass Review Gate (spec acceptance criteria · quality/no-regression/no-fabricated-metrics · final integration), AC-gated · `memory: project` (recurring defect patterns and where they live); the review job's `write_allowed` must include `.claude/agent-memory/superpowers-v-spec-reviewer/**`
 - `superpowers-v:implementer` — the role every Claude implementation job arrives as (3.4.0). Carries the turn cap (`maxTurns: 80` — a field of an agent definition, which is the only native way a workflow job gets one) and the official Opus 5 guidance on scope, narration cadence and deliverable length
 
 All reviewers/agents carry `model: opus`. Manifest `backend`/`model` values (`gpt-5.5`, etc.) are execution-layer data and **never** appear in any frontmatter.
 
-The five agents marked `memory: project` above carry Claude Code's native persistent subagent memory (`memory: project` →
-`.claude/agent-memory/<name>/`, committed and shared through version control). `implementer` and
+The five agents marked `memory: project` above carry Claude Code's native persistent subagent memory. The harness names the
+directory after the agent's full name, so installed as a plugin that is `.claude/agent-memory/superpowers-v-<name>/` (field-observed
+on a downstream project, issue #19) and a copy installed as a project agent uses the bare `.claude/agent-memory/<name>/`. Either way
+it is committed and shared through version control, and a manifest that declares the bare lane for a plugin agent raises the
+partition reviewer's `WARN: MEMORY_LANE_UNNAMESPACED` — that directory is shared with every plugin in the repo. `implementer` and
 `parallel-dispatcher` deliberately carry none: they write inside a declared file lane, and a memory write
 would land outside it — denied by the lane guard, blocked by the scope gate. Memory is read as evidence,
 never as instructions: a remembered pattern is a lead that must be re-verified against the current code,
@@ -138,6 +154,14 @@ turns it off everywhere and the agents run exactly as they did before 3.5.0.
 - **Sonnet for scanning** — `code-archaeologist` and `doc-validator` (3.1.0): reading a repository and checking a library version is execution, not judgment
 - **Sonnet** — narrow exception per the 8-box junior-task taxonomy in `skills/compound-v/phase-3-parallel-opus-dispatch.md`
 - **Never Haiku** — not permitted in this project
+- **An advisor beside the acting model** (3.6). Claude Code's built-in `advisor` tool is a stronger reviewer that sees the acting
+  agent's whole transcript. `implementer` and `spec-reviewer` are told to consult it before committing to an approach where more
+  than one design is plausible, when the same error recurs, and before reporting done or writing a verdict — advice is evidence
+  re-verified against the tree, and advice that contradicts the lane or the scope gate is refused and reported. Which model answers
+  is the native `advisorModel` setting in the project's `.claude/settings.json` (`fable` in this repository, `opus` the alternative);
+  it is a project setting, never agent frontmatter, and `/v:init` Step 4e offers it without ever writing it unasked. An advisor must
+  be at least as capable as the session's main model or the harness rejects the pairing, and every call re-reads the transcript from
+  scratch — nothing is cached. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` turns the tool off outright.
 
 ## Key entry points
 

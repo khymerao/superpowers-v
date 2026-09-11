@@ -214,3 +214,39 @@ scripts/compound-v-run-codex-worker.sh \
   disposition, so a red suite is never fed to the retry/reroute policy that cannot fix it.
 - Because tests run after the gate, anything they create in the worktree is **outside the gate's
   authority**: merge-back stages by the gate's `files_changed`, never a bare `git add -A`.
+
+---
+
+## Provisioning — `--provision-command` / `--provision-timeout-sec` (v3.6)
+
+Read [`SKILL.md`](SKILL.md) §Provisioning first: the contract and its ordering guarantee apply
+identically across all four external workers. This is the codex-specific invocation.
+
+```bash
+scripts/compound-v-run-codex-worker.sh \
+  … \
+  --provision-command "npm ci" \
+  --provision-timeout-sec 600          # optional, default 600
+```
+
+- The command runs **after** `git -C "$REPO" worktree add "$WT" HEAD` and **before** codex is
+  launched, through `/bin/bash -c "$PROVISION_COMMAND"` under the shared process-group supervisor
+  ([`scripts/compound-v-run-with-timeout.py`](../../scripts/compound-v-run-with-timeout.py)),
+  `--cwd "$WT"`, stdin `</dev/null`, stdout/stderr captured to `$ART/provision.out` /
+  `$ART/provision.err` (outside the worktree, so nothing it prints lands in `git diff`).
+- On success the worker snapshots the worktree's untracked+ignored paths to
+  `$ART/preexisting.txt` and passes it to the scope gate as `--preexisting` — this is the **only**
+  place provisioning's writes are exempted from `write_allowed`; anything the model writes into
+  those same paths afterwards is still measured and still blocks. This snapshot happens strictly
+  before `codex exec` is invoked.
+- **`--provision-timeout-sec` must be a positive integer** (the same validation as
+  `--timeout-sec`) — an empty, non-numeric, or zero value is a usage fault (`die`, exit ≠ 0,
+  no `job_result`), never a silent default. **Default: 600 seconds.**
+- **A non-zero provision exit code launches no `codex exec` at all.** The worker emits
+  `status: "error"`, `failure_class: "other"`, and a summary of
+  `provision failed (rc=<code>): <command>` (rc `124` is the provision timeout firing), then exits
+  `0` — this is a reported job outcome, not a script crash, so the caller's retry/reroute policy
+  sees a real `failure_class` rather than a bare non-zero exit. No `codex exec` process, no
+  `--json` event stream, no `session_id`.
+- `--provision-command` is optional. Omit it and this worker's behaviour is unchanged from
+  before v3.6 — no provisioning step, no `--preexisting` snapshot, no new timing.

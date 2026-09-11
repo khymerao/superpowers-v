@@ -98,6 +98,40 @@ Never tell the implementer to "just peek" — that defeats the partition contrac
 
 Never "just let it through." A BLOCKED job never merges by design.
 
+## A worktree job came back BLOCKED and every violation is under `node_modules/` (or `.venv/`, `vendor/`, a build cache)
+
+**Symptom:** a job that has to install something before it can build or test returns `"status": "blocked"` with hundreds of `violations`,
+all of them inside a dependency or build directory the model never meant to author.
+
+**Cause:** the model ran the install itself. The scope gate unions the worktree's untracked *and* ignored files into the changed set, so
+everything an install created reads as a write this job made — and none of it is in `write_allowed`.
+
+**Fix:** declare the install in the manifest instead, so the worker script runs it before the model ever starts:
+
+```yaml
+# top level of manifest.yaml — one dependency install for the whole run
+provision_command: "npm ci"
+provision_timeout_s: 600        # optional; defaults to 600, range 1-1800
+```
+
+A single job may override either key by declaring it on the job itself; the emitter reads the job's value first and falls back to the
+manifest's. Only worktree jobs provision — a `direct` job runs in the checkout, which already has its dependencies.
+
+The worker script — never the model — runs that command once inside the fresh worktree, then lists exactly what it created into
+`preexisting.txt` and hands that file to the gate as `--preexisting`. That subtraction is the *only* one the gate performs, and what makes
+it safe is when the snapshot is taken: after provisioning and before the model launches, so it can only ever contain what provisioning made.
+On the four headless backends the same two flags exist on the command line as `--provision-command` and `--provision-timeout-sec`.
+
+Two consequences worth knowing before you use it:
+
+- The command must be **idempotent and must not modify tracked files**. A tracked file it edits is still a violation — the snapshot only
+  ever forgives untracked and ignored paths.
+- A path whose filename contains a newline cannot be written to that line-oriented file, so it is **left out and stays a violation** —
+  fail closed, the same rule the gate applies to a file it could not read.
+
+Do not "fix" this by widening `write_allowed` to `node_modules/**`. That hands the job a lane it can write anything into for the rest of
+the run, and the gate will agree with it.
+
 ## `validate-manifest.py` rejects the manifest before dispatch
 
 **Symptom:** `partition-reviewer` fails (or `/v:dispatch` halts) with a manifest-invariant violation — e.g. overlapping `write_allowed`, a Codex job without `isolation: worktree`, or a reviewer not on Opus.
@@ -169,6 +203,36 @@ At runtime the same fail-closed posture applies to individual commands: *"no cla
 
 **Related:** if a job reads `forged` with a duplicate-receipt reason, look for a stray `results/<id>.<something>.json`. D1 requires **exactly one** receipt per job, so any dotted sibling of the primary is read as a rival receipt. Superseded attempts belong in `results/attempts/`.
 
+## Record reports a `verdict_disagreement`
+
+**Symptom:** a job's ack and its `state.json` entry carry a `verdict_disagreement` object — `field`, `receipt`, `workflow`, `receipt_path` —
+and, when `field` is `verdict`, the job's `summary` ends with:
+
+```text
+gate verdict disagreement: receipt <path> says <x>, the workflow held <y>; this comparison establishes no cause
+```
+
+**Cause:** two readings of the same gate differed, and Record says so instead of asserting why.
+
+- `receipt` is the value in the gate receipt on disk — the artefact the gate itself wrote, and the one the integration authority
+  re-derives against.
+- `workflow` is the value the workflow carried in `--expect-verdict` — a value that travelled through an agent's transport.
+
+**Neither of the two is a proven cause of the other.** A rewritten receipt, a mis-read field and a stale transport all look identical from
+where this comparison stands; before 3.6 the message named a cause the code had never established, and that sentence is gone.
+
+**Fix:** decide from the receipt, not from the summary.
+
+1. `field: verdict` — the **receipt's** verdict is what got recorded, deliberately. Open `receipt_path`, check it against the job's
+   `results/<id>.json` and the scope-gate outcome, and treat the workflow's value as the suspect reading.
+2. `field: diff_digest` — this is **not** a soft disagreement. The job is recorded as an `error` and the receipt's verdict is **not**
+   adopted, because the digest is what binds a receipt to the tree the gate measured. A missing digest counts as disagreement too, not as
+   agreement. Re-run the tail for that job (`/v:collect <run-id>`) so a fresh receipt is written against the tree as it is now.
+3. Never edit a receipt to make the two agree. That removes the signal and leaves the forgery check with nothing to catch.
+
+Two things the field is **not**: it is not a scope-gate verdict (that lives in the job result's `violations`), and `/v:status` does not
+render it — read it from `state.json` or the ack.
+
 ## A job with `depends_on` runs in the shared checkout instead of its own worktree
 
 **Symptom:** a dependent job (one with `depends_on` and `isolation: worktree` in the manifest) shows `agent_isolation: null` in its job spec inside `docs/superpowers/execution/<run>/dispatch.workflow.js` (never in `state.json`, which keeps the manifest's `isolation: worktree`) and its agent edited the main checkout directly, alongside whatever else that wave is running — not an isolated worktree.
@@ -188,6 +252,37 @@ At runtime the same fail-closed posture applies to individual commands: *"no cla
 **Fix:** dispatch through Engine C, which writes `lane-map.json` — each implementer registers its real worktree as its first command. Confirm the file exists and maps that worktree to the job. Check the guard's log (`$TMPDIR/compound-v-lane-guard.log`, or `$CV_LANE_GUARD_LOG`); it records every allow-because-unresolved.
 
 Two honest limits: on Claude Code 2.1.238 an agent is **not told its own `agent_id`**, so the `agents` map is normally empty and resolution runs on the `worktrees` map — which is the fallback the 1D probe proved works. And the guard is **defence in depth, never the authority**: shell writes have unbounded evasions (`eval`, an interpreter one-liner, a variable holding the path), and the git-derived scope gate plus the integration postcondition still decide what enters the tree.
+
+## There is a line in `lane-guard-unresolved.jsonl`
+
+**Symptom:** `docs/superpowers/execution/<run-id>/lane-guard-unresolved.jsonl` has one or more JSON lines, and the session that produced
+one saw a notice saying an isolated agent resolved to no job in that run's live lane map and the write was not lane-checked.
+
+**Cause, stated exactly:** at the moment of that `Write`/`Edit`/`Bash` call, the agent's `agent_id` and its worktree matched nothing in the
+lane map, and all four recording gates were satisfied — a lane map was found, at least one worktree it names still exists on disk, the
+`cwd` is inside `.claude/worktrees/<id>`, and the command was **not** the `register-lane` bootstrap. That fourth gate is the bootstrap
+suppression: the one command every job must run *first* is, by construction, run before the job has an entry to resolve to, so recording it
+would have made the record's opening line an incident the run's own contract mandates. It suppresses **only that command** — nothing else.
+
+So what a record now means is narrow and worth reading literally: an isolated agent wrote something, under a live lane map, that the guard
+could not attribute. The entry's `why` states that observation and nothing about the cause — a registration that was never run and one a
+concurrent sibling's read-modify-write lost are indistinguishable from here. `candidate_runs` lists every lane map that was live at that
+instant, newest first, and the line is written into the newest of them, so a record read weeks later cannot be mistaken for one written
+while a different run held the tree. Lines are deduplicated per `(agent_id, cwd)` and the file is capped, so one mis-ordered job leaves one
+line, not thousands.
+
+**The two benign cases.** A job whose prompt orders a command *before* `register-lane` — a bare `pwd`, say — produces exactly one line, and
+the job is otherwise fully compliant. And a non-Compound-V agent worktree that happens to be running while a Compound V run is live is
+recorded the same way, because Engine C hands its workers no environment marker that would separate the two. Both are stated rather than
+hidden; the cost of each is one line and one notice.
+
+**Fix:** match the `cwd` and `ts` in the line against the run's jobs.
+
+1. If it is a job of this run, confirm `register-lane` was its first command with a **literal** `--cwd` — the bash clamp refuses `$(pwd)`
+   or `"$PWD"`, and a job denied on that command never registers at all, which leaves the guard nothing to resolve for the rest of the job.
+2. If the identity is not a job of this run, it is the foreign-worktree case above; nothing is wrong with the run.
+3. Either way the write was **allowed** — the guard is fail-open by contract. The authority is the git-derived scope gate, which measured
+   that job's diff regardless, so check `results/<id>.json` before concluding anything escaped.
 
 ## The test floor reports nothing, or never ran
 

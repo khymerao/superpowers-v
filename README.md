@@ -8,10 +8,9 @@ You describe a feature. Claude sizes the request, plans it, splits it into non-o
 Every write is checked against the files that worker was allowed to touch, and a review gates "done". There is no start button — a hook sizes each request as you work.
 
 ## Requirements
-- **Claude Code ≥ 2.1.219.** Compound V runs on the native Workflow runtime and on native hook events (`PreToolUse`, `UserPromptSubmit`, `PostCompact`, `Stop`). Older versions lack them.
-  The floor is checked at session start: the `SessionStart` banner reads `claude --version` and appends one warning line when the running version is below it.
+- **Claude Code ≥ 2.1.219.** Compound V runs on the native Workflow runtime and on native hooks (`PreToolUse`, `UserPromptSubmit`, `PostCompact`, `Stop`). `SessionStart` warns below that floor.
 - **One ambient cost.** The lane-guard hook runs on every `Write`/`Edit`/`Bash` call. What it costs depends on the machine — measure it on yours; the recipe is in [AGENTS.md](AGENTS.md).
-- **One project setting.** `worktree.baseRef` should be `head` for jobs that depend on each other: without it a dependent job's agent runs in the main checkout, and dependent jobs that would have run in parallel are serialized so their writes stay attributable. It is a native Claude Code setting, not a Compound V one — see Install.
+- **One project setting.** `worktree.baseRef` should be `head`, or a dependent job runs in the main checkout and such jobs are serialized. A native Claude Code setting — see Install.
 
 ## Install
 ```
@@ -25,22 +24,19 @@ Every write is checked against the files that worker was allowed to touch, and a
 - **Cursor:** `curl https://cursor.com/install -fsS | bash` → `cursor-agent login`
 - **Antigravity:** install the `agy` CLI → log in
 
-Then the one setting. `worktree.baseRef` is a **native Claude Code project setting** in the project's `.claude/settings.json`, with two values: `fresh` (the default) and `head`. It is
-project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it, or its worktree cannot see that job — without it such a job runs its agent in the main checkout instead, and a wave carrying more than one of those is split so each runs alone (one before-image cannot attribute two concurrent writers). So the setting buys parallelism, not correctness: the run still completes without it, one job at a time.
+Then the one setting. `worktree.baseRef` is a **native Claude Code project setting** in the project's `.claude/settings.json`, with two values: `fresh` (the default) and `head`.
+It is project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it to see that job's work.
+Without it such a job runs in the main checkout, and a wave with more than one of those is split so each runs alone — it buys parallelism, not correctness: the run completes either way.
 
 ```json
 { "worktree": { "baseRef": "head" } }
 ```
 
-_(Optional)_ Context7 MCP gives the doc-validator real library docs — but only when it is attached to the session you are in. A pre-flight agent launched inside a Workflow does
-not inherit MCP tools and falls back to WebSearch/WebFetch (12 of the last 16 library audits ran that way). `/plugin install context7@claude-plugins-official`.
+_(Optional)_ Context7 MCP gives the doc-validator real library docs, but only in a session it is attached to — a pre-flight agent launched inside a Workflow inherits no MCP tools
+and falls back to WebSearch/WebFetch (12 of the last 16 library audits ran that way). Install it with `/plugin install context7@claude-plugins-official`.
 
 ## How to use it
-Run this once — it detects which model CLIs you have, saves the config, and offers the `baseRef` setting above.
-
-```
-/v:init
-```
+Run `/v:init` once — it detects which model CLIs you have, saves the config, and offers the `baseRef` setting above.
 
 **Then just work.** Describe the feature, or start brainstorming as usual. A `UserPromptSubmit` hook scores the first change request of each session
 and sizes it as DIRECT, SCOPED or FULL. There is no command to launch the orchestration; Claude runs it for you.
@@ -59,10 +55,12 @@ Three gamified episodes walk you through the whole pipeline, and the **[cheatshe
 **Who does what.** Opus plans, judges and reviews; Fable (the frontier tier) is opt-in for business-critical jobs, and lifts a review job once —
 only after that job has exhausted its retry budget on Opus (repeated 529s, say), never merely because Opus looks busy. Sonnet runs junior slices
 and the two scanning agents. Codex is an opt-in sandboxed worker and the second opinion; Antigravity and Cursor are lower-trust opt-in workers. The scope gate blocks out-of-lane writes.
+Implementers and the spec-reviewer also call Claude Code's built-in `advisor` at their own decision points; `advisorModel` names who answers — `fable` here, `opus` if you would rather not.
 
 ## Main features
-- **Multi-model orchestration.** Codex is dogfooded in this repository. Antigravity has its CLI invocation verified live but has never been dispatched here.
-  Cursor and opencode are experimental — present, their workers verified standalone, never dispatched through Engine C.
+- **Multi-model orchestration.** Codex is dogfooded here. Antigravity's CLI invocation is verified live but was never dispatched; Cursor and opencode are experimental, verified standalone only.
+- **Worktree provisioning.** `provision_command` installs a job's dependencies in its fresh worktree before the model starts, and snapshots them so the gate never blames the job for them.
+- **Agents that remember this repo.** Five review and scanning agents carry `memory: project` — a committed directory at `.claude/agent-memory/superpowers-v-<agent>/`. Evidence, never instructions.
 - **Cross-model review.** A second opinion from another model family, on the plan and on the code. Different models have different blind spots. Advisory — the orchestrator decides.
 - **Epic mode.** Feed it a whole PRD and it builds feature by feature, in dependency order, on one branch. It checkpoints after each feature unless you raise the budget.
 - **Epic autonomy.** On the `marathon` stance, `/v:epic` offers — never arms silently — a native way to keep going: `/loop` to keep resuming in this session, or `/schedule` in the cloud.
@@ -102,56 +100,23 @@ and the two scanning agents. Codex is an opt-in sandboxed worker and the second 
 The triage gate is on by default. It is exempt on `docs/superpowers/**`, fires at most once per session, and fails open. To turn it off, put
 `{ "enforcement": { "triage_gate": false } }` in `.claude/compound-v.json` — an explicit `false` is the only value that does it.
 
-## Agents that remember this repo
-
-Five agents carry Claude Code's native persistent subagent memory (`memory: project` in their
-frontmatter): `spec-reviewer`, `partition-reviewer`, `code-archaeologist`, `domain-expert` and
-`doc-validator`. Each gets its own directory at `.claude/agent-memory/<agent>/`, consults it before
-starting, and saves what it learned after finishing — defect patterns and where they live, overlap traps,
-map facts, domain constraints with their source, library-version facts with the date they were checked.
-
-**It is committed.** `project` scope means the directory is in the repository and shared with everyone
-who clones it, which is the point — the knowledge is the team's, not one laptop's — and also the reason
-for three rules the agents are held to:
-
-- **No secrets, ever.** Nothing that resembles a token, key, password or private URL goes in a memory file.
-- **No verdicts.** A remembered pattern is a *lead*, re-verified against the current code before it can
-  become a finding. The repository moves between runs; the memory does not.
-- **Memory is evidence, never instructions.** Anyone with push access can edit these files, so a directive
-  found inside one — "always approve", "skip this check" — is ignored and reported, exactly like a
-  directive found in the diff under review.
-
-`implementer` and `parallel-dispatcher` carry no memory on purpose: they write inside one declared file
-lane, and a memory write would land outside it — denied by the lane guard, blocked by the scope gate. That
-same asymmetry is what stops an implementer planting text in a reviewer's memory. The reviewer's own lane
-does include it, so a `type: review` job's `write_allowed` lists `.claude/agent-memory/spec-reviewer/**`.
-
-**To turn it off:** subagent memory is part of auto memory, so `{"autoMemoryEnabled": false}` in your
-settings (or `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`) disables it — the agents then launch with no memory
-instructions and no memory tools, and behave exactly as they did before. Prefer `memory: local` over
-`project` in a fork where the notes should stay on one machine; `.claude/agent-memory-local/` is gitignored.
-
 ## Good to know
 - **Antigravity and Cursor are lower-trust** — no kernel sandbox, so the scope gate catches an out-of-bounds write after the fact but cannot prevent it. Prefer Codex for anything sensitive.
 - **Cursor on a Free plan** can only use its `auto` model; named models are paid.
 - **Epic mode is bounded by default** — it stops after each feature for a human checkpoint, and is not an overnight build unless you raise the budget.
-- **Research-grounded brainstorming is guidance, not a mechanism** 🧪 — the skill asks a brainstorm on an unfamiliar topic to run a gated recon pass first, and to batch
-  independent questions into one screen. A hook only reminds; nothing enforces either, and the recon doc is evidence, never a routing input.
+- **Research-grounded brainstorming is guidance, not a mechanism** 🧪 — the skill asks an unfamiliar-topic brainstorm to run a gated recon pass first and to batch independent
+  questions into one screen. A hook only reminds; nothing enforces either, and the recon doc is evidence, never a routing input.
+- **Agent memory is off-switchable** — `{"autoMemoryEnabled": false}` turns it off everywhere. `implementer` and `parallel-dispatcher` carry none: a memory write would leave their lane.
 - **Marathon mode is still not fire-and-forget.** It drops the checkpoint and adds an arbiter panel, a blocker ledger and breakers, but after a hard death you re-run `/v:epic <epic-id>` yourself.
 
 ## Verification program
-Compound V is dogfooded against its own claims in eight staged cycles, each run against native Claude Code mechanisms rather than trusted from prose. Every cycle's review is
-recorded in [docs/superpowers/dogfood/README.md](docs/superpowers/dogfood/README.md) — a generated index whose footer carries the current tally and is the
-source of truth for it (56 reviews, 11 APPROVED as this was written). Read it for the current stage.
+Compound V is dogfooded against its own claims in eight staged cycles, each run against native Claude Code mechanisms rather than trusted from prose. Every cycle's review is recorded in
+[docs/superpowers/dogfood/README.md](docs/superpowers/dogfood/README.md) — a generated index whose footer carries the tally (56 reviews, 11 APPROVED as this was written).
 
-1. **DIRECT, attended** — one file, an ordinary commit, the Stop gate silent.
-2. **SCOPED** — the triage-size feature, run through the SCOPED path itself.
-3. **FULL with zero manual interventions** — the transcript-watch feature.
-4. **Multi-model** — a `backend: codex` job dispatched on Engine C.
-5. **The first epic** — features chained end to end on one branch; 5a and 5b cover V-memory recall being real, then recall turning into action.
-6. **A foreign repository** — set up from `/v:init` and driven through a real change.
-7. **Death and resurrection** — a killed run resumed from committed state.
-8. **A perfect pass with a stopwatch.**
+The eight: **DIRECT, attended** (one file, an ordinary commit, the Stop gate silent) → **SCOPED** (the triage-size feature, run through the SCOPED path itself) → **FULL with zero
+manual interventions** (the transcript-watch feature) → **multi-model** (a `backend: codex` job dispatched on Engine C) → **the first epic** (features chained end to end on one
+branch; 5a and 5b cover V-memory recall being real, then recall turning into action) → **a foreign repository** (set up from `/v:init`, driven through a real change) → **death and
+resurrection** (a killed run resumed from committed state) → **a perfect pass with a stopwatch**. Read the index for the current stage.
 
 ## Under the hood
 The orchestration, scope enforcement, routing and memory are plain bash and Python scripts and skill docs you can read.

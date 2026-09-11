@@ -73,7 +73,9 @@ The manifest schema and rules are defined in [`skills/compound-v/execution-manif
 
    **A `type: review` job's `write_allowed` must include the reviewer's memory.**
    `agents/spec-reviewer.md` declares `memory: project`, so the review job writes
-   `.claude/agent-memory/spec-reviewer/**` as well as its review file, and both belong in its lane. The
+   `.claude/agent-memory/superpowers-v-spec-reviewer/**` — the namespaced form, after the agent's full
+   name — as well as its review file, and both belong in its lane. A bare
+   `.claude/agent-memory/spec-reviewer/**` raises the validator advisory `MEMORY_LANE_UNNAMESPACED`. The
    directory is out of lane for every implementer on purpose — that is what stops one planting text in
    the reviewer's memory — so leaving it out of the reviewer's own lane makes the lane guard deny the
    write and the scope gate block the job for it. **Pair it with the review file, never ship it alone:** a

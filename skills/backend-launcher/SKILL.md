@@ -173,6 +173,44 @@ test command at all.
 
 ---
 
+## Provisioning — `--provision-command` / `--provision-timeout-sec` (v3.6)
+
+A job whose manifest carries a top-level `provision_command` needs its dependencies installed
+(`npm ci`, `uv sync`, `bundle install`, …) before the model starts. All four external worker
+scripts (`compound-v-run-codex-worker.sh`, `-antigravity-worker.sh`, `-cursor-worker.sh`,
+`-opencode-worker.sh`) accept the identical flag pair:
+
+```bash
+scripts/compound-v-run-<backend>-worker.sh … \
+  --provision-command "<shell command>" \
+  --provision-timeout-sec 600            # optional, default 600
+```
+
+**Ordering is the whole safety argument.** The command runs **after** `git worktree add <WT> HEAD`
+and **before** the before-image snapshot that bounds the gate's `--preexisting` subtraction:
+`git worktree add HEAD` starts with nothing untracked, so every untracked or ignored path the
+moment provisioning finishes was created by provisioning — attribution by construction, not by
+trusting anyone's report. A snapshot taken any earlier (or skipped) would exempt nothing, so an
+installed `node_modules/` would read as a pile of out-of-scope writes and BLOCK a job that did
+nothing wrong; a snapshot taken any later would exempt the model's own writes too, which is the
+one thing this mechanism must never do.
+
+**The command runs through `/bin/bash -c`**, under the shared process-group timeout supervisor
+([`scripts/compound-v-run-with-timeout.py`](../../scripts/compound-v-run-with-timeout.py)), `cwd`
+the fresh worktree, stdin closed (`</dev/null`, so a prompting installer fails instead of hanging),
+output captured to files outside the worktree. `--provision-timeout-sec` must be a positive
+integer — the script `die`s otherwise (usage fault, no job attempted) — and **defaults to 600
+seconds** when omitted.
+
+**A failing provision emits a `status: error` `job_result` and launches no worker at all.** A
+non-zero exit is reported as the environment fault it is (`provision failed (rc=<code>): <command>`,
+`failure_class: "other"`, `rc=124` for a timeout) and the backend model is never invoked — running
+it against missing dependencies would spend real model time arriving at a failure that teaches
+nobody anything. `--provision-command` is optional; omit it and no worker's behaviour changes
+(no provisioning step runs, and nothing about the existing flag set or timing shifts).
+
+---
+
 ## `gate_receipt` — the receipt, not the authority (v3.0, Feature D1)
 
 A job result may carry a `gate_receipt`: one run of the scope gate, bound to `baseline_commit`,

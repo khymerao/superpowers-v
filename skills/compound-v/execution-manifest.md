@@ -27,6 +27,8 @@ Worked example: [`examples/manifest.example.yaml`](../../examples/manifest.examp
 | `test_contract` | map | no | v3.0 (Feature B2): `{floor_command, full_command, impacted_map}`. Absent ⇒ every job runs `full`. See the v3.0 section below. |
 | `retry` | map | no | v3.4.8 (findings 118/119): `{max_attempts, escalate_reviewer}`. Absent ⇒ defaults (`max_attempts: 3`, `escalate_reviewer: true`). See [§ `retry` — transient-failure retry inside the workflow](#retry--transient-failure-retry-inside-the-workflow-v348) below. |
 | `global_constraints` | string[] | no | v3.4.17: the plan's `## Global Constraints` lines, verbatim. [§ below](#the-two-superpowers-620-plan-fields-v3417). |
+| `provision_command` | string | no | v3.6: one dependency install a worktree job runs before its own before-image is taken (e.g. `npm ci`). Non-empty, single-line. See [§ `provision_command` — the dependency install that runs before the before-image](#provision_command--the-dependency-install-that-runs-before-the-before-image-v36) below. |
+| `provision_timeout_s` | integer | no | v3.6: seconds `provision_command` gets. Integer `1..1800` (a bool is rejected). **Absent ⇒ 600.** Same section below. |
 
 **`{path}` substitution is the contract, not an illustration.** Inside a rule's `run`, the literal token `{path}` is replaced by the changed path that matched the rule's `when` glob, once per matching path. It appeared only inside examples until now, so an implementer had to infer it; a rule whose `run` omits `{path}` is still valid and simply runs once per match.
 
@@ -64,9 +66,16 @@ Worked example: [`examples/manifest.example.yaml`](../../examples/manifest.examp
 `backend`, `tier`, `effort`, and `model` are execution-layer values. They drive dispatch; they MUST NOT leak into any agent/skill/command frontmatter (`lint-frontmatter.py` + `validate.yml` reject Haiku, and reviewers/agents always carry `model: opus`).
 
 **A `type: review` job's lane includes the reviewer's own memory.** `agents/spec-reviewer.md` declares
-`memory: project`, so `.claude/agent-memory/spec-reviewer/` is a directory that reviewer writes: it must
-appear in the review job's `write_allowed` as `.claude/agent-memory/spec-reviewer/**`, beside whatever
-review file the job produces. It is deliberately outside every implementer's lane, and that asymmetry is
+`memory: project`, so the harness gives that reviewer a directory to write. Installed as a plugin the
+directory is namespaced after the agent's full name — `.claude/agent-memory/superpowers-v-spec-reviewer/` —
+and a copy installed as a project agent uses the bare `.claude/agent-memory/spec-reviewer/` instead. Declare
+the namespaced form, `.claude/agent-memory/superpowers-v-spec-reviewer/**`, beside whatever
+review file the job produces. A bare lane raises the advisory **`MEMORY_LANE_UNNAMESPACED`**
+(`agents/partition-reviewer.md` surfaces it as a `WARN`): that directory is shared with every plugin
+installed in the same repo, so an unnamespaced agent name can collide with another plugin's
+memory-bearing agent of the same name.
+
+The reviewer's memory directory is deliberately outside every implementer's lane, and that asymmetry is
 the point — an implementer that tried to plant text in the reviewer's memory is denied by the lane guard
 and blocked by the scope gate.
 
@@ -151,6 +160,51 @@ The map is **documented, not committed** in this repo (it is project-local confi
 ### Resolution (tier → model)
 
 [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) is the resolver the dispatcher runs **before** invoking any backend. Given `--backend`, `--tier`, optional `--effort`, optional `--stance` (default `balanced`, threaded from the manifest's `routing_stance`), and optional `--config`, it returns one JSON object on stdout — `{ "backend", "tier", "model", "effort" }` — using the stance's built-in default map (the one above) that a `--config` cell overrides (per-stance `models.<stance>.<backend>.<tier>` or legacy flat `models.<backend>.<tier>`), and an `--explicit-model` (the manifest `model` override) always wins. It is generic: no backend-specific routing logic baked in. See [`routing-policy.md`](routing-policy.md) for the task-type → (tier, effort) table.
+
+---
+
+### `provision_command` — the dependency install that runs before the before-image (v3.6)
+
+A fresh worktree starts clean, and therefore starts **without** the dependencies the repository's own
+toolchain needs. A job that runs `npm ci` or `pip install -e .` to get its tests running then owns
+`node_modules/` in the gate's eyes, and is BLOCKED for a write it was required to make.
+`provision_command` is the declaration that closes that gap: one install, declared once for the run by
+the human who reviewed the manifest, never chosen by the model.
+
+**When it runs is the whole safety argument.** For `backend: claude` the command runs inside
+`register-lane` — the job's first tool call, in the job's own worktree, before the implementer has been
+given anything to do — and the before-image (`preexisting/<id>.txt`) is photographed immediately
+after it. That order is what lets the gate separate *the install put it there* from *the job wrote it*.
+For the external worker backends the same pair travels to the worker script as
+`--provision-command` / `--provision-timeout-sec`, which install into the worker's own worktree the
+same way; see [`backend-launcher/SKILL.md`](../backend-launcher/SKILL.md).
+
+**`provision_timeout_s` defaults to 600 seconds** and the validator accepts `1..1800` (an integer, and
+a bool is not one). `provision_command` must be a non-empty, single-line string. Both keys are
+**optional**: every manifest committed before v3.6 has neither, and absence is valid. A job entry may
+carry its own pair, which the emitter prefers over the manifest-level one; the validator checks the
+top-level pair.
+
+**Two rules the author owns, because no gate can enforce them.**
+
+1. **The command must be idempotent.** `register-lane` is legitimately re-run (resume does it), and a
+   second call photographs nothing: the snapshot is one-shot, so a re-registered job reports
+   *unchanged (snapshot already taken); provision_command not re-run* and keeps the first picture.
+2. **The command must not modify tracked files.** The before-image lists **untracked and ignored paths
+   only**, so a tracked file is never in it: an install that edits one is attributed to the job by the
+   diff against its baseline, and gated like any other write of its own. For the paths the picture does
+   list, the subtraction forgives **presence, never content** — each is bound to its bytes — so a
+   dependency file the job later rewrites is gated too.
+
+**A failed install does not stop the job, and buys it no exemption.** When the command exits non-zero
+or times out, **no snapshot is taken**: a half-finished install must not be photographed as the intended
+starting state. The ack carries `provision_error` naming the exit code or the timeout, the gate stays
+strict, and the job proceeds — a dependency install that failed is a fact the human reading the run
+needs, not a reason for the pipeline to refuse to start.
+
+This is the **only** way provisioning is subtracted. Nothing is forgiven by extension and nothing by
+name: a job with no `provision_command` that installs its own `node_modules/` is BLOCKED, exactly as
+before.
 
 ---
 
