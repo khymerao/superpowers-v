@@ -1,0 +1,78 @@
+{
+  "base_commit": "42ad523c603a9f9fbe604abd30d3d1b5d9a198a2",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "AGENTS.md",
+    "README.md",
+    "TROUBLESHOOTING.md",
+    "agents/*.md",
+    "commands/v-init.md",
+    "commands/v-review-plan.md",
+    "docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md",
+    "hooks/lane-guard.sh",
+    "schemas/job_result.schema.json",
+    "scripts/compound-v-emit-workflow.py",
+    "scripts/compound-v-run-*-worker.sh",
+    "scripts/compound-v-scope-check.py",
+    "scripts/compound-v-usage-extract.py",
+    "scripts/compound-v-validate-manifest.py",
+    "skills/compound-v/cross-model-review.md",
+    "tests/test-agent-memory.sh",
+    "tests/test-lane-guard.sh",
+    "tests/test-usage-workflow.sh"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:303394a1e2520201f32be1d933e96016a2fd2990a0e438ca78197a95cae75e4f",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 18,
+    "flags": [
+      "content:config_literal",
+      "new_file",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "AGENTS.md",
+      "README.md",
+      "TROUBLESHOOTING.md",
+      "agents/*.md",
+      "commands/v-init.md",
+      "commands/v-review-plan.md",
+      "docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md",
+      "hooks/lane-guard.sh",
+      "schemas/job_result.schema.json",
+      "scripts/compound-v-emit-workflow.py",
+      "scripts/compound-v-run-*-worker.sh",
+      "scripts/compound-v-scope-check.py",
+      "scripts/compound-v-usage-extract.py",
+      "scripts/compound-v-validate-manifest.py",
+      "skills/compound-v/cross-model-review.md",
+      "tests/test-agent-memory.sh",
+      "tests/test-lane-guard.sh",
+      "tests/test-usage-workflow.sh"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-09-11T160644Z-build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide-913d",
+  "request_slug": "build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide",
+  "session_id": "e619cb38-ebe3-4b45-a1f4-c3007616291d",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-09-11T160644Z-build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide-913d.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-09-11T16:06:44Z"
+}

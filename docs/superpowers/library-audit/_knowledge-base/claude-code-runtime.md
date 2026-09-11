@@ -490,3 +490,15 @@ unchanged page twice in one day.
 Sources: [`code.claude.com/docs/en/permissions.md`](https://code.claude.com/docs/en/permissions.md) (fetched
 in full, 2026-09-03) · `scripts/compound-v-emit-workflow.py:224-237` (`Read`, this session, current HEAD) ·
 `scripts/compound-v-emit-preflight.py:203-215` (`Read`, this session, current HEAD).
+
+---
+
+## Updated 2026-09-11 — `worktree.baseRef` re-confirmed unchanged; two live fetches of the settings-reference row itself failed to land
+
+Validated for [`docs/superpowers/library-audit/2026-09-11-v3-6-wide-dispatch.md`](../2026-09-11-v3-6-wide-dispatch.md). This entry does **not** add new facts about `baseRef` — it re-checks the 2026-09-03 entry above is still current, and flags a gap in *this session's* own verification method.
+
+**Still `fresh|head` only, still project-wide.** No new value, no scope change found.
+
+**Method and its limit:** I searched the full `raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md` (every version through 2.1.268) for "baseRef" — **zero matches at any version**. Combined with the 2026-09-03 entry's direct quotes from `worktrees.md` and the live `EnterWorktree` description, this supports "unchanged since first documented." **However**, two separate `WebFetch` calls against `code.claude.com/docs/en/settings-reference` in this session both returned a truncated summary ("[Content truncated due to length...]") that never reached the `worktree.baseRef` row itself — the page is long enough that the fetch tool's own summarizer cut it before that section, both times. So this entry's "unchanged" conclusion rests on changelog silence + a six-week-old direct quote, not a fresh verbatim re-quote of `settings-reference` taken today. A future audit that needs a hard, dated re-quote of that exact row should use a narrower, section-scoped fetch prompt (e.g. asking only for the "Agents, sessions and worktrees" table slice) rather than the whole page.
+
+Sources: [`raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md`](https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md) (full-file search, 2026-09-11, zero `baseRef` hits) · the 2026-09-03 entry above (re-cited, not re-verified verbatim) · two failed-to-land `WebFetch`es of `code.claude.com/docs/en/settings-reference` (2026-09-11, noted as a method gap, not a contradiction).

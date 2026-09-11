@@ -1,0 +1,355 @@
+run_id: 2026-09-11-v3.6-wide-dispatch
+feature: 'v3.6.0: issue #19 closed (worktree provisioning before the before-image, finalizer force-adds run-dir artefacts, Record states a verdict disagreement, lane-guard unresolved record under the acting run, namespaced agent-memory lane), the native advisor wired in (advisorModel offer, agent consultation points, advisor-assisted second opinion when Codex is absent, usage.advisor_calls measured), /skill-doctor in /v:init — built as the first wide Engine C dispatch of this repository'
+routing_stance: balanced
+max_parallel: 6
+spec_path: docs/superpowers/specs/2026-09-11-v3.6-wide-dispatch-design.md
+plan_path: docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-09-11-v3-6-wide-dispatch.md
+  domain: docs/superpowers/expert/2026-09-11-v3-6-wide-dispatch.md
+  library: docs/superpowers/library-audit/2026-09-11-v3-6-wide-dispatch.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-09-11T160644Z-build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide-913d
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-09-11T16:06:44Z'
+global_constraints:
+  - "Python 3.9 syntax, stdlib only; every script run as /usr/bin/python3 -B; bash passes shellcheck"
+  - "Never Haiku; no agent frontmatter names Fable; Fable enters only through advisorModel"
+  - "Never relax the scope gate; no new entry in RUN_DIR_EXEMPT_BY_NAME; provisioning is subtracted only through the existing --preexisting snapshot path"
+  - "No fabricated metrics; every behavioural change ships a selftest row that fails when the change is reverted"
+  - "Docs: plain words, one idea per paragraph, no line over 200 characters outside code/tables, every claim true of the code in HEAD"
+  - "Lane discipline: touch only your write_allowed; register-lane first, with a literal --cwd"
+  - "Field and flag names are fixed by the plan's Interfaces: provision_command, provision_timeout_s, --provision-command, --provision-timeout-sec, preexisting.txt, verdict_disagreement, candidate_runs, MEMORY_LANE_UNNAMESPACED, SECOND_OPINION_SAME_FAMILY, claude-advisor, usage.advisor_calls"
+  - "Not in any job: CHANGELOG entry, version bump, release, generated architecture docs"
+acceptance_criteria:
+  - 'AC-1 Every tests/*.sh and every scripts/*.py --selftest is green; lint-frontmatter, rules-lint, shellcheck hooks/*.sh scripts/compound-v-*.sh and the CI dead-link rule pass.'
+  - 'AC-2 A manifest with provision_command "mkdir -p node_modules/x && touch node_modules/x/a" and a worktree job whose floor is "test -f node_modules/x/a" passes the floor and the gate reports no violation; the same job with provision_command absent is BLOCKED on node_modules/**.'
+  - 'AC-3 A repository that gitignores docs/ finalizes a wave whose results land under docs/superpowers/execution/.'
+  - 'AC-4 Record, given a pass receipt and --expect-verdict blocked, records success with verdict_disagreement and a summary that names both values and no cause.'
+  - 'AC-5 hooks/lane-guard.sh writes no record for the register-lane bootstrap call and exactly one record, in the newest live run, for an unresolved write under two live runs.'
+  - 'AC-6 No committed document that TELLS AN AUTHOR WHAT TO DECLARE names the bare .claude/agent-memory/spec-reviewer/** any more; the validator prints MEMORY_LANE_UNNAMESPACED for the bare form. Three known residuals are out of scope and named here so the reviewer does not chase them: agents/partition-reviewer.md keeps it as a deliberate counter-example, scripts/lint-frontmatter.py keeps it as a selftest fixture path, and docs/superpowers/architecture/architecture.md is a generated doc refreshed by /v:onboard --refresh after the release.'
+  - 'AC-7 commands/v-init.md has Step 1f (skill-doctor) and Step 4e (advisor) in the offer-never-write style; .claude/settings.json in this repo carries advisorModel: fable.'
+  - 'AC-8 usage.advisor_calls is measured from transcripts and shown by /v:status; this run reports it for at least one job, or reports null honestly.'
+  - 'AC-9 The review job declared the namespaced memory lane, passed the gate, and REPORTED the version of the plugin that supplied its agent definition. Native memory is NOT claimed to have been exercised: the installed plugin cache on this machine lags HEAD, so the running spec-reviewer definition may predate memory: project. A hand-written file in that lane is not evidence of the native mechanism, and the review says so.'
+test_contract:
+  floor_command: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-emit-workflow.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emitter-ok'
+  - when: scripts/compound-v-scope-check.py
+    run: /usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest
+  - when: scripts/compound-v-run-*-worker.sh
+    run: bash -c 'shellcheck scripts/compound-v-*.sh && bash tests/test-worker-path-transport.sh >/dev/null && echo workers-ok'
+  - when: tests/test-worker-path-transport.sh
+    run: bash tests/test-worker-path-transport.sh
+  - when: scripts/compound-v-validate-manifest.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo validator-ok'
+  - when: hooks/lane-guard.sh
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo lane-guard-ok'
+  - when: tests/test-lane-guard.sh
+    run: bash tests/test-lane-guard.sh
+  - when: scripts/compound-v-usage-*.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-usage-extract.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-usage-aggregate.py --selftest >/dev/null && bash tests/test-usage-workflow.sh >/dev/null && echo usage-ok'
+  - when: tests/test-usage-workflow.sh
+    run: bash tests/test-usage-workflow.sh
+  - when: schemas/*.json
+    run: bash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'
+  - when: tests/test-agent-memory.sh
+    run: bash tests/test-agent-memory.sh
+  - when: agents/*.md
+    run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo agents-ok'
+  - when: examples/manifest.example.yaml
+    run: /usr/bin/python3 -B scripts/compound-v-validate-manifest.py examples/manifest.example.yaml
+  - when: commands/*.md
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: skills/**/*.md
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: .claude/settings.json
+    run: bash -c '/usr/bin/python3 -B -c "import json; d=json.load(open(\".claude/settings.json\")); assert d[\"worktree\"][\"baseRef\"]==\"head\"" && /usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && echo settings-ok'
+  - when: "*.md"
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: docs/superpowers/architecture/*.md
+    run: /usr/bin/python3 -B scripts/compound-v-onboard.py rules-lint --repo .
+jobs:
+- id: scope-workers-provision
+  title: 'Task J-SCOPE — --preexisting honoured in worktree mode; provisioning in the four worker scripts (#19 A/B, gate half)'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-scope-check.py
+  - scripts/compound-v-run-codex-worker.sh
+  - scripts/compound-v-run-cursor-worker.sh
+  - scripts/compound-v-run-antigravity-worker.sh
+  - scripts/compound-v-run-opencode-worker.sh
+  - tests/test-worker-path-transport.sh
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - "every scripts/compound-v-run-*-worker.sh accepts --provision-command <string> (optional) and --provision-timeout-sec <int> (default 600), parsed in the same block as --write-allowed"
+    - "on success the worker writes $ART/preexisting.txt (one repo-relative path per line: untracked ∪ ignored after provisioning) and passes --preexisting \"$ART/preexisting.txt\" to compound-v-scope-check.py"
+    - "on failure the worker emits a status: error job_result whose summary is 'provision failed (rc=N): <command>' and launches nothing"
+    - "compound-v-scope-check.py --worktree honours --preexisting (documented in its docstring and --help)"
+  acceptance:
+  - 'scope-check selftest rows pass: a worktree repo with .gitignore node_modules/ and node_modules/x/a present is pass with an empty changed set when --preexisting lists the path, and a violation when it does not. All four worker scripts parse the two flags, run the command through /bin/bash -c under compound-v-run-with-timeout.py after git worktree add, snapshot, and pass --preexisting; shellcheck scripts/compound-v-*.sh clean; tests/test-worker-path-transport.sh gains a row that drives the codex worker with --provision-command against a stub codex on PATH and asserts the job_result is not blocked and lists no node_modules path; the whole file green.'
+  body: 'Implement Task J-SCOPE of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F1, gate half). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind). Tests first: the scope-check selftest row, then the worker row in tests/test-worker-path-transport.sh (read that file first to reuse its stub-worker fixture; if no codex stub exists, build the smallest one: a `codex` shell script on PATH that writes one in-lane file into --cd and exits 0). Keep the subtraction code in changed_files unchanged if it already applies in both modes; make the docstring and --help say worktree mode honours the post-provisioning snapshot. In the workers the logic is byte-identical across all four: parse flags; after worktree add, if the command is non-empty run python3 "$SCRIPT_DIR/compound-v-run-with-timeout.py" --timeout "$PROVISION_TIMEOUT" --cwd "$WT" -- /bin/bash -c "$PROVISION_COMMAND"; on rc != 0 emit the error job_result and exit without launching; on success snapshot with git -C "$WT" ls-files --others --exclude-standard -z and git -C "$WT" ls-files --others --ignored --exclude-standard -z -- . into $ART/preexisting.txt (NUL-split, one path per line) and add --preexisting to the scope-check call. Never add an exemption to the scope gate. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: validate-keys-advisories
+  title: 'Task J-VALIDATE — provision_command keys; MEMORY_LANE_UNNAMESPACED; claude-advisor receipts (#19 F, F1, F7)'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-validate-manifest.py
+  - examples/manifest.example.yaml
+  - agents/partition-reviewer.md
+  - schemas/cross-model-receipt.schema.json
+  - tests/test-agent-memory.sh
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - "manifest top-level keys provision_command (string, non-empty, no newline) and provision_timeout_s (int 1..1800, default 600 when absent)"
+    - "advisory code MEMORY_LANE_UNNAMESPACED whose text names the namespaced form .claude/agent-memory/superpowers-v-<agent>/**; MEMORY_ONLY_LANE recognises both the bare and the namespaced form"
+    - "schemas/cross-model-receipt.schema.json reviewer_backend accepts claude-advisor beside codex and gains a required boolean cross_model (true for codex, false for claude-advisor); the validator accepts it, refuses a receipt whose cross_model disagrees with its reviewer_backend, and prints WARN SECOND_OPINION_SAME_FAMILY on a false one"
+    - "tests/test-agent-memory.sh asserts the namespaced lane and the new advisory (this job owns the test because it is a fixture OVER the validator and the shipped example: the three files must flip together or the wave blocks itself)"
+  acceptance:
+  - 'Validator selftest rows pass: provision_command 3 is FAIL, "" is FAIL, provision_timeout_s 0 is FAIL, a valid pair is PASS; a review job lane .claude/agent-memory/spec-reviewer/** (also ./-prefixed and file forms) yields advisory MEMORY_LANE_UNNAMESPACED, the namespaced lane does not, MEMORY_ONLY_LANE fires for both forms; a receipt with reviewer_backend claude-advisor and cross_model false is accepted with the WARN, the same backend with cross_model true is REFUSED, and an unknown backend is refused.'
+  - 'examples/manifest.example.yaml validates, carries provision_command "npm ci" with a comment (runs once per fresh worktree before the before-image; idempotent; must not modify tracked files) and the review lane .claude/agent-memory/superpowers-v-spec-reviewer/**.'
+  - 'agents/partition-reviewer.md lists the two new WARN rows (MEMORY_LANE_UNNAMESPACED, SECOND_OPINION_SAME_FAMILY), carries the memory-path sentence (it is the fifth memory agent and no other lane may touch it), and its Step 4 stance text no longer says that under the balanced stance standard routes to opus — routing-policy.md has routed claude.standard to sonnet since 3.0.5.'
+  - 'tests/test-agent-memory.sh uses MEM_GLOB=.claude/agent-memory/superpowers-v-spec-reviewer/** and a MEM_FILE under it, adds a row asserting the bare form raises MEMORY_LANE_UNNAMESPACED, and EVERY pre-existing row in the file still passes — including the shipped-example row that asserts an empty warnings list.'
+  body: 'Implement Task J-VALIDATE of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F1 validator part, F5, F7 receipt part). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind). THIS LANE OWNS tests/test-agent-memory.sh, examples/manifest.example.yaml and the validator TOGETHER, on purpose: that test reads the example and runs the validator, so flipping any one of the three alone turns the test red and blocks the job. Flip all three in one commit. Two traps the archaeology audit found and you must handle: (1) reviewer_backend in schemas/cross-model-receipt.schema.json is a JSON-Schema const, not an enum — widening it changes the validator''s own error text, and there is an existing selftest assertion around scripts/compound-v-validate-manifest.py:5320 that pins that text; update the assertion rather than weakening the check. (2) tests/test-agent-memory.sh already asserts that the shipped example raises NO advisory (an empty warnings list) — your new advisory must not fire on the example you are also fixing. Tests first: write the selftest rows, run and see them fail, then implement. The five memory agents are spec-reviewer, partition-reviewer, code-archaeologist, domain-expert, doc-validator; the bare form is .claude/agent-memory/<bare>/…, the namespaced form is .claude/agent-memory/superpowers-v-<bare>/…. The memory-path sentence, verbatim, for agents/partition-reviewer.md: The harness names the memory directory after the agent''s full name; installed as a plugin that is .claude/agent-memory/superpowers-v-<agent>/ (field-observed on a downstream project, issue #19); a copy installed as a project agent would use the bare name. Type and range checks only for the provisioning keys — no heuristic that guesses whether a floor needs provisioning. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: laneguard-unresolved
+  title: 'Task J-LANEGUARD — the unresolved record names the acting run and the bootstrap (#19 E)'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - hooks/lane-guard.sh
+  - tests/test-lane-guard.sh
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - "lane-guard-unresolved.jsonl record fields: candidate_runs [lane-map paths live at that moment]; why: isolated agent <cwd> did not resolve to a job in this run's lane map at the time of this <tool> call; the write was allowed and not lane-checked"
+    - "log line ALLOW (register-lane bootstrap) for a Bash command containing compound-v-emit-workflow.py register-lane; no record is written for it"
+  acceptance:
+  - 'The bootstrap recogniser states its own limit where it is implemented: it keys on the TEXT of the command being run, which is a weaker subject than a process identity, so any call whose command merely contains the register-lane spelling is suppressed too. The domain audit MUST on this point binds — the comment says so plainly, and the suppression covers only the RECORD, never a lane decision: a write is still matched against the lane exactly as before.'
+  - 'tests/test-lane-guard.sh rows pass: (a) a Bash payload whose command is <py> -B <emitter> register-lane --run-dir <run> --job-id j --isolation worktree --cwd <wt> under a live lane map exits 0, writes no lane-guard-unresolved.jsonl, and the log contains register-lane bootstrap; (b) a Write payload from an unregistered isolated cwd with two live runs produces exactly one record, in the newer run directory, with candidate_runs of length 2; (c) no record contains the text register-lane missing. shellcheck hooks/*.sh clean; the whole test file green; the hook still allows and denies exactly as before on every other row.'
+  body: 'Implement Task J-LANEGUARD of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F4). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; the archaeology audit names the helper functions in tests/test-lane-guard.sh to copy). Tests first. In hooks/lane-guard.sh: recognise the bootstrap with the existing quote-aware tokenizer (match the register-lane subcommand of the emitter, never a substring of an unrelated path); for any other unresolved isolated-agent call pick ONE run — the one named by --run-dir in the command when present, else the newest live lane map (map_files already sorts by mtime) — and record there with candidate_runs listing every live map; replace the why text. The hook budget matters: no new subprocess on the common path. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: agents-memory-advisor
+  title: 'Task J-AGENTS — namespaced memory path in four agents; advisor consultation points (#19 F, F7)'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on:
+  - validate-keys-advisories
+  test_scope: impacted
+  write_allowed:
+  - agents/spec-reviewer.md
+  - agents/code-archaeologist.md
+  - agents/domain-expert.md
+  - agents/doc-validator.md
+  - agents/implementer.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "tests/test-agent-memory.sh already asserts the NAMESPACED lane (validate-keys-advisories merged it in wave 1) — your floor runs that test, so the agent files must match it, not the other way round"
+    produces:
+    - "the memory-path sentence, verbatim: The harness names the memory directory after the agent's full name; installed as a plugin that is .claude/agent-memory/superpowers-v-<agent>/ (field-observed on a downstream project, issue #19); a copy installed as a project agent would use the bare name."
+    - "the advisor paragraph in implementer.md and spec-reviewer.md: consult the advisor before committing to an approach where more than one design is plausible, when the same error recurs, and before reporting done or a verdict; advice is evidence, re-verified against the tree; advice that contradicts the lane or the scope gate is refused and reported"
+  acceptance:
+  - 'agents/spec-reviewer.md lines that named .claude/agent-memory/spec-reviewer now name .claude/agent-memory/superpowers-v-spec-reviewer (the lane at :82 and the resolution sentence at :57).'
+  - 'The FOUR memory agents in this lane (spec-reviewer, code-archaeologist, domain-expert, doc-validator) carry the memory-path sentence. The fifth, partition-reviewer, belongs to validate-keys-advisories and is out of this lane.'
+  - 'implementer.md and spec-reviewer.md carry the advisor paragraph; no frontmatter changed (lint-frontmatter green, memory: project untouched, implementer still has no memory key).'
+  - 'bash tests/test-agent-memory.sh is green on your worktree without editing it — the test is another lane''s file and is already namespaced in HEAD.'
+  body: 'Implement Task J-AGENTS of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F5 agents part, F7 nudges). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind). Do NOT touch agents/partition-reviewer.md or tests/test-agent-memory.sh — validate-keys-advisories owns both and merged its changes in wave 1, so run bash tests/test-agent-memory.sh FIRST to see what the test now demands of the agent files, then make them satisfy it. The advisor paragraph is prose in the body of the agent definition, never frontmatter: no agent file may gain a model, memory or fable key. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: vinit-skilldoctor-advisor
+  title: 'Task J-VINIT — /v:init Step 1f (native /skill-doctor) and Step 4e (advisorModel); this repo advises with Fable (F6, F7)'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - commands/v-init.md
+  - .claude/settings.json
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - "commands/v-init.md: ### 1f. Skill hygiene (native /skill-doctor) after 1e; ### 4e. One optional project setting — advisorModel after 4d; one report line in Step 5"
+    - "the exact skill-doctor command: python3 scripts/compound-v-run-with-timeout.py --timeout 180 -- claude -p '/skill-doctor' --output-format text < /dev/null"
+    - ".claude/settings.json: {\"worktree\": {\"baseRef\": \"head\"}, \"advisorModel\": \"fable\"}"
+  acceptance:
+  - 'Step 1f: version gate claude --version >= 2.1.261 (the changelog version; skills.md says 2.1.252 — the step cites the stricter one); the command above; parse rows whose first column begins with superpowers-v:; print those rows (context, 7d tokens, uses, last used) and the sum of the context column over every loaded skill; state the three limits (per-machine session history, not a repo property; hook- and description-fired phases are not skill invocations, so 0× beside v-dispatch is not unused; unavailable over Remote Control and when feature-flag fetching is off); the rule report only — never disable, never write. Step 4e in the 4d style: offer, exact JSONC with "advisorModel": "fable" and the opus alternative, why (a stronger model judges at decision points inside every job; subagents inherit it), the pairing rule (an advisor must be at least as capable as the main model; a Fable main accepts only Fable 5.1), the cost (each call re-reads the whole transcript, uncached; Fable bills to usage credits on some plans after the /model fable consent), DISABLE_TELEMETRY turns it off, CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1 disables it, merge-preserve every other key, never write without a yes. .claude/settings.json carries both keys. lint-frontmatter green; the emitter selftest still green.'
+  body: 'Implement Task J-VINIT of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F6 and F7 /v:init parts). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; the library audit confirms the version floors and flag names against the official docs — use its figures, not memory). Match the surrounding style of commands/v-init.md: 1d-bis is the model for a presence probe, 4d for an offered setting. The nested claude -p is a read-only report with stdin closed and no permission flags — say that in the step. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: second-opinion-ladder
+  title: 'Task J-SECOND — the second-opinion ladder: Codex, else advisor-assisted, else skip (F7)'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - commands/v-review-plan.md
+  - skills/compound-v/cross-model-review.md
+  - commands/v-dispatch.md
+  - skills/compound-v/phase-3-parallel-opus-dispatch.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "receipt reviewer_backend claude-advisor and WARN SECOND_OPINION_SAME_FAMILY from validate-keys-advisories"
+    produces:
+    - "the ladder text (1 Codex CLI present → as today; 2 no Codex, advisor configured → advisor-assisted second look; 3 neither → skip with the notice) in cross-model-review.md, v-review-plan.md step 3, v-dispatch.md step 9, phase-3"
+    - "the disclosure line, verbatim in every rendering: Second look by the same model family (Claude + advisor) — no decorrelation; not a cross-model review."
+    - "rung 2 writes cross_model: false on the receipt — the honesty is a field a machine can read, not only a sentence a human may skip"
+  acceptance:
+  - 'skills/compound-v/cross-model-review.md has a section The ladder with the three rungs, the advisor-assisted procedure (one read-only Opus subagent through the Agent tool, the same prompt and plan-review.schema.json output, told to consult the advisor before its verdict; the receipt wrapped with reviewer_backend claude-advisor), the disclosure line, and the SCOPED+ rule. The domain audit MUST on this point binds: rung 2 never silently becomes the equivalent of a cross-model review — the wrapped receipt carries cross_model false, the WARN is printed, and the prose says that a project able to install Codex should, because a Claude review of Claude code shares its blind spots. Rung 3 still refuses. commands/v-review-plan.md step 3 is the ladder; commands/v-dispatch.md step 9 references it and names the receipt value; the phase-3 cross-model paragraph is updated. Only those regions of v-dispatch.md and phase-3 change. lint-frontmatter green; every relative link resolves.'
+  body: 'Implement Task J-SECOND of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F7, second opinion without Codex). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; the domain audit recommends the disclosure wording — if it differs from the line above, use the audit''s and say so). The downstream complaint this closes: a project with only Claude Code got no spec/diff review at all; now it gets an honestly labelled same-family second look. Never present rung 2 as cross-model. Touch only your lane and only the named regions of the shared files. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: usage-advisor-calls
+  title: 'Task J-USAGE — usage.advisor_calls measured from transcripts (F7)'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-usage-extract.py
+  - scripts/compound-v-usage-aggregate.py
+  - schemas/job_result.schema.json
+  - commands/v-status.md
+  - tests/test-usage-workflow.sh
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - "usage.advisor_calls: integer or null — the count of assistant content blocks {type: server_tool_use, name: advisor} for the job, deduplicated by message id exactly like the token counts; null when the job was not measured"
+    - "compound-v-usage-aggregate.py renders adv=N after the token fields when N > 0"
+  acceptance:
+  - 'tests/test-usage-workflow.sh rows pass: a planted transcript with two assistant messages carrying {"type":"server_tool_use","name":"advisor","input":{}} plus one advisor_tool_result and one duplicated message id yields advisor_calls 2; a transcript without yields 0; an unmeasured job yields null; the aggregate line shows adv=2. schemas/job_result.schema.json usage gains advisor_calls (integer|null) with a description; bash tests/test-engine-c-contract.sh green; both usage scripts selftest green; commands/v-status.md says in one sentence that adv=N is the measured advisor-call count.'
+  body: 'Implement Task J-USAGE of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F7 measured usage). Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; the library audit confirms the block names the API uses). Tests first. Keep _INVARIANT_KEYS semantics unchanged (the advisor count is not a token invariant). A live transcript shape is available at ~/.claude/projects/-private-tmp-claude-501--Users-oleg-Dev-superpowers-v-e619cb38-ebe3-4b45-a1f4-c3007616291d-scratchpad-advprobe/*/subagents/*.jsonl if you want to see real blocks; do not copy it into the repo — build a minimal fixture. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: emitter-19
+  title: 'Task E — the emitter half of #19: finalizer force-adds run-directory paths (C), Record states a verdict disagreement (D), worktree provisioning in register-lane and gate-receipt plus the external launch argv (A/B)'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on:
+  - scope-workers-provision
+  - validate-keys-advisories
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-emit-workflow.py
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "worker flags --provision-command <string> and --provision-timeout-sec <int> on all four scripts/compound-v-run-*-worker.sh (merged in wave 1)"
+    - "compound-v-scope-check.py --worktree honours --preexisting (merged in wave 1)"
+    - "manifest keys provision_command (string) and provision_timeout_s (int, default 600) accepted by the validator (merged in wave 1)"
+    produces:
+    - "verdict_disagreement: {field: 'verdict'|'diff_digest', receipt: str, workflow: str, receipt_path: str} on the Record ack and on state.json jobs.<id>.verdict_disagreement"
+    - "message text: gate verdict disagreement: receipt <path> says <r>, the workflow held <w>; this comparison establishes no cause"
+    - "_stage_paths(worktree, paths) stages a path under docs/superpowers/execution/<run-id>/ with git add -A -f"
+    - "register-lane ack keys provision: {command, rc, seconds} or provision_error: <text>; preexisting/<id>.txt written for a worktree job when a command ran"
+    - "gate-receipt reads the verified preexisting subset in both modes"
+    - "the external launch argv carries --provision-command and --provision-timeout-sec when the manifest sets them, and neither flag otherwise"
+  acceptance:
+  - 'C: the wave finalizer commits a wave whose run-directory artefacts sit under a gitignored parent. A selftest row builds a temp repo whose .gitignore is docs/, runs the REAL staging path the finalizer uses (the archaeology audit names it: an unguarded git add -A near cmd_finalize_wave, not only _stage_paths), and asserts the artefact is staged. A fix that only touches _stage_paths and passes is REJECTED by this criterion: name in your summary which call sites you changed and why each one needed it.'
+  - 'D: selftest rows show record with a receipt verdict pass and --expect-verdict blocked returning rc 0, ack recorded true, result status success, ack.verdict_disagreement.field == verdict, and a summary naming both values and never the word rewritten; receipt blocked + expect pass records blocked with the disagreement; a receipt whose job_id differs records error; an --expect-diff-digest mismatch records error with field diff_digest; a receipt that mismatches BOTH surfaces the diff_digest (forgery) field, not the verdict one; agreement yields no verdict_disagreement key; the words "rewritten between Gate and Record" no longer appear in the file.'
+  - 'D-binding: the receipt-wins rule rests only on checks the code can actually perform. The archaeology audit found GATE_SCHEMA carries no manifest_digest and nothing sets one, so either gate-receipt starts writing it and record checks it, or the manifest_digest condition is dropped and the code comment says why. A condition that cannot be evaluated must not appear in the comment as though it were enforced. Also close the hole the domain audit found: the workflow appends --expect-diff-digest only when it holds a digest, so a degraded transport sends no digest at all — record must not treat a missing digest as agreement.'
+  - 'A/B: selftest rows show (a) a manifest with provision_command "mkdir -p node_modules/x && touch node_modules/x/a" and a worktree job: register-lane --isolation worktree --cwd <wt> creates node_modules/x/a in the worktree, writes preexisting/<id>.txt listing it, ack.provision.rc == 0, and gate-receipt --mode worktree after one in-lane write returns pass with node_modules absent from changed; (b) the same manifest without provision_command and a job that creates node_modules/x/a itself is blocked with the violation; (c) provision_command "exit 3" yields ack.provision_error naming rc 3, no snapshot, and the gate still runs; (d) an external codex job''s launch argv contains both flags when the manifest sets them and neither when it does not; direct-mode jobs never run the command.'
+  - 'A/B-ceiling: provisioning is reachable in a real run. The domain audit found that register-lane runs as an ordinary agent Bash call whose emitted prompt sets no timeout, so the harness default of 120 s would kill an npm ci long before provision_timeout_s of 600 and resurface the exact node_modules violations this feature exists to remove. The emitted register-lane prompt carries an explicit Bash timeout derived from provision_timeout_s (the Gate prompt already does this — copy that shape), and a selftest asserts the emitted script contains it.'
+  - 'Emitter selftest, tests/test-engine-c-contract.sh and tests/test-worker-path-transport.sh green.'
+  body: 'Implement Task E1 and Task E2 of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md as ONE job (spec F1 emitter half, F2, F3) — the validator forbids two jobs on one file, so both land here, in this order: C (smallest), then D, then A/B; commit after each so a turn-budget exit keeps what is complete. READ THE ARCHAEOLOGY AUDIT FIRST (docs/superpowers/archaeology/2026-09-11-v3-6-wide-dispatch.md): it carries exact line numbers and it CORRECTS this plan in three places — the AC-3 staging failure is at the finalizer''s own unguarded git add -A, not only at _stage_paths; the provisioning gates are hard-OFF branches in cmd_register_lane and cmd_gate_receipt that skip worktree jobs entirely; and GATE_SCHEMA has no manifest_digest, so the D conditions must be adjusted to what is checkable. Read the domain audit too (docs/superpowers/expert/2026-09-11-v3-6-wide-dispatch.md): its MUSTs cover the register-lane prompt timeout and the missing-digest hole. Where an audit contradicts the plan, the audit wins and you say so in your summary. The wave-1 jobs are merged in HEAD: read git log -p since this run''s baseline for the worker flags before wiring them. scripts/compound-v-emit-workflow.py is 8,000+ lines: grep for the named symbols and the selftest rows near "--expect-verdict"; read only those ranges, never the whole file. Tests first for every part: write the rows, run the selftest, see them fail, implement. D: the receipt file is the verdict when it parses, carries this job_id, and has verdict in pass|blocked|error; the workflow''s --expect-verdict is a transport echo; on any difference build verdict_disagreement, attach it to the ack and to the job''s state.json entry, and append " - " plus the message to the result summary; the diff_digest comparison stays an error with the same neutral wording and fields, and is checked BEFORE the verdict one so a forgery signal is never masked; the code comment records the two known ways the echo diverges (a Gate agent whose Bash call timed out before the script finished; an agent that summarised instead of returning verbatim). A/B: provisioning runs through ["/bin/bash", "-c", cmd] with cwd = the registered worktree under compound-v-run-with-timeout.py --timeout <provision_timeout_s>, then the existing direct-mode snapshot code runs rooted at the worktree; a failure falls into the stricter gate (no snapshot), never a looser one; gate-receipt reads the snapshot candidate in both modes; the two flags reach the external launch argv only. Never add an exemption to the scope gate. Touch only scripts/compound-v-emit-workflow.py. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: docs-landed
+  title: 'Task J-DOCS — documentation of what landed (F8)'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on:
+  - scope-workers-provision
+  - validate-keys-advisories
+  - laneguard-unresolved
+  - agents-memory-advisor
+  - vinit-skilldoctor-advisor
+  - second-opinion-ladder
+  - usage-advisor-calls
+  - emitter-19
+  test_scope: impacted
+  write_allowed:
+  - README.md
+  - AGENTS.md
+  - TROUBLESHOOTING.md
+  - CLAUDE.md
+  - skills/compound-v/execution-manifest.md
+  - skills/compound-v/SKILL.md
+  - skills/compound-v/routing-policy.md
+  - commands/v-orchestrate.md
+  - skills/backend-launcher/SKILL.md
+  - skills/backend-launcher/adapter-codex.md
+  - docs/superpowers/architecture/native-mechanisms.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "every name produced by the wave-1 and wave-2 jobs: provision_command, provision_timeout_s, --provision-command, --provision-timeout-sec, verdict_disagreement, candidate_runs, MEMORY_LANE_UNNAMESPACED, SECOND_OPINION_SAME_FAMILY, claude-advisor, usage.advisor_calls, Steps 1f/4e, the memory-path sentence, the disclosure line — read them from HEAD (git log -p since the run baseline), never from memory"
+  acceptance:
+  - 'README.md: three lines (provisioning, advisor, memory path), still ≤ 130 lines, no line over 200 chars outside code/tables. AGENTS.md: memory path at the spec-reviewer bullet, model policy names the advisor, orchestrator surface names provision_command. CLAUDE.md model-policy line names the advisor. routing-policy.md has an advisor section (Fable 5.1 where available, else Opus; subagents inherit; frontmatter never names Fable; the Sonnet carve-out unchanged). execution-manifest.md documents provision_command and provision_timeout_s (idempotent; must not modify tracked files) and the namespaced memory lane. SKILL.md and v-orchestrate.md name the namespaced lane. backend-launcher SKILL.md and adapter-codex.md document the two worker flags. TROUBLESHOOTING.md has three entries: BLOCKED with node_modules violations → provision_command; Record reports a verdict disagreement; what a line in lane-guard-unresolved.jsonl now means. native-mechanisms.md has two rows (advisor; skill-doctor). lint-frontmatter, rules-lint and the CI dead-link rule green; no committed document names the bare .claude/agent-memory/spec-reviewer/** except as a named counter-example.'
+  body: 'Implement Task J-DOCS of docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F8). THE ONE RULE (Oleg, 2026-09-03): documentation must be clear and simple. Plain words, short sentences, one idea per paragraph, every claim true of the code in HEAD; anything measured, historical or defensive is linked (AGENTS.md, CHANGELOG.md, TROUBLESHOOTING.md), never repeated. Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind), then the merged diff of this run (git log -p from the run baseline in state.json to HEAD) before writing a word. Verify every flag, key and step number against the merged code. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: spec-review
+  title: 'Review Gate — three passes against the spec and the nine acceptance criteria'
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - docs-landed
+  write_allowed:
+  - docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; every acceptance criterion AC-1..AC-9 is run on the merged tree with the command and its output quoted (AC-2 by writing a temporary manifest in a temporary repo; AC-3 by a temporary repo that gitignores docs/); the verdict is APPROVED or ISSUES with a numbered list. A learning worth keeping is written under .claude/agent-memory/superpowers-v-spec-reviewer/ and nowhere else.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). Follow it within a HARD BUDGET of 60 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md with the section skeleton and fill it as you verify. Review the ten implementation jobs against docs/superpowers/specs/2026-09-11-v3.6-wide-dispatch-design.md and this manifest''s nine acceptance criteria — run each AC''s commands on the merged tree and quote the output. Pay particular attention to: the scope gate was not relaxed (no new RUN_DIR_EXEMPT_BY_NAME entry; provisioning subtracted only through --preexisting); every behavioural change has a planted-failure selftest row; the disclosure line for the advisor-assisted second look is present verbatim wherever that rung is rendered; no document still names the bare memory path. Your memory directory for this run is .claude/agent-memory/superpowers-v-spec-reviewer/ — it is inside your lane; the bare path is not. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

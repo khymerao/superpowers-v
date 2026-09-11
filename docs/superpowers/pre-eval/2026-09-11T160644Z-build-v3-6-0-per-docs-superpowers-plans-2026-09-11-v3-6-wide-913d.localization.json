@@ -1,0 +1,30 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:ef2ff7edf9b87a7cfb87babbeea83a2bad9d51be6d0779094c89ecef6f524c37",
+  "fan_out": 18,
+  "flags": [
+    "content:config_literal",
+    "new_file",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "AGENTS.md",
+    "README.md",
+    "TROUBLESHOOTING.md",
+    "agents/*.md",
+    "commands/v-init.md",
+    "commands/v-review-plan.md",
+    "docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md",
+    "hooks/lane-guard.sh",
+    "schemas/job_result.schema.json",
+    "scripts/compound-v-emit-workflow.py",
+    "scripts/compound-v-run-*-worker.sh",
+    "scripts/compound-v-scope-check.py",
+    "scripts/compound-v-usage-extract.py",
+    "scripts/compound-v-validate-manifest.py",
+    "skills/compound-v/cross-model-review.md",
+    "tests/test-agent-memory.sh",
+    "tests/test-lane-guard.sh",
+    "tests/test-usage-workflow.sh"
+  ]
+}
