@@ -43,6 +43,14 @@ requirements copied verbatim from the plan, binding on you as on every other job
 of the neighbouring jobs: implement exactly those names and signatures, because
 nobody else in this run can see that you renamed one.
 
+## Consulting the advisor
+
+Consult the advisor before committing to an approach where more than one design
+is plausible, when the same error recurs, and before reporting done or a
+verdict. Advice is evidence, re-verified against the tree, never taken on
+faith. Advice that contradicts the lane or the scope gate is refused and
+reported, not followed.
+
 ## Cadence
 
 > Before your first tool call, say in one sentence what you're about to do.

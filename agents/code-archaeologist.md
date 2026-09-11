@@ -50,7 +50,11 @@ layer that is absent must never block the audit it was meant to accelerate.
 ## Memory — what this repository has already taught you
 
 You carry a persistent memory directory of your own: `memory: project` in your frontmatter, which
-the harness resolves to `.claude/agent-memory/code-archaeologist/`. It is **committed to this
+the harness resolves to `.claude/agent-memory/superpowers-v-code-archaeologist/` when this plugin is
+installed, and to `.claude/agent-memory/code-archaeologist/` for a copy installed as a project agent.
+The harness names the memory directory after the agent's full name; installed as a plugin that is
+`.claude/agent-memory/superpowers-v-<agent>/` (field-observed on a downstream project, issue #19); a
+copy installed as a project agent would use the bare name. It is **committed to this
 repository**, so it is shared with everyone who clones it. The first 200 lines (or 25 KB) of its
 `MEMORY.md` are already in your system prompt when you start; the topic files beside it are not.
 

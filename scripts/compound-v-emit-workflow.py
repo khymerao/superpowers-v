@@ -1743,6 +1743,36 @@ def render_worker_prompt(job, run_id, global_constraints=None):
 EXTERNAL_WORKER_TIMEOUT_CAP = 480
 
 
+PROVISION_TIMEOUT_DEFAULT = 600
+
+
+def _provision_spec(manifest, job):
+    """(command, timeout_s) for this job. Command is None when nothing is declared.
+
+    `provision_command` is a MANIFEST-level declaration — one dependency install
+    for one run — and a job may override it. Reading both costs nothing and means
+    the emitter agrees with the validator whichever level a manifest uses.
+
+    The timeout is the DOCUMENTED default (600 s) whenever the declared value is
+    absent or not a usable positive integer. It is never left implicit: the worker
+    scripts and the register-lane prompt both need a number, and an implicit one
+    is how `--test-timeout-sec` came to default to a figure no document named.
+    """
+    command = None
+    for source in (job or {}, manifest or {}):
+        raw = source.get("provision_command") if isinstance(source, dict) else None
+        if isinstance(raw, str) and raw.strip():
+            command = raw.strip()
+            break
+    timeout = PROVISION_TIMEOUT_DEFAULT
+    for source in (job or {}, manifest or {}):
+        raw = source.get("provision_timeout_s") if isinstance(source, dict) else None
+        if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0:
+            timeout = raw
+            break
+    return command, timeout
+
+
 def build_launch_argv(job, entry, run_id, repo_root, run_dir, model):
     """The COMPLETE worker argv — every flag the worker script requires."""
     argv = [
@@ -1780,6 +1810,15 @@ def build_launch_argv(job, entry, run_id, repo_root, run_dir, model):
                 and 1 <= _tc_timeout_s <= 540):
             _tc_timeout_s = 480
         argv += ["--test-timeout-sec", str(_tc_timeout_s)]
+    # The dependency install the worker runs inside its own fresh worktree,
+    # BEFORE the model launches. Both flags travel together or neither does: a
+    # `--provision-timeout-sec` with no command bounds nothing, and a command
+    # with no bound would sit under the worker script's own default rather than
+    # under the number the manifest declared.
+    if entry.get("provision_command"):
+        argv += ["--provision-command", entry["provision_command"],
+                 "--provision-timeout-sec",
+                 str(entry.get("provision_timeout_s") or PROVISION_TIMEOUT_DEFAULT)]
     return argv
 
 
@@ -2114,6 +2153,11 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
                                      or _worktree_base_is_head(abs_repo_root))
                                 else None),
             "timeout_sec": job.get("timeout_sec"),
+            # Resolved HERE, where the manifest is still in hand: `build_launch_argv`
+            # is handed the entry, not the manifest, and the implement prompt reads
+            # the timeout to size its own Bash call.
+            "provision_command": _provision_spec(manifest, job)[0],
+            "provision_timeout_s": _provision_spec(manifest, job)[1],
             "write_allowed": job.get("write_allowed") or [],
             "read_allowed": job.get("read_allowed") or [],
             # v3.4.17: this task's `**Interfaces:**` block from the plan — the
@@ -2425,6 +2469,29 @@ def _implement_prompt(job, plan):
                     if job.get("recall_check_file") else ""))
     lines.append("```")
     lines.append("")
+    if job.get("agent_isolation") == "worktree" and job.get("provision_command"):
+        # THE HARNESS DEFAULT WOULD KILL THE INSTALL.
+        #
+        # register-lane runs this job's `provision_command` inside the fresh
+        # worktree before anything else, and it is an ordinary agent Bash call —
+        # whose default ceiling is 120 s. A `provision_timeout_s` of 600 buys
+        # nothing if the call wrapping it is cut at two minutes: the install dies
+        # half-done, no snapshot is taken, and the gate blocks the job over the
+        # very `node_modules/` this feature exists to subtract. The Gate stage's
+        # prompt already carries an explicit timeout for the same reason; this is
+        # that shape, sized from the declared bound plus a minute of headroom and
+        # capped at the harness maximum.
+        _prov_ms = min(600000,
+                       ((job.get("provision_timeout_s") or PROVISION_TIMEOUT_DEFAULT)
+                        + 60) * 1000)
+        lines.append("Call the Bash tool with `timeout: %d` for that command: it runs"
+                     % _prov_ms)
+        lines.append("this job's `provision_command` (%s) inside your worktree first,"
+                     % job["provision_command"])
+        lines.append("bounded at %d s, and the harness's 120 s default would kill the"
+                     % (job.get("provision_timeout_s") or PROVISION_TIMEOUT_DEFAULT))
+        lines.append("install half-done — which BLOCKS you for files you did not write.")
+        lines.append("")
     lines.append("That command also PINS this job's baseline commit before anything")
     lines.append("changes, and it fails closed if it cannot. A gate measured against a")
     lines.append("HEAD that moved is a gate that passes the run it should have caught.")
@@ -3774,74 +3841,87 @@ def cmd_gate_receipt(argv):
     realised = _head_commit(root)
 
     allow = job.get("write_allowed") or []
-    # Direct mode only: subtract what was already dirty when the job registered.
-    # Never in worktree mode — a worktree starts clean, so a subtraction there could
-    # only ever hide a real violation.
+    # BOTH MODES subtract what was already there when the job registered, and both
+    # subtract it the same way: only paths whose bytes are UNCHANGED since the
+    # snapshot. The two modes differ in what the snapshot photographs, not in how
+    # far it is trusted.
+    #
+    #   direct   — the checkout's pre-dispatch dirt, which the job did not make.
+    #   worktree — what this job's `provision_command` installed into the fresh
+    #              worktree before the implementer was handed anything to do.
+    #
+    # Worktree mode was excluded until 3.6 on the reasoning that "a worktree starts
+    # clean, so a subtraction there could only ever hide a real violation". That
+    # held while nothing but the model ever wrote into a worktree. A provisioned
+    # worktree does not start clean — it starts with a dependency tree the pipeline
+    # put there — and the exclusion made the gate blame the job for it. What keeps
+    # the subtraction honest is unchanged and is not the mode: the snapshot is
+    # taken before the work, and every path in it is verified by digest, so a
+    # dependency file the job rewrites is gated like any other write.
     foreign = []
     pre = None
-    if args.mode != "worktree":
-        candidate = os.path.join(args.run_dir, "preexisting", "%s.txt" % args.job_id)
-        if os.path.isfile(candidate):
-            # The snapshot binds each path to the digest it had at register time.
-            # Only paths whose bytes STILL match are exempt; a bookkeeping file the
-            # worker rewrote is gated like any other write. scope-check's
-            # `--preexisting` takes a plain path list, so the verified subset is
-            # materialised next to the snapshot rather than handed over whole.
-            kept = read_preexisting_unchanged(candidate, root)
-            # Plus everything the pipeline owns in THIS run directory, by name.
-            # `state.json` is shared — a sibling job's Record rewrites it between
-            # this job registering and its gate running, so a digest taken at
-            # register time can never match again — and `<id>.verified.txt` is
-            # written by this very block, after registration. Both were violations
-            # until dogfood 10 ran a two-wave direct-mode job and blocked its own
-            # reviewer over them. The two levers a worker could actually pull —
-            # `jobs/<id>.baseline` and `preexisting/<id>.txt` — are excluded from
-            # this by-name pass and stay digest-bound.
-            run_rel = os.path.relpath(os.path.abspath(args.run_dir),
-                                      os.path.abspath(root))
-            if not run_rel.startswith(".." + os.sep):
-                run_rel = run_rel.replace(os.sep, "/")
-                seen = set(kept)
-                for dirpath, _dn, filenames in os.walk(args.run_dir):
-                    for name in filenames:
-                        rel = os.path.relpath(
-                            os.path.abspath(os.path.join(dirpath, name)),
-                            os.path.abspath(root)).replace(os.sep, "/")
-                        if rel in seen:
-                            continue
-                        if run_dir_owned_by_name(rel, run_rel, args.job_id):
-                            kept.append(rel)
-                            seen.add(rel)
-            verified = os.path.join(args.run_dir, "preexisting",
-                                    "%s.verified.txt" % args.job_id)
-            # THE FILE MUST LIST ITSELF. It is written after `kept` is built, so the
-            # run-directory walk above cannot have seen it — dogfood 12 blocked on
-            # this one path and nothing else, the self-reference one layer deeper
-            # than dogfood 11's. Adding its own path is the whole fix: a list that
-            # does not exempt itself can never let a direct-mode job pass.
-            # THE FILES THAT DO NOT EXIST YET, ADDED BY CONSTRUCTION.
-            #
-            # The walk above can only list what is on disk NOW. Three of this job's
-            # pipeline files are written LATER — this verified list, the gate's own
-            # receipt, and Record's result — so a predicate that recognises them is
-            # not enough; they have to be named. Dogfood 21 proved that the hard
-            # way: the predicate was right, the walk simply could not see them, and
-            # the run failed on the same two paths as dogfood 20.
-            #
-            # Chasing these one per run cost five dogfoods. They are enumerated here
-            # ONCE, from the three places in this file that write them.
-            for _later in (verified,
-                           os.path.join(args.run_dir, "receipts",
-                                        "%s.gate.json" % args.job_id),
-                           patch_artifact_path(args.run_dir, args.job_id),
-                           os.path.join(args.run_dir, "results",
-                                        "%s.json" % args.job_id)):
-                _rel = os.path.relpath(os.path.abspath(_later),
-                                       os.path.abspath(root)).replace(os.sep, "/")
-                if not _rel.startswith("../") and _rel not in kept:
-                    kept.append(_rel)
-            _atomic_write(verified, "\n".join(kept) + ("\n" if kept else ""))
-            pre = verified
+    candidate = os.path.join(args.run_dir, "preexisting", "%s.txt" % args.job_id)
+    if os.path.isfile(candidate):
+        # The snapshot binds each path to the digest it had at register time.
+        # Only paths whose bytes STILL match are exempt; a bookkeeping file the
+        # worker rewrote is gated like any other write. scope-check's
+        # `--preexisting` takes a plain path list, so the verified subset is
+        # materialised next to the snapshot rather than handed over whole.
+        kept = read_preexisting_unchanged(candidate, root)
+        # Plus everything the pipeline owns in THIS run directory, by name.
+        # `state.json` is shared — a sibling job's Record rewrites it between
+        # this job registering and its gate running, so a digest taken at
+        # register time can never match again — and `<id>.verified.txt` is
+        # written by this very block, after registration. Both were violations
+        # until dogfood 10 ran a two-wave direct-mode job and blocked its own
+        # reviewer over them. The two levers a worker could actually pull —
+        # `jobs/<id>.baseline` and `preexisting/<id>.txt` — are excluded from
+        # this by-name pass and stay digest-bound.
+        run_rel = os.path.relpath(os.path.abspath(args.run_dir),
+                                  os.path.abspath(root))
+        if not run_rel.startswith(".." + os.sep):
+            run_rel = run_rel.replace(os.sep, "/")
+            seen = set(kept)
+            for dirpath, _dn, filenames in os.walk(args.run_dir):
+                for name in filenames:
+                    rel = os.path.relpath(
+                        os.path.abspath(os.path.join(dirpath, name)),
+                        os.path.abspath(root)).replace(os.sep, "/")
+                    if rel in seen:
+                        continue
+                    if run_dir_owned_by_name(rel, run_rel, args.job_id):
+                        kept.append(rel)
+                        seen.add(rel)
+        verified = os.path.join(args.run_dir, "preexisting",
+                                "%s.verified.txt" % args.job_id)
+        # THE FILE MUST LIST ITSELF. It is written after `kept` is built, so the
+        # run-directory walk above cannot have seen it — dogfood 12 blocked on
+        # this one path and nothing else, the self-reference one layer deeper
+        # than dogfood 11's. Adding its own path is the whole fix: a list that
+        # does not exempt itself can never let a direct-mode job pass.
+        # THE FILES THAT DO NOT EXIST YET, ADDED BY CONSTRUCTION.
+        #
+        # The walk above can only list what is on disk NOW. Three of this job's
+        # pipeline files are written LATER — this verified list, the gate's own
+        # receipt, and Record's result — so a predicate that recognises them is
+        # not enough; they have to be named. Dogfood 21 proved that the hard
+        # way: the predicate was right, the walk simply could not see them, and
+        # the run failed on the same two paths as dogfood 20.
+        #
+        # Chasing these one per run cost five dogfoods. They are enumerated here
+        # ONCE, from the three places in this file that write them.
+        for _later in (verified,
+                       os.path.join(args.run_dir, "receipts",
+                                    "%s.gate.json" % args.job_id),
+                       patch_artifact_path(args.run_dir, args.job_id),
+                       os.path.join(args.run_dir, "results",
+                                    "%s.json" % args.job_id)):
+            _rel = os.path.relpath(os.path.abspath(_later),
+                                   os.path.abspath(root)).replace(os.sep, "/")
+            if not _rel.startswith("../") and _rel not in kept:
+                kept.append(_rel)
+        _atomic_write(verified, "\n".join(kept) + ("\n" if kept else ""))
+        pre = verified
     rc, raw_stdout, err, parsed = _run_scope_check(
         args.scope_check, args.mode, root, baseline, allow, args.python, preexisting=pre
     )
@@ -4059,11 +4139,19 @@ def _stage_paths(worktree, paths):
     refused by the finalizer). A path whose removal is already in the index is
     already staged; accept it. A path that is neither on disk, nor in the index,
     nor staged as removed is still an error.
+
+    `-f` (force) because a path may sit under a GITIGNORED PARENT. A repository
+    that ignores `docs/` — a generated-docs convention, and not a rare one —
+    makes every run-directory artefact invisible to a plain `git add`, which
+    fails with "ignored by one of your .gitignore files" and takes the whole
+    finalize with it. The pathspec is not a wildcard: every path here was named
+    by the gate's `files_changed` or by the pipeline's own bookkeeping list, so
+    forcing adds exactly what was already approved and nothing a scan swept up.
     """
     for path in paths:
         if not path:
             continue
-        rc, _, err = _git(worktree, ["add", "-A", "--", path])
+        rc, _, err = _git(worktree, ["add", "-A", "-f", "--", path])
         if rc != 0:
             rc2, staged, _e2 = _git(worktree, ["diff", "--cached", "--name-only",
                                               "--diff-filter=D", "--", path])
@@ -4593,6 +4681,85 @@ def _job_result_from(verdict, job, state_job, tests=None, contract=None,
     return result
 
 
+VERDICT_DISAGREEMENT_MESSAGE = (
+    "gate verdict disagreement: receipt %s says %s, the workflow held %s; "
+    "this comparison establishes no cause"
+)
+
+
+def _bind_receipt(verdict, receipt_file, job_id, exp_verdict, exp_digest):
+    """Bind a receipt read from a FILE to what the workflow saw. (verdict, disagreement).
+
+    WHY THE RECEIPT WINS ON THE VERDICT FIELD, AND ONLY THERE.
+    The receipt is the artefact the gate wrote and the artefact the integration
+    authority re-derives against; the workflow's `--expect-verdict` is a value
+    carried through an agent's transport, and an agent that mis-reads or re-types
+    one field is the likelier of the two failures. Until 3.6 a mismatch produced
+    `status: error` and a summary asserting "the receipt was rewritten between
+    Gate and Record" — a CAUSE the code never established. A difference between
+    two readings is a difference; it is recorded as one, both values named, and
+    the receipt's own verdict is what gets recorded.
+
+    WHAT RECEIPT-WINS ACTUALLY RESTS ON — three checks this code performs:
+
+      1. the receipt is read from a path the caller named, and its `job_id` must
+         equal the job being recorded (a receipt for another job is an `error`,
+         never a silent record against the wrong lane);
+      2. `diff_digest` must match the workflow's, when the workflow holds one —
+         the content binding. A digest mismatch is FORGERY, not a disagreement,
+         and it is checked FIRST so a receipt that mismatches both surfaces the
+         forgery rather than the softer verdict finding;
+      3. a workflow that bound the verdict but sent NO digest, against a receipt
+         that carries one, is a degraded transport — refused, because a missing
+         digest is not agreement. Treating it as agreement is exactly the hole a
+         forger would use: rewrite the receipt AND drop the digest flag.
+
+    There is deliberately NO manifest_digest condition here. GATE_SCHEMA carries
+    no such field and `gate-receipt` writes none, so a comment claiming the
+    manifest is bound *by the receipt* would name a check the code cannot run.
+    The manifest IS bound, on both sides and independently: `manifest_digest_fault`
+    compares it against the emit-time digest in `gate-receipt` and again in
+    `record`. That is the whole of it.
+    """
+    receipt_verdict = str(verdict.get("verdict"))
+    path = receipt_file or ""
+
+    receipt_job = verdict.get("job_id")
+    if isinstance(receipt_job, str) and receipt_job.strip() and receipt_job != job_id:
+        # No `verdict_disagreement` on this branch: that field's `field` is a
+        # two-value vocabulary (`verdict` | `diff_digest`) other jobs render and
+        # validate against, and a receipt for another job is not a disagreement
+        # about a gate — it is the wrong document. The reason names both ids.
+        return {"verdict": "error", "reason":
+                "receipt %s is job %r, but this record is for %r — a receipt is "
+                "bound to the job it was written for"
+                % (path, receipt_job, job_id)}, None
+
+    receipt_digest = verdict.get("diff_digest")
+    receipt_digest_s = "" if receipt_digest is None else str(receipt_digest)
+    if exp_digest and receipt_digest_s != exp_digest:
+        return {"verdict": "error", "reason":
+                "receipt %s carries diff_digest %s, the workflow held %s — the "
+                "digests bind the receipt to the tree the gate measured, so a "
+                "mismatch is refused rather than recorded"
+                % (path, receipt_digest_s or "none", exp_digest)}, {
+                    "field": "diff_digest", "receipt": receipt_digest_s,
+                    "workflow": exp_digest, "receipt_path": path}
+    if exp_verdict and not exp_digest and receipt_digest_s:
+        return {"verdict": "error", "reason":
+                "receipt %s carries diff_digest %s and the workflow passed none — "
+                "an unbound digest is not an agreeing one, and the record refuses "
+                "rather than accepting a receipt nothing binds to a tree"
+                % (path, receipt_digest_s)}, {
+                    "field": "diff_digest", "receipt": receipt_digest_s,
+                    "workflow": "", "receipt_path": path}
+
+    if exp_verdict and receipt_verdict != exp_verdict:
+        return verdict, {"field": "verdict", "receipt": receipt_verdict,
+                         "workflow": exp_verdict, "receipt_path": path}
+    return verdict, None
+
+
 def cmd_record(argv):
     ap = argparse.ArgumentParser(prog="compound-v-emit-workflow.py record")
     ap.add_argument("--run-dir", required=True)
@@ -4634,6 +4801,7 @@ def cmd_record(argv):
     run_dir = os.path.abspath(args.run_dir)
     job_id = args.job_id
     ack = {"job_id": job_id, "recorded": False, "merged": False}
+    verdict_disagreement = None
     retry_meta, retry_meta_err = _sanitize_retry_meta(getattr(args, "retries_json", None))
     if retry_meta_err:
         ack["retry_meta_error"] = retry_meta_err
@@ -4645,16 +4813,8 @@ def cmd_record(argv):
             _exp_v = (args.expect_verdict or "").strip()
             _exp_d = (args.expect_diff_digest or "").strip()
             if isinstance(verdict, dict):
-                if _exp_v and str(verdict.get("verdict")) != _exp_v:
-                    verdict = {"verdict": "error", "reason":
-                               "receipt file says verdict %r but the workflow saw %r — "
-                               "the receipt was rewritten between Gate and Record"
-                               % (verdict.get("verdict"), _exp_v)}
-                elif _exp_d and str(verdict.get("diff_digest")) != _exp_d:
-                    verdict = {"verdict": "error", "reason":
-                               "receipt file diff_digest %r != the workflow's %r — "
-                               "the receipt was rewritten between Gate and Record"
-                               % (verdict.get("diff_digest"), _exp_d)}
+                verdict, verdict_disagreement = _bind_receipt(
+                    verdict, args.verdict_file, job_id, _exp_v, _exp_d)
         elif args.verdict_json:
             verdict = json.loads(args.verdict_json)
         else:
@@ -4856,6 +5016,22 @@ def cmd_record(argv):
                               contract=contract, isolation=isolation, tier=tier,
                               contract_declared=_contract_declared)
 
+    # ---- the two readings differed; say so, and say nothing more ------------
+    # It rides on the ACK and on state.json, never as a new top-level key on the
+    # result: schemas/job_result.schema.json is `additionalProperties: false`,
+    # and that file is outside this change's write lane. The result carries the
+    # fact where the schema allows one — in `summary`, naming both values.
+    if verdict_disagreement:
+        ack["verdict_disagreement"] = verdict_disagreement
+        state_job["verdict_disagreement"] = verdict_disagreement
+        if verdict_disagreement.get("field") == "verdict":
+            _msg = VERDICT_DISAGREEMENT_MESSAGE % (
+                verdict_disagreement.get("receipt_path") or "(inline)",
+                verdict_disagreement.get("receipt"),
+                verdict_disagreement.get("workflow"))
+            _prior = str(result.get("summary") or "").strip()
+            result["summary"] = (_prior + " — " + _msg) if _prior else _msg
+
     # ---- the workflow's retry log ------------------------------------------
     # It lands in state.json and in this ack, NOT as a new top-level key on the
     # result: schemas/job_result.schema.json is `additionalProperties: false`
@@ -4968,6 +5144,36 @@ def cmd_record(argv):
 # authority over exactly this wave's jobs, refuses everything on anything other
 # than `permitted`, and finishes with a real commit.
 # --------------------------------------------------------------------------- #
+def _stage_run_bookkeeping(repo_root, run_dir):
+    """Stage the run's own record. Returns the run dir's repo-relative path, or None.
+
+    THE FORCE FLAG IS THE POINT. This is a directory SCAN, not a named pathspec
+    like `_stage_paths`, and a repository whose `.gitignore` carries `docs/`
+    (generated documentation is commonly ignored, and Compound V's run directory
+    lives at `docs/superpowers/execution/<run-id>/`) makes every artefact of the
+    run invisible to a plain `git add -A -- <dir>`: git refuses the pathspec as
+    ignored, the bookkeeping commit finds nothing staged, and the run finalizes
+    with its state.json, receipts and results untracked — the exact shape of the
+    v2.6.4 data loss, where `git worktree remove` then deleted the audit trail.
+    What is forced is bounded by the pathspec: this run's own directory and the
+    two pipeline-owned memory streams, never the tree at large.
+
+    The lock file is un-staged again right after, because it is the one thing in
+    the run directory that belongs to a process and not to the record.
+    """
+    bk_rel = os.path.relpath(os.path.abspath(run_dir), os.path.abspath(repo_root))
+    if bk_rel.startswith(".." + os.sep) or bk_rel == "..":
+        return None
+    _run(["git", "-C", repo_root, "add", "-A", "-f", "--", bk_rel])
+    _run(["git", "-C", repo_root, "reset", "-q", "--",
+          os.path.join(bk_rel, ".run.lock")])
+    for stream in ("docs/superpowers/memory/triage-outcomes.jsonl",
+                   "docs/superpowers/memory/worker-performance.jsonl"):
+        if os.path.exists(os.path.join(repo_root, stream)):
+            _run(["git", "-C", repo_root, "add", "-f", "--", stream])
+    return bk_rel
+
+
 def _commit_paths(repo_root, paths, message):
     """Commit exactly these paths. Returns (sha or None, error or None).
 
@@ -5551,15 +5757,8 @@ def cmd_finalize_wave(argv):
     # gate reds on push (finding 56). A refused job's evidence is exactly the
     # record a human needs committed.
     if (out["merged"] or out["refused"]) and out.get("commit") and not args.no_commit:
-        _bk_rel = os.path.relpath(os.path.abspath(run_dir), os.path.abspath(repo_root))
-        if not _bk_rel.startswith(".." + os.sep) and _bk_rel != "..":
-            _run(["git", "-C", repo_root, "add", "-A", "--", _bk_rel])
-            _run(["git", "-C", repo_root, "reset", "-q", "--",
-                  os.path.join(_bk_rel, ".run.lock")])
-            for _stream in ("docs/superpowers/memory/triage-outcomes.jsonl",
-                            "docs/superpowers/memory/worker-performance.jsonl"):
-                if os.path.exists(os.path.join(repo_root, _stream)):
-                    _run(["git", "-C", repo_root, "add", "--", _stream])
+        _bk_rel = _stage_run_bookkeeping(repo_root, run_dir)
+        if _bk_rel:
             _rc_q, _, _ = _run(["git", "-C", repo_root, "diff", "--cached", "--quiet"])
             if _rc_q != 0:
                 _rc_bk, _, _err_bk = _run([
@@ -5609,12 +5808,22 @@ def cmd_register_lane(argv):
     # An external job's wrapper (backend != claude) is listed, never a claim on
     # the checkout (finding 78). Read the backend off the manifest when given.
     _is_external_wrapper = False
-    if args.manifest and os.path.exists(args.manifest):
+    # DEFAULTED, exactly as `record` defaults it. The emitted prompt's register-lane
+    # command carries no `--manifest`, so a manifest read only when the flag is
+    # present is a manifest never read in a real run — and everything downstream of
+    # it (the backend flag, and now the job's `provision_command`) would be dead
+    # code that every selftest passing `--manifest` by hand would still exercise.
+    _reg_manifest_path = os.path.abspath(
+        args.manifest or os.path.join(run_dir, "manifest.yaml"))
+    _reg_manifest = {}
+    _reg_job = None
+    if os.path.exists(_reg_manifest_path):
         try:
-            _reg_manifest = _load_manifest_dict(args.manifest)
+            _reg_manifest = _load_manifest_dict(_reg_manifest_path) or {}
             _reg_job = _manifest_job(_reg_manifest, args.job_id) if isinstance(_reg_manifest, dict) else None
             _is_external_wrapper = bool(_reg_job) and str(_reg_job.get("backend") or "claude") != "claude"
         except Exception:  # noqa: BLE001 — an unreadable manifest is the validator's problem, not this flag's
+            _reg_manifest, _reg_job = {}, None
             _is_external_wrapper = False
     lane = register_lane(
         run_dir, args.job_id, args.cwd,
@@ -5651,6 +5860,74 @@ def cmd_register_lane(argv):
             # Fail OPEN into a stricter gate, never a looser one: with no snapshot
             # the gate subtracts nothing and a dirty tree blocks. Loud, not silent.
             ack["preexisting_error"] = str(exc)
+    else:
+        # ---- WORKTREE MODE: PROVISION, THEN PHOTOGRAPH ---------------------- #
+        # A fresh worktree starts clean and therefore starts WITHOUT the
+        # dependencies the repository's own toolchain needs. A job that runs
+        # `npm ci` or `pip install -e .` to get its tests to run then owns
+        # `node_modules/` in the gate's eyes, and is BLOCKED for writes it was
+        # required to make. The four external worker scripts already solve this
+        # for themselves; a Claude job in a runtime-provided worktree has no
+        # worker script, so this command is that half.
+        #
+        # ORDER IS THE WHOLE SAFETY ARGUMENT, and it is the same argument as
+        # direct mode's: the command runs HERE, before the implementer has been
+        # given anything to do, so the snapshot separates "the install put it
+        # there" from "the job wrote it". The snapshot binds each path to its
+        # bytes, so a dependency file the job later REWRITES is gated like any
+        # other write; the subtraction forgives presence, never content.
+        #
+        # The model never runs this command and cannot choose it: it comes from
+        # the manifest a human reviewed, and register-lane is the pipeline's own
+        # tool call, not the job's.
+        _prov_cmd, _prov_timeout = _provision_spec(_reg_manifest, _reg_job or {})
+        snap_p = os.path.join(run_dir, "preexisting", "%s.txt" % args.job_id)
+        if _prov_cmd and os.path.exists(snap_p):
+            # ONE-SHOT, for the direct-mode reason: a second register-lane must
+            # not re-photograph a tree the job has since written to. Reported the
+            # way direct mode reports it — a sentence, not a `provision` object
+            # with a null `rc` where every consumer expects an exit status.
+            ack["preexisting"] = (
+                "unchanged (snapshot already taken); provision_command not re-run")
+        elif _prov_cmd:
+            _t0 = time.time()
+            try:
+                _pp = subprocess.Popen(_prov_cmd, shell=True, cwd=os.path.abspath(args.cwd),
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                try:
+                    _pout, _ = _pp.communicate(timeout=_prov_timeout)
+                    _prc = _pp.returncode
+                except subprocess.TimeoutExpired:
+                    _pp.kill()
+                    _pp.communicate()
+                    _pout, _prc = b"", None
+            except Exception as exc:  # noqa: BLE001
+                _pout, _prc = str(exc).encode("utf-8", "replace"), None
+            _secs = round(time.time() - _t0, 3)
+            if _prc == 0:
+                ack["provision"] = {"command": _prov_cmd, "rc": 0, "seconds": _secs}
+                try:
+                    pre = _preexisting_snapshot(args.cwd, sys.executable)
+                    os.makedirs(os.path.dirname(snap_p), exist_ok=True)
+                    ack["preexisting"] = write_preexisting(snap_p, args.cwd, pre)
+                except Exception as exc:  # noqa: BLE001
+                    ack["preexisting_error"] = str(exc)
+            else:
+                # NO SNAPSHOT ON A FAILED INSTALL, and the job still runs. A
+                # half-finished install must not be photographed as if it were
+                # the intended starting state — that would exempt whatever it
+                # managed to write. The gate is left strict, the failure is named
+                # with its exit code, and the job proceeds: a dependency install
+                # that failed is a fact the human reading this run needs, not a
+                # reason for the pipeline to refuse to start.
+                ack["provision_error"] = (
+                    "provision_command %r %s — no snapshot was taken, so every "
+                    "path it created is gated as this job's own write%s"
+                    % (_prov_cmd,
+                       ("timed out after %s s" % _prov_timeout) if _prc is None
+                       else ("exited rc %d" % _prc),
+                       (": " + _pout.decode("utf-8", "replace").strip()[-300:])
+                       if _pout else ""))
 
     # ---- PIN THE BASELINE, before anything has run ------------------------- #
     # This command is the Implement stage's FIRST tool call, which makes it the
@@ -7620,7 +7897,7 @@ def selftest():
             _check("finding 69: a receipt whose diff_digest is not what the workflow saw is "
                    "recorded as an ERROR, never as success",
                    _bad_res.get("status") == "error"
-                   and "rewritten" in str(_bad_res.get("summary")), str(_bad_res)[:200])
+                   and "diff_digest" in str(_bad_res.get("summary")), str(_bad_res)[:200])
             shutil.rmtree(_f69_run, ignore_errors=True)
             with _quiet():
                 cmd_record([
@@ -9043,6 +9320,358 @@ def selftest():
                    and ("produce(%s) -> y" % n) in _sent_wp
                    for n in _sent_names)
                and all(n in _sent_wp for n in _sent_names))
+
+        # ==== v3.6 ============================================================
+        # Three changes, one section: the finalizer's forced staging (C), the
+        # receipt/workflow verdict comparison (D), and worktree provisioning
+        # (A/B). Each row fails if its change is reverted.
+        if have_yaml:
+            import yaml as _yaml36
+
+            def _cap36(fn, argv):
+                """Run a subcommand and return (rc, its printed ack)."""
+                buf = io.StringIO()
+                saved, sys.stdout = sys.stdout, buf
+                try:
+                    rc = fn(argv)
+                finally:
+                    sys.stdout = saved
+                try:
+                    return rc, json.loads(buf.getvalue())
+                except ValueError:
+                    return rc, {}
+
+            # ---- C: the run record lands even under a gitignored parent ------
+            # A repository that ignores `docs/` ignores the whole run directory,
+            # and an unforced `git add` then stages NOTHING: state.json, receipts
+            # and results stay untracked, and `git worktree remove` deletes them.
+            _ig_repo = os.path.join(tmp, "v36-ignored-docs")
+            _init_repo(_ig_repo)
+            _atomic_write(os.path.join(_ig_repo, ".gitignore"), "docs/\n")
+            _run(["git", "-C", _ig_repo, "add", "-A"])
+            _run(["git", "-C", _ig_repo, "commit", "-q", "-m", "ignore docs/"])
+            _ig_run = os.path.join(_ig_repo, "docs", "superpowers", "execution", "ig36")
+            os.makedirs(_ig_run, exist_ok=True)
+            _atomic_write(os.path.join(_ig_run, "state.json"),
+                          json.dumps({"run_id": "ig36", "jobs": {}}) + "\n")
+            _atomic_write(os.path.join(_ig_run, ".run.lock"), "held\n")
+            _stage_run_bookkeeping(_ig_repo, _ig_run)
+            _, _ig_staged, _ = _run(["git", "-C", _ig_repo, "diff", "--cached",
+                                     "--name-only"])
+            _ig_list = _ig_staged.split()
+            _check("C: the wave finalizer stages the run's own record even when a "
+                   "parent directory is gitignored",
+                   "docs/superpowers/execution/ig36/state.json" in _ig_list,
+                   _ig_staged)
+            _check("C: ...and the run lock is still left out of it",
+                   "docs/superpowers/execution/ig36/.run.lock" not in _ig_list,
+                   _ig_staged)
+            _check("C: cmd_finalize_wave stages through that helper — the fix is "
+                   "not a local `git add` it can drift from",
+                   "_stage_run_bookkeeping" in set(cmd_finalize_wave.__code__.co_names))
+            _atomic_write(os.path.join(_ig_repo, "docs", "gate-approved.txt"), "x\n")
+            _ok_ig, _err_ig = _stage_paths(_ig_repo, ["docs/gate-approved.txt"])
+            _check("C: _stage_paths — the OTHER staging site, used for merge-back "
+                   "and the wave commit — stages a gate-approved path under a "
+                   "gitignored parent too", _ok_ig, str(_err_ig))
+
+            # ---- D: two readings of one gate, compared and named -------------
+            _d_repo = os.path.join(tmp, "v36-record")
+            _init_repo(_d_repo)
+            _d_run = os.path.join(_d_repo, "docs", "superpowers", "execution", "r36")
+            os.makedirs(_d_run, exist_ok=True)
+            _d_man = os.path.join(_d_run, "manifest.yaml")
+            with open(_d_man, "w", encoding="utf-8") as fh:
+                _yaml36.safe_dump({"run_id": "r36", "jobs": [
+                    {"id": "d1", "isolation": "direct",
+                     "write_allowed": ["src/**"]}]}, fh)
+            with _quiet():
+                cmd_register_lane(["--run-dir", _d_run, "--job-id", "d1",
+                                   "--cwd", _d_repo, "--repo-root", _d_repo,
+                                   "--isolation", "direct", "--manifest", _d_man,
+                                   "--no-test-contract"])
+            os.makedirs(os.path.join(_d_repo, "src"), exist_ok=True)
+            _atomic_write(os.path.join(_d_repo, "src", "work.txt"), "in lane\n")
+            with _quiet():
+                _rc_dg = cmd_gate_receipt(["--run-dir", _d_run, "--job-id", "d1",
+                                           "--repo-root", _d_repo,
+                                           "--worktree", _d_repo,
+                                           "--manifest", _d_man, "--mode", "direct"])
+            _d_receipt = _read_json(os.path.join(_d_run, "receipts", "d1.gate.json"),
+                                    {}) or {}
+            _check("D: the direct gate passes and writes the receipt the rows below "
+                   "compare against",
+                   _rc_dg == 0 and _d_receipt.get("verdict") == "pass"
+                   and bool(_d_receipt.get("diff_digest")))
+            _d_dig = str(_d_receipt.get("diff_digest"))
+
+            def _rec36(tag, extra, mutate=None):
+                """Record against a THROWAWAY copy of the run — a record is write-once."""
+                r = _d_run + "-" + tag
+                shutil.rmtree(r, ignore_errors=True)
+                shutil.copytree(_d_run, r)
+                rf = os.path.join(r, "receipts", "d1.gate.json")
+                if mutate:
+                    doc = _read_json(rf, {}) or {}
+                    doc.update(mutate)
+                    _atomic_write(rf, json.dumps(doc, indent=2, sort_keys=True) + "\n")
+                rc, ack = _cap36(cmd_record, [
+                    "--run-dir", r, "--job-id", "d1",
+                    "--manifest", os.path.join(r, "manifest.yaml"),
+                    "--verdict-file", rf, "--repo-root", _d_repo,
+                    "--now", "2026-09-11T00:00:00Z"] + extra)
+                return (rc, ack,
+                        _read_json(os.path.join(r, "results", "d1.json"), {}) or {},
+                        _load_state(r)["jobs"].get("d1") or {})
+
+            _rc1, _ack1, _res1, _st1 = _rec36(
+                "vdis", ["--expect-verdict", "blocked", "--expect-diff-digest", _d_dig])
+            _dis1 = _ack1.get("verdict_disagreement") or {}
+            _check("D: a receipt that says pass where the workflow held blocked is "
+                   "RECORDED, not refused — the receipt is the artefact",
+                   _rc1 == 0 and _ack1.get("recorded") is True
+                   and _res1.get("status") == "success",
+                   "rc=%s ack=%s" % (_rc1, json.dumps(_ack1)[:200]))
+            _check("D: ...and the disagreement is reported as one, on both surfaces",
+                   _dis1.get("field") == "verdict"
+                   and _dis1.get("receipt") == "pass"
+                   and _dis1.get("workflow") == "blocked"
+                   and _dis1.get("receipt_path", "").endswith("d1.gate.json")
+                   and (_st1.get("verdict_disagreement") or {}).get("field") == "verdict",
+                   json.dumps(_dis1))
+            _check("D: ...and the summary names BOTH values and asserts no cause",
+                   "pass" in str(_res1.get("summary"))
+                   and "blocked" in str(_res1.get("summary"))
+                   and "establishes no cause" in str(_res1.get("summary"))
+                   and "rewritten" not in str(_res1.get("summary")),
+                   str(_res1.get("summary"))[:240])
+
+            _rc2, _ack2, _res2, _ = _rec36(
+                "blocked", ["--expect-verdict", "pass", "--expect-diff-digest", _d_dig],
+                mutate={"verdict": "blocked"})
+            _check("D: the mirror case records the receipt's BLOCKED verdict, with "
+                   "the same disagreement recorded beside it",
+                   _rc2 == 0 and _res2.get("status") == "blocked"
+                   and (_ack2.get("verdict_disagreement") or {}).get("receipt") == "blocked"
+                   and (_ack2.get("verdict_disagreement") or {}).get("workflow") == "pass",
+                   json.dumps(_ack2)[:240])
+
+            _rc3, _ack3, _res3, _ = _rec36(
+                "otherjob", ["--expect-verdict", "pass", "--expect-diff-digest", _d_dig],
+                mutate={"job_id": "someone-else"})
+            _check("D: a receipt written for ANOTHER job is an error — receipt-wins "
+                   "never spans jobs",
+                   _res3.get("status") == "error"
+                   and "someone-else" in str(_res3.get("summary"))
+                   and "verdict_disagreement" not in _ack3,
+                   json.dumps(_ack3)[:240])
+
+            _rc4, _ack4, _res4, _ = _rec36(
+                "digest", ["--expect-verdict", "pass",
+                           "--expect-diff-digest", "sha256:" + "0" * 64])
+            _check("D: a diff_digest mismatch is FORGERY and still records an error",
+                   _res4.get("status") == "error"
+                   and (_ack4.get("verdict_disagreement") or {}).get("field") == "diff_digest",
+                   json.dumps(_ack4)[:240])
+
+            _rc5, _ack5, _res5, _ = _rec36(
+                "both", ["--expect-verdict", "blocked",
+                         "--expect-diff-digest", "sha256:" + "0" * 64])
+            _check("D: a receipt that mismatches BOTH surfaces the digest — the "
+                   "forgery, not the softer verdict finding",
+                   _res5.get("status") == "error"
+                   and (_ack5.get("verdict_disagreement") or {}).get("field") == "diff_digest",
+                   json.dumps(_ack5)[:240])
+
+            _rc6, _ack6, _res6, _ = _rec36("nodigest", ["--expect-verdict", "pass"])
+            _check("D: a workflow that bound the verdict but sent NO digest is a "
+                   "degraded transport, never an agreement",
+                   _res6.get("status") == "error"
+                   and (_ack6.get("verdict_disagreement") or {}).get("field") == "diff_digest",
+                   json.dumps(_ack6)[:240])
+
+            _rc7, _ack7, _res7, _st7 = _rec36(
+                "agree", ["--expect-verdict", "pass", "--expect-diff-digest", _d_dig])
+            _check("D: agreement carries NO verdict_disagreement key at all",
+                   _rc7 == 0 and _res7.get("status") == "success"
+                   and "verdict_disagreement" not in _ack7
+                   and "verdict_disagreement" not in _st7,
+                   json.dumps(_ack7)[:240])
+            _banned36 = " ".join(["rewritten", "between", "Gate", "and", "Record"])
+            with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+                _self36 = fh.read()
+            _check("D: the unprovable cause is gone from this file — a comparison "
+                   "is a comparison, not a discovered rewrite",
+                   _banned36 not in _self36)
+
+            # ---- A/B: provisioning a worktree before the implementer runs ----
+            _prov_cmd36 = "mkdir -p node_modules/x && touch node_modules/x/a"
+
+            def _prov_repo36(tag, command):
+                repo = os.path.join(tmp, "v36-prov-" + tag)
+                _init_repo(repo)
+                wt = os.path.join(tmp, "v36-provwt-" + tag)
+                _run(["git", "-C", repo, "worktree", "add", "-q", "--detach", wt, "HEAD"])
+                run_dir = os.path.join(repo, "docs", "superpowers", "execution", "p36")
+                os.makedirs(run_dir, exist_ok=True)
+                doc = {"run_id": "p36", "jobs": [
+                    {"id": "w1", "isolation": "worktree", "write_allowed": ["src/**"]}]}
+                if command:
+                    doc["provision_command"] = command
+                man = os.path.join(run_dir, "manifest.yaml")
+                with open(man, "w", encoding="utf-8") as fh:
+                    _yaml36.safe_dump(doc, fh)
+                return repo, wt, run_dir, man
+
+            _pa_repo, _pa_wt, _pa_run, _pa_man = _prov_repo36("ok", _prov_cmd36)
+            _rc_pa, _ack_pa = _cap36(cmd_register_lane, [
+                "--run-dir", _pa_run, "--job-id", "w1", "--cwd", _pa_wt,
+                "--repo-root", _pa_repo, "--isolation", "worktree",
+                "--manifest", _pa_man, "--no-test-contract"])
+            _pa_snap = os.path.join(_pa_run, "preexisting", "w1.txt")
+            _check("A: register-lane runs the manifest's provision_command inside "
+                   "the worktree, before the implementer has anything to do",
+                   os.path.exists(os.path.join(_pa_wt, "node_modules", "x", "a"))
+                   and (_ack_pa.get("provision") or {}).get("rc") == 0,
+                   json.dumps(_ack_pa)[:240])
+            _check("A: ...and photographs what it installed",
+                   os.path.isfile(_pa_snap)
+                   and "node_modules/x/a" in open(_pa_snap, encoding="utf-8").read())
+            os.makedirs(os.path.join(_pa_wt, "src"), exist_ok=True)
+            _atomic_write(os.path.join(_pa_wt, "src", "work.txt"), "in lane\n")
+            with _quiet():
+                _rc_pg = cmd_gate_receipt(["--run-dir", _pa_run, "--job-id", "w1",
+                                           "--repo-root", _pa_repo,
+                                           "--worktree", _pa_wt, "--manifest", _pa_man,
+                                           "--mode", "worktree"])
+            _pa_rcpt = _read_json(os.path.join(_pa_run, "receipts", "w1.gate.json"),
+                                  {}) or {}
+            _check("B: the worktree gate reads that verified subset and passes — "
+                   "node_modules is absent from `changed`",
+                   _rc_pg == 0 and _pa_rcpt.get("verdict") == "pass"
+                   and "node_modules" not in str(_pa_rcpt.get("raw_stdout")),
+                   str(_pa_rcpt.get("raw_stdout"))[:240])
+
+            _pb_repo, _pb_wt, _pb_run, _pb_man = _prov_repo36("none", None)
+            with _quiet():
+                cmd_register_lane(["--run-dir", _pb_run, "--job-id", "w1",
+                                   "--cwd", _pb_wt, "--repo-root", _pb_repo,
+                                   "--isolation", "worktree", "--manifest", _pb_man,
+                                   "--no-test-contract"])
+            os.makedirs(os.path.join(_pb_wt, "node_modules", "x"), exist_ok=True)
+            _atomic_write(os.path.join(_pb_wt, "node_modules", "x", "a"), "\n")
+            os.makedirs(os.path.join(_pb_wt, "src"), exist_ok=True)
+            _atomic_write(os.path.join(_pb_wt, "src", "work.txt"), "in lane\n")
+            with _quiet():
+                _rc_pb = cmd_gate_receipt(["--run-dir", _pb_run, "--job-id", "w1",
+                                           "--repo-root", _pb_repo,
+                                           "--worktree", _pb_wt, "--manifest", _pb_man,
+                                           "--mode", "worktree"])
+            _pb_rcpt = _read_json(os.path.join(_pb_run, "receipts", "w1.gate.json"),
+                                  {}) or {}
+            _check("B: with NO provision_command declared, a job that installs its "
+                   "own node_modules is still BLOCKED — the subtraction is the "
+                   "snapshot's, never the path's name",
+                   _pb_rcpt.get("verdict") == "blocked"
+                   and "node_modules/x/a" in str(_pb_rcpt.get("raw_stdout")),
+                   "rc=%s %s" % (_rc_pb, str(_pb_rcpt.get("raw_stdout"))[:200]))
+
+            _pc_repo, _pc_wt, _pc_run, _pc_man = _prov_repo36("fail", "exit 3")
+            _rc_pc, _ack_pc = _cap36(cmd_register_lane, [
+                "--run-dir", _pc_run, "--job-id", "w1", "--cwd", _pc_wt,
+                "--repo-root", _pc_repo, "--isolation", "worktree",
+                "--manifest", _pc_man, "--no-test-contract"])
+            os.makedirs(os.path.join(_pc_wt, "src"), exist_ok=True)
+            _atomic_write(os.path.join(_pc_wt, "src", "work.txt"), "in lane\n")
+            with _quiet():
+                _rc_pc_g = cmd_gate_receipt(["--run-dir", _pc_run, "--job-id", "w1",
+                                             "--repo-root", _pc_repo,
+                                             "--worktree", _pc_wt,
+                                             "--manifest", _pc_man, "--mode", "worktree"])
+            _check("A: a provision_command that FAILS names its exit code, takes no "
+                   "snapshot, and does not stop the job starting",
+                   "rc 3" in str(_ack_pc.get("provision_error"))
+                   and not os.path.exists(
+                       os.path.join(_pc_run, "preexisting", "w1.txt")),
+                   json.dumps(_ack_pc)[:240])
+            _check("A: ...and the gate still runs over that job",
+                   _rc_pc_g == 0 and os.path.isfile(
+                       os.path.join(_pc_run, "receipts", "w1.gate.json")))
+
+            _pd_repo, _pd_wt, _pd_run, _pd_man = _prov_repo36("direct", _prov_cmd36)
+            _rc_pd, _ack_pd = _cap36(cmd_register_lane, [
+                "--run-dir", _pd_run, "--job-id", "w1", "--cwd", _pd_repo,
+                "--repo-root", _pd_repo, "--isolation", "direct",
+                "--manifest", _pd_man, "--no-test-contract"])
+            _check("A: a DIRECT-mode job never runs the command — it would install "
+                   "into the shared checkout",
+                   "provision" not in _ack_pd and "provision_error" not in _ack_pd
+                   and not os.path.exists(os.path.join(_pd_repo, "node_modules")),
+                   json.dumps(_ack_pd)[:240])
+
+            # ---- B: the flags reach an external worker's argv ----------------
+            _pe_man = {"run_id": "r", "provision_command": _prov_cmd36,
+                       "provision_timeout_s": 900,
+                       "jobs": [{"id": "x", "backend": "codex", "model": "gpt-5.6-sol",
+                                 "isolation": "worktree", "write_allowed": ["src/**"]}]}
+            _pe_plan = build_plan(_with_body(_pe_man), tmp, tmp, "/usr/bin/python3",
+                                  os.path.abspath(__file__), SCOPE_CHECK_DEFAULT,
+                                  FASTPATH_DEFAULT, HERE)
+            _pe_argv = _pe_plan["waves"][0][0]["launch_argv"]
+            _check("B: an external job's launch argv carries both provisioning flags",
+                   "--provision-command" in _pe_argv
+                   and _pe_argv[_pe_argv.index("--provision-command") + 1] == _prov_cmd36
+                   and "--provision-timeout-sec" in _pe_argv
+                   and _pe_argv[_pe_argv.index("--provision-timeout-sec") + 1] == "900",
+                   " ".join(_pe_argv))
+            _pf_man = {"run_id": "r",
+                       "jobs": [{"id": "x", "backend": "codex", "model": "gpt-5.6-sol",
+                                 "isolation": "worktree", "write_allowed": ["src/**"]}]}
+            _pf_argv = build_plan(_with_body(_pf_man), tmp, tmp, "/usr/bin/python3",
+                                  os.path.abspath(__file__), SCOPE_CHECK_DEFAULT,
+                                  FASTPATH_DEFAULT, HERE)["waves"][0][0]["launch_argv"]
+            _check("B: ...and carries NEITHER when the manifest declares none",
+                   "--provision-command" not in _pf_argv
+                   and "--provision-timeout-sec" not in _pf_argv,
+                   " ".join(_pf_argv))
+
+            # ---- the ceiling: provisioning has to survive the harness --------
+            # A 600 s bound under a 120 s Bash default is not a bound.
+            # The declared bound is 120 s here, which makes the derived value
+            # (180000 ms) unmistakable in a script that already says
+            # `timeout: 600000` elsewhere; the default 600 s simply saturates at
+            # the harness maximum and would prove nothing about the derivation.
+            _pg_man = {"run_id": "r", "provision_command": _prov_cmd36,
+                       "provision_timeout_s": 120,
+                       "jobs": [{"id": "impl", "isolation": "worktree",
+                                 "write_allowed": ["src/**"]}]}
+            _pg_plan = build_plan(_with_body(_pg_man), tmp, tmp, "/usr/bin/python3",
+                                  os.path.abspath(__file__), SCOPE_CHECK_DEFAULT,
+                                  FASTPATH_DEFAULT, HERE)
+            _pg_script = emit_script(_pg_plan)
+            _check("A/B: the EMITTED script's register-lane prompt carries an explicit "
+                   "Bash timeout DERIVED from provision_timeout_s (120 s + headroom)",
+                   "timeout: 180000" in _pg_script, "180000 absent from the script")
+            _check("A/B: ...and the default 600 s bound saturates at the harness "
+                   "maximum rather than exceeding it",
+                   "timeout: 600000" in _implement_prompt(
+                       build_plan(_with_body(
+                           {"run_id": "r", "provision_command": _prov_cmd36,
+                            "jobs": [{"id": "impl", "isolation": "worktree",
+                                      "write_allowed": ["src/**"]}]}),
+                           tmp, tmp, "/usr/bin/python3", os.path.abspath(__file__),
+                           SCOPE_CHECK_DEFAULT, FASTPATH_DEFAULT,
+                           HERE)["waves"][0][0],
+                       _pg_plan))
+            _pg_plain = emit_script(build_plan(
+                _with_body({"run_id": "r", "jobs": [
+                    {"id": "impl", "isolation": "worktree",
+                     "write_allowed": ["src/**"]}]}),
+                tmp, tmp, "/usr/bin/python3", os.path.abspath(__file__),
+                SCOPE_CHECK_DEFAULT, FASTPATH_DEFAULT, HERE))
+            _check("A/B: ...and a job with nothing to provision is told nothing "
+                   "about a timeout it does not need",
+                   "timeout: 180000" not in _pg_plain)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
