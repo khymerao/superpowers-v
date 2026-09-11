@@ -1,0 +1,173 @@
+run_id: 2026-09-11-v3.6-wide-dispatch-r2
+feature: 'v3.6.0: issue #19 closed (worktree provisioning before the before-image, finalizer force-adds run-dir artefacts, Record states a verdict disagreement, lane-guard unresolved record under the acting run, namespaced agent-memory lane), the native advisor wired in (advisorModel offer, agent consultation points, advisor-assisted second opinion when Codex is absent, usage.advisor_calls measured), /skill-doctor in /v:init — built as the first wide Engine C dispatch of this repository'
+routing_stance: balanced
+max_parallel: 3
+spec_path: docs/superpowers/specs/2026-09-11-v3.6-wide-dispatch-design.md
+plan_path: docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-09-11-v3-6-wide-dispatch.md
+  domain: docs/superpowers/expert/2026-09-11-v3-6-wide-dispatch.md
+  library: docs/superpowers/library-audit/2026-09-11-v3-6-wide-dispatch.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-09-11T160644Z-build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide-913d
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-09-11T16:06:44Z'
+global_constraints:
+  - "Python 3.9 syntax, stdlib only; every script run as /usr/bin/python3 -B; bash passes shellcheck"
+  - "Never Haiku; no agent frontmatter names Fable; Fable enters only through advisorModel"
+  - "Never relax the scope gate; no new entry in RUN_DIR_EXEMPT_BY_NAME; provisioning is subtracted only through the existing --preexisting snapshot path"
+  - "No fabricated metrics; every behavioural change ships a selftest row that fails when the change is reverted"
+  - "Docs: plain words, one idea per paragraph, no line over 200 characters outside code/tables, every claim true of the code in HEAD"
+  - "Lane discipline: touch only your write_allowed; register-lane first, with a literal --cwd"
+  - "Field and flag names are fixed by the plan's Interfaces: provision_command, provision_timeout_s, --provision-command, --provision-timeout-sec, preexisting.txt, verdict_disagreement, candidate_runs, MEMORY_LANE_UNNAMESPACED, SECOND_OPINION_SAME_FAMILY, claude-advisor, usage.advisor_calls"
+  - "Not in any job: CHANGELOG entry, version bump, release, generated architecture docs"
+acceptance_criteria:
+  - 'AC-1 Every tests/*.sh and every scripts/*.py --selftest is green; lint-frontmatter, rules-lint, shellcheck hooks/*.sh scripts/compound-v-*.sh and the CI dead-link rule pass.'
+  - 'AC-2 A manifest with provision_command "mkdir -p node_modules/x && touch node_modules/x/a" and a worktree job whose floor is "test -f node_modules/x/a" passes the floor and the gate reports no violation; the same job with provision_command absent is BLOCKED on node_modules/**.'
+  - 'AC-3 A repository that gitignores docs/ finalizes a wave whose results land under docs/superpowers/execution/.'
+  - 'AC-4 Record, given a pass receipt and --expect-verdict blocked, records success with verdict_disagreement and a summary that names both values and no cause.'
+  - 'AC-5 hooks/lane-guard.sh writes no record for the register-lane bootstrap call and exactly one record, in the newest live run, for an unresolved write under two live runs.'
+  - 'AC-6 No committed document that TELLS AN AUTHOR WHAT TO DECLARE names the bare .claude/agent-memory/spec-reviewer/** any more; the validator prints MEMORY_LANE_UNNAMESPACED for the bare form. Three known residuals are out of scope and named here so the reviewer does not chase them: agents/partition-reviewer.md keeps it as a deliberate counter-example, scripts/lint-frontmatter.py keeps it as a selftest fixture path, and docs/superpowers/architecture/architecture.md is a generated doc refreshed by /v:onboard --refresh after the release.'
+  - 'AC-7 commands/v-init.md has Step 1f (skill-doctor) and Step 4e (advisor) in the offer-never-write style; .claude/settings.json in this repo carries advisorModel: fable.'
+  - 'AC-8 usage.advisor_calls is measured from transcripts and shown by /v:status; this run reports it for at least one job, or reports null honestly.'
+  - 'AC-9 The review job declared the namespaced memory lane, passed the gate, and REPORTED the version of the plugin that supplied its agent definition. Native memory is NOT claimed to have been exercised: the installed plugin cache on this machine lags HEAD, so the running spec-reviewer definition may predate memory: project. A hand-written file in that lane is not evidence of the native mechanism, and the review says so.'
+test_contract:
+  floor_command: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-emit-workflow.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emitter-ok'
+  - when: scripts/compound-v-scope-check.py
+    run: /usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest
+  - when: scripts/compound-v-run-*-worker.sh
+    run: bash -c 'shellcheck scripts/compound-v-*.sh && bash tests/test-worker-path-transport.sh >/dev/null && echo workers-ok'
+  - when: tests/test-worker-path-transport.sh
+    run: bash tests/test-worker-path-transport.sh
+  - when: scripts/compound-v-validate-manifest.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo validator-ok'
+  - when: hooks/lane-guard.sh
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo lane-guard-ok'
+  - when: tests/test-lane-guard.sh
+    run: bash tests/test-lane-guard.sh
+  - when: scripts/compound-v-usage-*.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-usage-extract.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-usage-aggregate.py --selftest >/dev/null && bash tests/test-usage-workflow.sh >/dev/null && echo usage-ok'
+  - when: tests/test-usage-workflow.sh
+    run: bash tests/test-usage-workflow.sh
+  - when: schemas/*.json
+    run: bash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'
+  - when: tests/test-agent-memory.sh
+    run: bash tests/test-agent-memory.sh
+  - when: agents/*.md
+    run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo agents-ok'
+  - when: examples/manifest.example.yaml
+    run: /usr/bin/python3 -B scripts/compound-v-validate-manifest.py examples/manifest.example.yaml
+  - when: commands/*.md
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: skills/**/*.md
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: .claude/settings.json
+    run: bash -c '/usr/bin/python3 -B -c "import json; d=json.load(open(\".claude/settings.json\")); assert d[\"worktree\"][\"baseRef\"]==\"head\"" && /usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && echo settings-ok'
+  - when: "*.md"
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: docs/superpowers/architecture/*.md
+    run: /usr/bin/python3 -B scripts/compound-v-onboard.py rules-lint --repo .
+jobs:
+- id: docs-core
+  title: 'Task J-DOCS/1 — the four root documents'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - README.md
+  - AGENTS.md
+  - CLAUDE.md
+  - TROUBLESHOOTING.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "every name the ten wave-1 and wave-2 jobs shipped: provision_command, provision_timeout_s, --provision-command, --provision-timeout-sec, preexisting.txt, verdict_disagreement, candidate_runs, MEMORY_LANE_UNNAMESPACED, SECOND_OPINION_SAME_FAMILY, claude-advisor, cross_model, usage.advisor_calls, /v:init Steps 1f and 4e, the memory-path sentence, the disclosure line — read them from HEAD, never from memory"
+  acceptance:
+  - 'README.md gains three lines (worktree provisioning, the advisor, the namespaced memory path), stays at or under 130 lines, and has no line over 200 characters outside code blocks and tables.'
+  - 'AGENTS.md names the namespaced memory lane at the spec-reviewer bullet, says the model policy now includes an advisor, and names provision_command in the orchestrator surface.'
+  - 'CLAUDE.md model-policy line names the advisor.'
+  - 'TROUBLESHOOTING.md gains three entries: a worktree job BLOCKED with node_modules violations points at provision_command; Record reporting a verdict disagreement explains what the two values mean and that neither is a proven cause; a line in lane-guard-unresolved.jsonl explains the bootstrap suppression and what a record now means.'
+  - 'lint-frontmatter green; every relative link resolves; no claim that is not true of HEAD.'
+  body: 'Implement the four root documents of Task J-DOCS in docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F8). THE ONE RULE (Oleg, 2026-09-03): documentation must be clear and simple. Plain words, short sentences, one idea per paragraph, every claim true of the code in HEAD; anything measured, historical or defensive is linked (AGENTS.md, CHANGELOG.md, TROUBLESHOOTING.md), never repeated. WHY THIS JOB IS SMALL: the first attempt gave all eleven documents to one implementer and it hit its 80-turn cap three times without returning. Yours is four files. Budget your turns: read the merged diff ONCE with a single targeted command (git log --oneline 3509f76..HEAD and git diff --stat 3509f76..HEAD, then grep for the specific names you need), not file by file. Do not read the whole emitter. Read the pre-flight audits named in this manifest audits block only if you need a specific fact; their §7 MUSTs bind. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: docs-skills
+  title: 'Task J-DOCS/2 — the Compound V skill contracts'
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - skills/compound-v/execution-manifest.md
+  - skills/compound-v/SKILL.md
+  - skills/compound-v/routing-policy.md
+  - commands/v-orchestrate.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "the manifest keys provision_command and provision_timeout_s as the validator accepts them in HEAD; the namespaced memory lane; the advisor policy"
+  acceptance:
+  - 'execution-manifest.md documents provision_command and provision_timeout_s as optional top-level keys — what they do, when they run (before the job before-image is taken), the default timeout, and the two author rules: the command must be idempotent and must not modify tracked files, or its writes are attributed to the job.'
+  - 'execution-manifest.md and SKILL.md and v-orchestrate.md name the namespaced memory lane .claude/agent-memory/superpowers-v-spec-reviewer/** wherever they told an author to declare the bare one.'
+  - 'routing-policy.md gains an advisor section: Fable 5.1 where the account has it, else Opus, set as advisorModel in the project settings file; subagents inherit it and pair by their own model; agent frontmatter still never names Fable; the Sonnet carve-out is unchanged by this release.'
+  - 'lint-frontmatter green; every relative link resolves.'
+  body: 'Implement the skill-contract half of Task J-DOCS in docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F8). THE ONE RULE (Oleg, 2026-09-03): documentation must be clear and simple. Plain words, short sentences, one idea per paragraph, every claim true of the code in HEAD; anything measured, historical or defensive is linked, never repeated. WHY THIS JOB IS SMALL: the first attempt gave all eleven documents to one implementer and it hit its 80-turn cap three times without returning. Yours is four files. Read the merged diff ONCE with a targeted command, then grep for the specific names; do not read the whole emitter or the whole validator. Verify every key name against HEAD before you write it. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: docs-backend
+  title: 'Task J-DOCS/3 — the backend adapters and the native-mechanisms audit'
+  type: implement
+  backend: claude
+  tier: standard
+  effort: medium
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - skills/backend-launcher/SKILL.md
+  - skills/backend-launcher/adapter-codex.md
+  - docs/superpowers/architecture/native-mechanisms.md
+  read_allowed:
+  - '**'
+  interfaces:
+    consumes:
+    - "the two worker flags --provision-command and --provision-timeout-sec as the four worker scripts accept them in HEAD"
+  acceptance:
+  - 'backend-launcher/SKILL.md and adapter-codex.md document the two worker flags: their exact spelling, that the command runs through /bin/bash -c after git worktree add and before the before-image snapshot, the default timeout, and that a failing provision emits a status error job_result and launches no worker.'
+  - 'native-mechanisms.md gains two rows in the existing table shape and language: the advisor tool (native, used since 3.6.0) and skill usage accounting via /skill-doctor (native, used from /v:init since 3.6.0, report only).'
+  - 'lint-frontmatter and rules-lint green; every relative link resolves.'
+  body: 'Implement the backend and audit half of Task J-DOCS in docs/superpowers/plans/2026-09-11-v3.6-wide-dispatch.md (spec F8). THE ONE RULE (Oleg, 2026-09-03): documentation must be clear and simple. Plain words, short sentences, one idea per paragraph, every claim true of the code in HEAD. native-mechanisms.md is written in RUSSIAN in the existing rows — match the language and the column shape of the table you are adding to, and keep every claim sourced from the installed binary or a live probe, never from a version number. WHY THIS JOB IS SMALL: the first attempt gave all eleven documents to one implementer and it hit its 80-turn cap three times. Yours is three files. Read one worker script region to get the flag spelling right, not all four. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: spec-review
+  title: 'Review Gate — three passes against the spec and the nine acceptance criteria'
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - docs-core
+  - docs-skills
+  - docs-backend
+  write_allowed:
+  - docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; every acceptance criterion AC-1..AC-9 is run on the merged tree with the command and its output quoted (AC-2 by writing a temporary manifest in a temporary repo; AC-3 by a temporary repo that gitignores docs/); the verdict is APPROVED or ISSUES with a numbered list. A learning worth keeping is written under .claude/agent-memory/superpowers-v-spec-reviewer/ and nowhere else.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). Follow it within a HARD BUDGET of 60 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md with the section skeleton and fill it as you verify. Review the WHOLE 3.6.0 change against docs/superpowers/specs/2026-09-11-v3.6-wide-dispatch-design.md. It landed across two runs: waves 1 and 2 of 2026-09-11-v3.6-wide-dispatch (eight jobs, commits 7309b8f and 58087b5), one orchestrator fix for a crash that run found (91139e5), and the three documentation jobs of this run. Your baseline for the merged diff is 3509f76. The first run HALTED at its documentation wave — its implementer hit the 80-turn cap three times, the gate failed closed, and Record crashed on a latent unbound name; that is why the docs are three jobs here. Judge the release and this manifest''s nine acceptance criteria — run each AC''s commands on the merged tree and quote the output. Pay particular attention to: the scope gate was not relaxed (no new RUN_DIR_EXEMPT_BY_NAME entry; provisioning subtracted only through --preexisting); every behavioural change has a planted-failure selftest row; the disclosure line for the advisor-assisted second look is present verbatim wherever that rung is rendered; no document still names the bare memory path. Your memory directory for this run is .claude/agent-memory/superpowers-v-spec-reviewer/ — it is inside your lane; the bare path is not. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
