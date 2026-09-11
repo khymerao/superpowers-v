@@ -1,0 +1,18 @@
+{
+  "evidence": [
+    {
+      "file": "scripts/compound-v-emit-workflow.py",
+      "run": "2026-09-03-v3.4.6-triage-test-scoping-fixes-r5/results/emitter.json",
+      "status": "error"
+    },
+    {
+      "file": "scripts/compound-v-emit-workflow.py",
+      "run": "2026-09-02-df27-full-pass/results/spec-review.json",
+      "status": "blocked"
+    }
+  ],
+  "k": 2,
+  "match_count": 2,
+  "recall_check_ms": 94,
+  "verdict": "tighten"
+}
