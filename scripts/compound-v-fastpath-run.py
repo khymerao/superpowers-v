@@ -107,6 +107,7 @@ import argparse
 import datetime as _dt
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import os
 import shlex
@@ -184,19 +185,27 @@ def _supervisor_path():
     return os.path.join(_script_dir(), "compound-v-run-with-timeout.py")
 
 
-def _run_supervised(cmd, cwd, timeout_s, cap_bytes=MAX_OUTPUT_BYTES):
+def _run_supervised(cmd, cwd, timeout_s, cap_bytes=MAX_OUTPUT_BYTES,
+                    capture_stderr=False):
     """Run ``cmd`` (a list) under the timeout supervisor, capturing bounded stdout.
     Returns ``(rc, stdout_bytes)``: ``rc`` is the command's own exit code (or 124 on
-    timeout, 127 if missing). stdin is DEVNULL (enforced by the supervisor AND here);
-    stderr is discarded. Never raises — a supervisor launch failure degrades to a
-    fail-closed non-zero rc."""
+    timeout, 127 if missing). stdin is DEVNULL (enforced by the supervisor AND here).
+    Never raises — a supervisor launch failure degrades to a fail-closed non-zero rc.
+
+    ``capture_stderr`` appends the child's bounded stderr to the returned bytes. It is
+    OFF by default because `_git` and friends want stdout they can parse. The test
+    floor turns it ON: a BROKEN COMMAND (sh syntax error, module-not-found,
+    `ls: cannot access`) reports on stderr and nothing else, so without it the
+    receipt for the very case this diagnostic exists for is still just `rc=N`."""
     tmp = tempfile.mkdtemp(prefix="cv-h1-")
     try:
         outf = os.path.join(tmp, "out")
+        errf = os.path.join(tmp, "err")
         full = [
             sys.executable, _supervisor_path(),
             "--timeout", str(int(max(1, timeout_s))), "--grace", "1",
             "--stdout", outf, "--max-output-bytes", str(int(cap_bytes)),
+        ] + (["--stderr", errf] if capture_stderr else []) + [
             "--",
         ] + list(cmd)
         try:
@@ -213,6 +222,14 @@ def _run_supervised(cmd, cwd, timeout_s, cap_bytes=MAX_OUTPUT_BYTES):
                 data = fh.read()
         except OSError:
             data = b""
+        if capture_stderr:
+            try:
+                with open(errf, "rb") as fh:
+                    err = fh.read()
+            except OSError:
+                err = b""
+            if err:
+                data = (data + b"\n" if data else b"") + b"[stderr] " + err
         return rc, data
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -220,6 +237,97 @@ def _run_supervised(cmd, cwd, timeout_s, cap_bytes=MAX_OUTPUT_BYTES):
 
 def _git(worktree, args, timeout_s=GIT_TIMEOUT_S, cap_bytes=MAX_DIFF_BYTES):
     return _run_supervised(["git", "-C", worktree] + list(args), None, timeout_s, cap_bytes)
+
+
+# ONE INTERPRETER FOR ONE `resolved_commands[]` LIST.
+#
+# The plugin runs the SAME resolved commands under two different interpreters. Every
+# external worker runs each one through a shell, byte-identically:
+#
+#   compound-v-run-codex-worker.sh:189   -- /bin/bash -c "$_tc_c"
+#   compound-v-run-cursor-worker.sh:203        (and antigravity, opencode)
+#
+# while this, the claude backend's tier-1 floor, ran `shlex.split(raw)` as argv. So a
+# floor with a glob, a `$(...)` or an `&&` chain PASSES on a codex job and FAILS on a
+# claude job of the same manifest -- and `floor_command` is documented only as
+# "string" (execution-manifest.md), with the validator checking only its type. Two
+# backends disagreeing about what a manifest string means is the defect; argv is the
+# odd one out, not a boundary anyone chose.
+#
+# So: the same `/bin/bash -c` the workers already use, for every command. A heuristic
+# that shelled only "suspicious" strings was the first shape of this fix and was
+# worse -- it added a THIRD semantics (argv here, `sh` there, `bash` in the workers),
+# so `pytest tests/{a,b}` would still mean one thing on codex and another here.
+_TEST_SHELL = ("/bin/bash", "-c")
+
+
+def _test_command_argv(raw):
+    """``(argv, spelling)`` for one configured test command.
+
+    ``spelling`` stays the ORIGINAL string: `" ".join(shlex.split(x))` is lossy --
+    `sh -c "exit 0"` comes back as `sh -c exit 0`, a different command -- and B2
+    recomputes the next run's "previously failing" set from these strings.
+    """
+    if not isinstance(raw, str):
+        # A list is already an argv the author spelled out; quote it back into one
+        # string so it means the same thing to the shell.
+        cmd = list(raw)
+        spelling = " ".join(shlex.quote(part) for part in cmd)
+        return list(_TEST_SHELL) + [spelling], spelling
+    return list(_TEST_SHELL) + [raw], raw
+
+
+TEST_OUTPUT_TAIL_BYTES = 2000
+
+
+def _redact_output(text):
+    """Redact the canonical secret families from captured output, or drop the text.
+
+    The floor's captured output is written into `receipts/<id>.gate.json`, which the
+    wave finalizer `git add`s -- so it is durable and committed, and nothing else on
+    this path redacts.
+
+    HONEST SCOPE. `cv_memory.redact` covers the families that engine names: PEM key
+    blocks, `sk-`, `ghp_`/`gho_`/`github_pat_`, `AKIA`, `xox*`. It does NOT cover
+    `password=`, a credentialed URL (`postgres://u:p@host`), a bare JWT, or
+    `AWS_SECRET_ACCESS_KEY=` -- `compound-v-epic-arbiter.py` carries wider patterns
+    for its egress path and this does not reuse them. So this reduces the exposure a
+    committed tail creates; it does not eliminate it, and a floor that prints its
+    environment can still leak. Widening it means widening the canonical families,
+    not spelling a second set here (CONVENTIONS.md: imported, never redefined).
+
+    If the import is unavailable the text is DROPPED rather than stored raw.
+    """
+    try:
+        engine = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "compound-v-memory.py")
+        spec = importlib.util.spec_from_file_location("cv_memory_redact", engine)
+        cv_memory = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cv_memory)
+        return cv_memory.redact(text)
+    except Exception:  # noqa: BLE001 -- fail closed: no redactor, no stored output
+        return "[output withheld: redaction engine unavailable]"
+
+
+def _output_tail(out, cap=TEST_OUTPUT_TAIL_BYTES):
+    """A bounded, redacted excerpt of a failing command's captured output.
+
+    HONEST ABOUT WHAT THIS IS. The supervisor keeps the HEAD of each stream up to
+    `--max-output-bytes` (256 KiB) and drops the overflow, so for a suite that prints
+    more than that this is the tail of the FIRST 256 KiB, not the tail of the run --
+    the final summary of a very chatty suite will not be here.
+
+    The receipt used to record only `rc=1`, which is indistinguishable from a
+    genuinely failing suite; `_run_supervised` already captured this and the caller
+    discarded it (`rc, _ = …`).
+    """
+    if not out:
+        return ""
+    if isinstance(out, bytes):
+        out = out[-cap:].decode("utf-8", "replace")
+    else:
+        out = out[-cap:]
+    return _redact_output(out.strip())
 
 
 # --------------------------------------------------------------------------- #
@@ -671,7 +779,11 @@ def _impacted_for(contract, paths):
                     "'run' are mandatory) — a half-declared rule selects nothing" % i)
             if mod.matches(path, when):
                 matched = True
-                commands.append(run.replace("{path}", path))
+                # QUOTED: the path comes from `git diff` of the worker's tree, and
+                # every command now goes through a shell, so an unquoted path
+                # containing a space, `;` or `$(` would change what runs. This is
+                # what `referencing_tests` already does with `shlex.quote(rel)`.
+                commands.append(run.replace("{path}", shlex.quote(path)))
         if not matched:
             unmapped.append(path)
     return commands, unmapped
@@ -1165,26 +1277,41 @@ def run_test_floor(worktree, baseline="HEAD", changed_paths=None, test_cmd=None,
         # that cannot be re-run silently drops coverage instead of restoring it.
         argvs = []
         for raw in resolved:
-            cmd = shlex.split(raw) if isinstance(raw, str) else list(raw)
-            if not cmd:
+            if isinstance(raw, str) and not raw.strip():
                 result["reasons"].append(
                     "tier-1: configured test command is empty (fail-closed)")
                 return result
-            spelling = raw if isinstance(raw, str) else " ".join(
-                shlex.quote(part) for part in cmd)
+            cmd, spelling = _test_command_argv(raw)
+            if not spelling.strip():
+                result["reasons"].append(
+                    "tier-1: configured test command is empty (fail-closed)")
+                return result
             argvs.append((cmd, spelling))
         failed_cmds = []
         for cmd, spelling in argvs:
-            rc, _ = _run_supervised(cmd, worktree, test_timeout_s)
-            result["checks"].append({"tier": 1, "checker": spelling, "rc": rc,
-                                     "status": "pass" if rc == 0 else "fail"})
+            rc, out = _run_supervised(cmd, worktree, test_timeout_s,
+                                      capture_stderr=True)
+            check = {"tier": 1, "checker": spelling, "rc": rc,
+                     "status": "pass" if rc == 0 else "fail"}
+            tail = _output_tail(out) if rc != 0 else ""
+            if tail:
+                check["output_tail"] = tail
+            result["checks"].append(check)
             if rc != 0:
-                failed_cmds.append((spelling, rc))
+                failed_cmds.append((spelling, rc, tail))
         if not failed_cmds:
             result["passed"] = True
             result["merge_blocked"] = False
         else:
-            for name, rc in failed_cmds:
+            for name, rc, _tail in failed_cmds:
+                # The captured output lives on `checks[].output_tail` and NOWHERE
+                # ELSE. It must never reach `reasons`: the emitter copies any reason
+                # matching "timeout after" into `tests.failures[]`
+                # (compound-v-emit-workflow.py), `previously_failing()` reads that
+                # back, and `resolve_test_commands` RE-RUNS those strings. Appending
+                # command output here would let a test's own stdout choose the next
+                # run's commands -- and since a configured command now goes through
+                # a shell, that is command execution, not just noise.
                 result["reasons"].append(
                     "tier-1: configured tests failed (rc=%s%s): %s"
                     % (rc, "; timeout" if rc == 124 else "", name))
@@ -1197,7 +1324,7 @@ def run_test_floor(worktree, baseline="HEAD", changed_paths=None, test_cmd=None,
         result["failures"] = [
             ("timeout after %s s: %s" % (int(test_timeout_s), name)) if rc == 124
             else name
-            for name, rc in failed_cmds]
+            for name, rc, _tail in failed_cmds]
         return result
 
     # Tiers 2 and 3 cannot work without the diff (soft; fail-closed if underivable).
@@ -1995,6 +2122,75 @@ def _selftest():
         res = run_test_floor(r, "HEAD", changed_paths=["a.py"], test_cmd="   ")
         expect("tier-1 empty test command → merge_blocked", res["merge_blocked"] is True)
 
+        # 2c. SHELL SYNTAX IS HONOURED, not tokenised into literal argv.
+        # Each of these three is a DISCRIMINATOR: under the old shlex.split+argv
+        # path it produced the opposite verdict, which is why a floor with a glob
+        # or an `&&` chain read as "my tests are failing".
+        # ONE interpreter, the same `/bin/bash -c` every external worker already
+        # uses — so a manifest string cannot mean one thing on codex and another
+        # here. No heuristic: a plain command goes through the shell too.
+        expect("a plain command goes through the same shell",
+               _test_command_argv("npm test")
+               == (["/bin/bash", "-c", "npm test"], "npm test"))
+        _argv, _spell = _test_command_argv("node --test $(ls t/*.js) && x")
+        expect("shell syntax is handed to the shell verbatim",
+               _argv == ["/bin/bash", "-c", "node --test $(ls t/*.js) && x"])
+        expect("the ORIGINAL string is kept as the spelling",
+               _spell == "node --test $(ls t/*.js) && x")
+        expect("a LIST command is quoted back into one shell string",
+               _test_command_argv(["a b", "c"])
+               == (["/bin/bash", "-c", "'a b' c"], "'a b' c"))
+        # `&&` must actually chain: argv-exec ran only the first command and passed.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'exit 0' && sh -c 'exit 1'")
+        expect("&& chain: a later failure blocks (argv-exec passed it)",
+               res["merge_blocked"] is True)
+        # `||` must actually chain: argv-exec ran only the first and blocked.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'exit 1' || sh -c 'exit 0'")
+        expect("|| chain: the fallback passes (argv-exec blocked it)",
+               res["passed"] is True)
+
+        # 2d. A FAILING floor records the command's output, not just `rc=N`.
+        # Eight dispatch attempts were spent on a receipt that said only "rc=1".
+        # The marker is in the command's OUTPUT but never in the command's TEXT, so
+        # the "reason carries no output" assertion below cannot pass by accident.
+        write(r, "boom.txt", "TAILMARKER\n")
+        git(r, ["add", "-A"]); git(r, ["commit", "-qm", "boom"])
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'cat boom.txt; exit 3'")
+        _t1 = [c for c in res["checks"] if c.get("tier") == 1]
+        expect("failing floor records rc and the stdout tail",
+               bool(_t1) and _t1[0]["rc"] == 3
+               and "TAILMARKER" in _t1[0].get("output_tail", ""))
+        # …and the REASON must NOT: the emitter copies a reason matching
+        # "timeout after" into tests.failures[], previously_failing() reads it back
+        # and resolve_test_commands RE-RUNS it. Command output in a reason is a path
+        # from a test's stdout to the next run's shell.
+        expect("the failure reason NEVER carries command output (it is re-run)",
+               all("TAILMARKER" not in reason for reason in res["reasons"]))
+        expect("_output_tail is bounded and stripped",
+               _output_tail(b"x" * 5000) == "x" * TEST_OUTPUT_TAIL_BYTES
+               and _output_tail(b"") == "")
+        expect("_output_tail redacts secret-shaped output before it is stored",
+               "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+               not in _output_tail(
+                   b"token=sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
+
+        # 2e. A BROKEN COMMAND reports on stderr and says nothing on stdout. That is
+        # the case the receipt existed to disambiguate, so stderr must be captured.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"],
+                             test_cmd="sh -c 'echo NOPE >&2; exit 4'")
+        _t1e = [c for c in res["checks"] if c.get("tier") == 1]
+        expect("a stderr-only failure still produces a diagnostic tail",
+               bool(_t1e) and _t1e[0]["rc"] == 4
+               and "NOPE" in _t1e[0].get("output_tail", ""))
+
+        # 2f. An unbalanced quote makes shlex.split raise: fail closed, no traceback.
+        res = run_test_floor(r, "HEAD", changed_paths=["a.py"], test_cmd="pytest 'unclosed")
+        expect("unbalanced quote → merge_blocked, not a crash",
+               res["merge_blocked"] is True)
+
         # 3. tier-2 Python parse-check: valid file → pass; broken file → fail.
         r = new_repo("t2-py")
         write(r, "ok.py", "def f(a):\n    return a\n")
@@ -2376,13 +2572,16 @@ def _selftest():
         expect("B1: later commands still RUN (no short-circuit ⇒ complete failures)",
                os.path.isfile(marker))
         # Recorded VERBATIM, not shlex-joined. B2 rebuilds the next run's
-        # "previously failing" set from these strings, so the test asserts the
-        # property that matters — the recorded spelling re-parses to the argv
-        # that actually ran — rather than a particular rendering of it.
+        # "previously failing" set from these strings, so the property that matters
+        # is that the recorded spelling is RE-RUNNABLE THROUGH THE SAME ROUTER --
+        # `_test_command_argv` hands it to the shell unchanged. (It is no longer
+        # "re-parses to the argv that ran": nothing is shlex-split on the way to
+        # execution any more, which is the point of running one interpreter.)
         expect("B1: the failing command is recorded by name",
                res.get("failures") == ["sh -c 'exit 1'"])
-        expect("B1: the recorded failure is re-runnable, not lossily joined",
-               shlex.split(res.get("failures", [""])[0]) == ["sh", "-c", "exit 1"])
+        expect("B1: the recorded failure re-runs through the same router",
+               _test_command_argv(res.get("failures", [""])[0])[0]
+               == ["/bin/bash", "-c", "sh -c 'exit 1'"])
         res = run_test_floor(r, base, changed_paths=["a.py"],
                              test_commands=["sh -c 'exit 0'", "sh -c 'exit 0'"])
         expect("B1: an all-green resolved set passes the floor",
