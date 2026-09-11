@@ -11,7 +11,7 @@ Every write is checked against the files that worker was allowed to touch, and a
 - **Claude Code ≥ 2.1.219.** Compound V runs on the native Workflow runtime and on native hook events (`PreToolUse`, `UserPromptSubmit`, `PostCompact`, `Stop`). Older versions lack them.
   The floor is checked at session start: the `SessionStart` banner reads `claude --version` and appends one warning line when the running version is below it.
 - **One ambient cost.** The lane-guard hook runs on every `Write`/`Edit`/`Bash` call. What it costs depends on the machine — measure it on yours; the recipe is in [AGENTS.md](AGENTS.md).
-- **One project setting.** `worktree.baseRef` has to be `head` for jobs that depend on each other. It is a native Claude Code setting, not a Compound V one — see Install.
+- **One project setting.** `worktree.baseRef` should be `head` for jobs that depend on each other: without it a dependent job's agent runs in the main checkout, and dependent jobs that would have run in parallel are serialized so their writes stay attributable. It is a native Claude Code setting, not a Compound V one — see Install.
 
 ## Install
 ```
@@ -26,7 +26,7 @@ Every write is checked against the files that worker was allowed to touch, and a
 - **Antigravity:** install the `agy` CLI → log in
 
 Then the one setting. `worktree.baseRef` is a **native Claude Code project setting** in the project's `.claude/settings.json`, with two values: `fresh` (the default) and `head`. It is
-project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it, or its worktree cannot see that job.
+project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it, or its worktree cannot see that job — without it such a job runs its agent in the main checkout instead, and a wave carrying more than one of those is split so each runs alone (one before-image cannot attribute two concurrent writers). So the setting buys parallelism, not correctness: the run still completes without it, one job at a time.
 
 ```json
 { "worktree": { "baseRef": "head" } }
