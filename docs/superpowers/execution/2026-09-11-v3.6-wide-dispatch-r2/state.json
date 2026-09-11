@@ -1,0 +1,70 @@
+{
+  "run_id": "2026-09-11-v3.6-wide-dispatch-r2",
+  "phase": "DISPATCHED",
+  "jobs": {
+    "docs-core": {
+      "baseline": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-8",
+      "retries": [
+        {
+          "stage": "implement",
+          "job": "docs-core",
+          "attempt": 1,
+          "wait_ms": 2000
+        }
+      ],
+      "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "status": "done",
+      "merged": {
+        "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "e0654cfc24f7a430b0f006387c4a833400213d76"
+      }
+    },
+    "docs-skills": {
+      "baseline": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-2",
+      "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "status": "done",
+      "merged": {
+        "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "e0654cfc24f7a430b0f006387c4a833400213d76"
+      }
+    },
+    "docs-backend": {
+      "baseline": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-3",
+      "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+      "status": "done",
+      "merged": {
+        "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "e0654cfc24f7a430b0f006387c4a833400213d76"
+      }
+    }
+  },
+  "updated_at": "2026-09-11T20:05:00Z",
+  "waves": {
+    "1": {
+      "jobs": [
+        "docs-core",
+        "docs-skills",
+        "docs-backend"
+      ],
+      "merged": [
+        "docs-core",
+        "docs-skills",
+        "docs-backend"
+      ],
+      "commit": "e0654cfc24f7a430b0f006387c4a833400213d76",
+      "integrated": true
+    }
+  }
+}

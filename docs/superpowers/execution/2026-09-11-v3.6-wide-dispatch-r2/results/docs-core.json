@@ -1,0 +1,40 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "TROUBLESHOOTING.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "diff_digest": "sha256:6d37fa6417a4249b6205adaadbcabad806bbd45886ff8ec9c2e8a44a1cddae26",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"94bc98db7ed43df6a94bee8d4232485be379e1ad\",\n  \"changed\": [\n    \"AGENTS.md\",\n    \"CLAUDE.md\",\n    \"README.md\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"allowed\": [\n    \"README.md\",\n    \"AGENTS.md\",\n    \"CLAUDE.md\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "verdict": "pass"
+  },
+  "retries": [
+    {
+      "attempt": 1,
+      "job": "docs-core",
+      "stage": "implement",
+      "wait_ms": 2000
+    }
+  ],
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-DOCS/1 \u2014 the four root documents",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 1
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-8"
+}

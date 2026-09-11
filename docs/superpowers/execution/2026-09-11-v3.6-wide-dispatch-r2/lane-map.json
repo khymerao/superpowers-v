@@ -1,0 +1,11 @@
+{
+  "agents": {},
+  "manifest": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch-r2/manifest.yaml",
+  "run_id": "2026-09-11-v3.6-wide-dispatch-r2",
+  "worktrees": {
+    "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-1": "docs-core",
+    "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-2": "docs-skills",
+    "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-3": "docs-backend",
+    "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-8": "docs-core"
+  }
+}

@@ -1,0 +1,106 @@
+diff --git a/docs/superpowers/architecture/native-mechanisms.md b/docs/superpowers/architecture/native-mechanisms.md
+index 9477122..9a7745e 100644
+--- a/docs/superpowers/architecture/native-mechanisms.md
++++ b/docs/superpowers/architecture/native-mechanisms.md
+@@ -47,6 +47,8 @@
+ | Модель под задачу | `opts.model` / `opts.effort` у `agent()` | ✅ | ❌ | ✅ | **3.0.5: используется.** Словарь тиров (`deep`/`standard`/`light`, теперь ещё и `frontier`) существовал с 1.1, валидировался, документировался — и до 3.0.5 **не доходил до `agent()`**: `resolve_job_model` вызывался только для внешних бэкендов, где `--model` — обязательный аргумент CLI, а на `backend: claude` (то есть в каждом реальном прогоне) `opts.model` не выставлялся ни разу и каждый агент наследовал модель сессии. Тринадцатый механизм, выпущенный без вызывающего. Теперь тир резолвится и для claude, стойка (`routing_stance`) и карта из `.claude/compound-v.json` наконец читаются на диспатче, а Gate/Record/Finalize маршрутизируются как транспорт (`light`), а не как рассуждение. `opts.model: 'fable'` проверен живой пробой на 2.1.238 — принимается наравне с `sonnet` и `opus` |
+ | Видимость прогресса | `phase()` / `log()`, дерево прогресса | ✅ | ❌ | ✅ | Рисовали `/v:status` из своего состояния постфактум |
+ | T3 завершается без деградации к напоминанию | — (нет нативного «классифицируй текст одним лёгким вызовом внутри хука») | ❌ | ❌ | ✅ | **Закрыто в 3.4.1.** `needs_t3` раньше означал напоминание — хук не мог сам довести триаж до тира. Теперь `compound-v-classify-request.py --classify-headless` запускает ОДИН вложенный `claude -p --model <light> --tools ""` под супервизором таймаута (15 с + 3 с грейс), парсит перечисление и передаёт его обратно триажу как `--t3-category`; при отказе — тот же read-only Codex-путь, что уже был, иначе `unknown` (записывается как FULL). Ради этого регистрация `UserPromptSubmit` в `hooks.json` — и только она — поднята с `timeout: 10` до `timeout: 25`; обычный промпт по-прежнему укладывается в ~1 с, платит бюджет только `needs_t3`. Мы сознательно не используем нативные типы хуков `prompt`/`agent` для этого (модельный вызов на каждый инструмент — избыточно), поэтому механизм остаётся своим |
++| Второе мнение в середине джобы, без Codex | встроенный инструмент `advisor` (нулевые параметры, форвардит весь транскрипт сессии более сильной модели) | ✅ | ❌ | ✅ | **Закрыто в 3.6.0, и это вторая попытка.** Первая была своя — `compound-v-advisor-consult.sh` + `adapter-advisor.md`: ноль ссылок из `emit-workflow.py`, один прогон за всю историю (2026-07-13) — удалена по итогам ревизии 2026-09-02/04 как построенный и не вызванный механизм. Нативный `advisor` — не то же самое: он не отдельный процесс, которым нужно управлять (worktree, таймаут, парсинг вывода), а инструмент, который любая джоба и любой ревью-агент вызывает сама, в точке своего решения. `/v:init` Step 4e предлагает (никогда не пишет без «да») `advisorModel` в ПРОЕКТНОМ `.claude/settings.json` — нативный ключ, не наш (`commands/v-init.md:763-807`); в этом репозитории установлено `"advisorModel": "fable"` (`.claude/settings.json:5`). Правило пары держит рантайм, не мы: советник обязан быть не слабее основной модели сессии, иначе пара отклоняется. Своё, что остаётся: раскрытие «тот же бренд, не декоррелировано» на пути `claude-advisor` у ревью без Codex (J-SECOND) — нативный инструмент говорит только КАК его вызвать, не КОГДА честно называть его заменой кросс-модельного второго мнения |
++| Учёт использования скиллов | `/skill-doctor` (нативная слэш-команда, отчёт с версией CLI ≥ 2.1.261) | ✅ | ❌ | ✅ | **Закрыто в 3.6.0, только отчёт.** `/v:init` Step 1f запускает его headless и без stdin — `python3 scripts/compound-v-run-with-timeout.py --timeout 180 -- claude -p '/skill-doctor' --output-format text </dev/null` (`commands/v-init.md:250`) — печатает строки, чьи названия начинаются с `superpowers-v:` (контекст, 7-дневные токены, счётчик использований, последнее использование), плюс суммарный контекст ПО ВСЕМ загруженным скиллам отчёта, не только своим. Шаг ничего не решает и ничего не пишет: включить/выключить скилл — дело пользователя в `/plugin` (`commands/v-init.md:269-278`). Три честных предела задокументированы там же и не своё: отчёт — история ЭТОЙ машины, не свойство репозитория; скилл, вызванный через хук или description-триггер (Trigger 0, сам сайдкик), не получает счётчика — `0×` не значит «не использовался»; команда недоступна по Remote Control и при отключённой телеметрии. Ниже версионного пола (2.1.261) шаг молча пропускается, а не притворяется, что пробовал |
+ 
+ ## Итог по третьей колонке
+ 
+diff --git a/skills/backend-launcher/SKILL.md b/skills/backend-launcher/SKILL.md
+index ef67fc6..2a9b7d8 100644
+--- a/skills/backend-launcher/SKILL.md
++++ b/skills/backend-launcher/SKILL.md
+@@ -173,6 +173,44 @@ test command at all.
+ 
+ ---
+ 
++## Provisioning — `--provision-command` / `--provision-timeout-sec` (v3.6)
++
++A job whose manifest carries a top-level `provision_command` needs its dependencies installed
++(`npm ci`, `uv sync`, `bundle install`, …) before the model starts. All four external worker
++scripts (`compound-v-run-codex-worker.sh`, `-antigravity-worker.sh`, `-cursor-worker.sh`,
++`-opencode-worker.sh`) accept the identical flag pair:
++
++```bash
++scripts/compound-v-run-<backend>-worker.sh … \
++  --provision-command "<shell command>" \
++  --provision-timeout-sec 600            # optional, default 600
++```
++
++**Ordering is the whole safety argument.** The command runs **after** `git worktree add <WT> HEAD`
++and **before** the before-image snapshot that bounds the gate's `--preexisting` subtraction:
++`git worktree add HEAD` starts with nothing untracked, so every untracked or ignored path the
++moment provisioning finishes was created by provisioning — attribution by construction, not by
++trusting anyone's report. A snapshot taken any earlier (or skipped) would exempt nothing, so an
++installed `node_modules/` would read as a pile of out-of-scope writes and BLOCK a job that did
++nothing wrong; a snapshot taken any later would exempt the model's own writes too, which is the
++one thing this mechanism must never do.
++
++**The command runs through `/bin/bash -c`**, under the shared process-group timeout supervisor
++([`scripts/compound-v-run-with-timeout.py`](../../scripts/compound-v-run-with-timeout.py)), `cwd`
++the fresh worktree, stdin closed (`</dev/null`, so a prompting installer fails instead of hanging),
++output captured to files outside the worktree. `--provision-timeout-sec` must be a positive
++integer — the script `die`s otherwise (usage fault, no job attempted) — and **defaults to 600
++seconds** when omitted.
++
++**A failing provision emits a `status: error` `job_result` and launches no worker at all.** A
++non-zero exit is reported as the environment fault it is (`provision failed (rc=<code>): <command>`,
++`failure_class: "other"`, `rc=124` for a timeout) and the backend model is never invoked — running
++it against missing dependencies would spend real model time arriving at a failure that teaches
++nobody anything. `--provision-command` is optional; omit it and no worker's behaviour changes
++(no provisioning step runs, and nothing about the existing flag set or timing shifts).
++
++---
++
+ ## `gate_receipt` — the receipt, not the authority (v3.0, Feature D1)
+ 
+ A job result may carry a `gate_receipt`: one run of the scope gate, bound to `baseline_commit`,
+diff --git a/skills/backend-launcher/adapter-codex.md b/skills/backend-launcher/adapter-codex.md
+index 281d1b5..dfbc1e7 100644
+--- a/skills/backend-launcher/adapter-codex.md
++++ b/skills/backend-launcher/adapter-codex.md
+@@ -214,3 +214,39 @@ scripts/compound-v-run-codex-worker.sh \
+   disposition, so a red suite is never fed to the retry/reroute policy that cannot fix it.
+ - Because tests run after the gate, anything they create in the worktree is **outside the gate's
+   authority**: merge-back stages by the gate's `files_changed`, never a bare `git add -A`.
++
++---
++
++## Provisioning — `--provision-command` / `--provision-timeout-sec` (v3.6)
++
++Read [`SKILL.md`](SKILL.md) §Provisioning first: the contract and its ordering guarantee apply
++identically across all four external workers. This is the codex-specific invocation.
++
++```bash
++scripts/compound-v-run-codex-worker.sh \
++  … \
++  --provision-command "npm ci" \
++  --provision-timeout-sec 600          # optional, default 600
++```
++
++- The command runs **after** `git -C "$REPO" worktree add "$WT" HEAD` and **before** codex is
++  launched, through `/bin/bash -c "$PROVISION_COMMAND"` under the shared process-group supervisor
++  ([`scripts/compound-v-run-with-timeout.py`](../../scripts/compound-v-run-with-timeout.py)),
++  `--cwd "$WT"`, stdin `</dev/null`, stdout/stderr captured to `$ART/provision.out` /
++  `$ART/provision.err` (outside the worktree, so nothing it prints lands in `git diff`).
++- On success the worker snapshots the worktree's untracked+ignored paths to
++  `$ART/preexisting.txt` and passes it to the scope gate as `--preexisting` — this is the **only**
++  place provisioning's writes are exempted from `write_allowed`; anything the model writes into
++  those same paths afterwards is still measured and still blocks. This snapshot happens strictly
++  before `codex exec` is invoked.
++- **`--provision-timeout-sec` must be a positive integer** (the same validation as
++  `--timeout-sec`) — an empty, non-numeric, or zero value is a usage fault (`die`, exit ≠ 0,
++  no `job_result`), never a silent default. **Default: 600 seconds.**
++- **A non-zero provision exit code launches no `codex exec` at all.** The worker emits
++  `status: "error"`, `failure_class: "other"`, and a summary of
++  `provision failed (rc=<code>): <command>` (rc `124` is the provision timeout firing), then exits
++  `0` — this is a reported job outcome, not a script crash, so the caller's retry/reroute policy
++  sees a real `failure_class` rather than a bare non-zero exit. No `codex exec` process, no
++  `--json` event stream, no `session_id`.
++- `--provision-command` is optional. Omit it and this worker's behaviour is unchanged from
++  before v3.6 — no provisioning step, no `--preexisting` snapshot, no new timing.

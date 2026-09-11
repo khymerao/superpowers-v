@@ -1,0 +1,32 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-orchestrate.md",
+    "skills/compound-v/SKILL.md",
+    "skills/compound-v/execution-manifest.md",
+    "skills/compound-v/routing-policy.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "diff_digest": "sha256:c447a1257167ef830ee0656b440c27a451e377406b85b5bf1ea9e33a2d393149",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"94bc98db7ed43df6a94bee8d4232485be379e1ad\",\n  \"changed\": [\n    \"commands/v-orchestrate.md\",\n    \"skills/compound-v/SKILL.md\",\n    \"skills/compound-v/execution-manifest.md\",\n    \"skills/compound-v/routing-policy.md\"\n  ],\n  \"allowed\": [\n    \"skills/compound-v/execution-manifest.md\",\n    \"skills/compound-v/SKILL.md\",\n    \"skills/compound-v/routing-policy.md\",\n    \"commands/v-orchestrate.md\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-DOCS/2 \u2014 the Compound V skill contracts",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 1
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-2"
+}

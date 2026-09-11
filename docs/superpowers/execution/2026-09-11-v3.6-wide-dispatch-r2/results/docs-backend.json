@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "docs/superpowers/architecture/native-mechanisms.md",
+    "skills/backend-launcher/SKILL.md",
+    "skills/backend-launcher/adapter-codex.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "diff_digest": "sha256:4ad4a9de68607f68b2c100ece9fccdf468a94fd2ed22cb4f0c51f9094b3f820a",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"94bc98db7ed43df6a94bee8d4232485be379e1ad\",\n  \"changed\": [\n    \"docs/superpowers/architecture/native-mechanisms.md\",\n    \"skills/backend-launcher/SKILL.md\",\n    \"skills/backend-launcher/adapter-codex.md\"\n  ],\n  \"allowed\": [\n    \"skills/backend-launcher/SKILL.md\",\n    \"skills/backend-launcher/adapter-codex.md\",\n    \"docs/superpowers/architecture/native-mechanisms.md\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-DOCS/3 \u2014 the backend adapters and the native-mechanisms audit",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\n/usr/bin/python3 -B scripts/compound-v-onboard.py rules-lint --repo .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-3"
+}

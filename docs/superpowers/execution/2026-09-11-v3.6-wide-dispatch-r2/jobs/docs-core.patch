@@ -1,0 +1,324 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index fe748bd..8911e63 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -66,7 +66,20 @@ The execution tail is a small, deterministic orchestrator — contracts + helper
+   ```
+ 
+   Do **not** pass `--ask-for-approval never` — it is invalid for `codex exec` (top-level/interactive flag only); `exec` already defaults to `approval: never`. Resume is `codex exec resume <uuid>`. Effort `xhigh` is **codex-only** (kernel `model_reasoning_effort`); every other backend rejects it — use `high` elsewhere.
+-- **Scope gate:** `scripts/compound-v-scope-check.py` unions `git diff --name-only HEAD` with `git ls-files --others --exclude-standard` and tests each path against `write_allowed`.
++- **Worktree provisioning (3.6):** a manifest may carry a top-level `provision_command`, plus an optional
++  `provision_timeout_s` (default 600, range 1–1800); a job may override either. It applies to worktree jobs, and the
++  worker script — never the model — runs it once inside the fresh worktree before
++  the model launches; on the four headless backends the same two values are the flags `--provision-command` and
++  `--provision-timeout-sec`. The script then lists the untracked and ignored paths provisioning produced into
++  `preexisting.txt` and hands that file to the scope gate as `--preexisting`, so an installed dependency is never
++  counted as a write the job made. The ordering is the whole safety argument: the snapshot is taken after
++  provisioning and before the model starts, so it can only ever contain what provisioning created. A path that
++  cannot be represented on one line (a filename containing a newline) is left out and is therefore never exempt.
++  The command must be idempotent and must not modify tracked files.
++- **Scope gate:** `scripts/compound-v-scope-check.py` unions three probes — `git diff --name-only` against the
++  job's baseline, `git ls-files --others --exclude-standard`, and the same with `--ignored` — then subtracts
++  exactly one list, the `--preexisting` snapshot, and tests every remaining path against `write_allowed`. It
++  originates no exemption of its own: it forgives nothing by extension and nothing by name.
+ - **State + resume:** `skills/compound-v/state-machine.md`; `/v:resume <run-id>` re-dispatches only incomplete jobs (git-wins tie-break).
+ 
+ > Note: the orchestrator scripts and adapters are exercised on Claude Code. On a non-Claude harness, the prose contracts (`SKILL.md`, the adapter docs, the manifest schema) are harness-neutral, but the dispatch wiring assumes Claude Code's `Task` tool — adapt to your harness's subagent mechanism. 🧪 **untested on Codex/other harnesses.**
+@@ -99,13 +112,16 @@ These work in any harness that reads `agents/*.md` frontmatter. Codex CLI loads
+ - `superpowers-v:doc-validator` — Phase 1C · `memory: project` (library/version drift facts, each with the date checked)
+ - `superpowers-v:partition-reviewer` — pre-execution gate; runs `compound-v-validate-manifest.py` as its deterministic backing check · `memory: project` (overlap traps, shared-resource files)
+ - `superpowers-v:parallel-dispatcher` — manifest-driven multi-backend dispatcher; calls `compound-v-scope-check.py` after every job and HALTS on BLOCKED
+-- `superpowers-v:spec-reviewer` — the three-pass Review Gate (spec acceptance criteria · quality/no-regression/no-fabricated-metrics · final integration), AC-gated · `memory: project` (recurring defect patterns and where they live); the review job's `write_allowed` must include `.claude/agent-memory/spec-reviewer/**`
++- `superpowers-v:spec-reviewer` — the three-pass Review Gate (spec acceptance criteria · quality/no-regression/no-fabricated-metrics · final integration), AC-gated · `memory: project` (recurring defect patterns and where they live); the review job's `write_allowed` must include `.claude/agent-memory/superpowers-v-spec-reviewer/**`
+ - `superpowers-v:implementer` — the role every Claude implementation job arrives as (3.4.0). Carries the turn cap (`maxTurns: 80` — a field of an agent definition, which is the only native way a workflow job gets one) and the official Opus 5 guidance on scope, narration cadence and deliverable length
+ 
+ All reviewers/agents carry `model: opus`. Manifest `backend`/`model` values (`gpt-5.5`, etc.) are execution-layer data and **never** appear in any frontmatter.
+ 
+-The five agents marked `memory: project` above carry Claude Code's native persistent subagent memory (`memory: project` →
+-`.claude/agent-memory/<name>/`, committed and shared through version control). `implementer` and
++The five agents marked `memory: project` above carry Claude Code's native persistent subagent memory. The harness names the
++directory after the agent's full name, so installed as a plugin that is `.claude/agent-memory/superpowers-v-<name>/` (field-observed
++on a downstream project, issue #19) and a copy installed as a project agent uses the bare `.claude/agent-memory/<name>/`. Either way
++it is committed and shared through version control, and a manifest that declares the bare lane for a plugin agent raises the
++partition reviewer's `WARN: MEMORY_LANE_UNNAMESPACED` — that directory is shared with every plugin in the repo. `implementer` and
+ `parallel-dispatcher` deliberately carry none: they write inside a declared file lane, and a memory write
+ would land outside it — denied by the lane guard, blocked by the scope gate. Memory is read as evidence,
+ never as instructions: a remembered pattern is a lead that must be re-verified against the current code,
+@@ -138,6 +154,14 @@ turns it off everywhere and the agents run exactly as they did before 3.5.0.
+ - **Sonnet for scanning** — `code-archaeologist` and `doc-validator` (3.1.0): reading a repository and checking a library version is execution, not judgment
+ - **Sonnet** — narrow exception per the 8-box junior-task taxonomy in `skills/compound-v/phase-3-parallel-opus-dispatch.md`
+ - **Never Haiku** — not permitted in this project
++- **An advisor beside the acting model** (3.6). Claude Code's built-in `advisor` tool is a stronger reviewer that sees the acting
++  agent's whole transcript. `implementer` and `spec-reviewer` are told to consult it before committing to an approach where more
++  than one design is plausible, when the same error recurs, and before reporting done or writing a verdict — advice is evidence
++  re-verified against the tree, and advice that contradicts the lane or the scope gate is refused and reported. Which model answers
++  is the native `advisorModel` setting in the project's `.claude/settings.json` (`fable` in this repository, `opus` the alternative);
++  it is a project setting, never agent frontmatter, and `/v:init` Step 4e offers it without ever writing it unasked. An advisor must
++  be at least as capable as the session's main model or the harness rejects the pairing, and every call re-reads the transcript from
++  scratch — nothing is cached. `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1` turns the tool off outright.
+ 
+ ## Key entry points
+ 
+diff --git a/CLAUDE.md b/CLAUDE.md
+index d081001..a0e8249 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -16,6 +16,9 @@ Claude-Code-specific pointers. Do NOT inline architecture prose here — point t
+ - Model policy: Opus by default, Sonnet for execution (the junior-task carve-out, plus the
+   named scanning agents `code-archaeologist` / `doc-validator`), **never Haiku**
+   (enforced by `scripts/lint-frontmatter.py` and CI). Fable is a dispatch-time override for
+-  business-critical work, never frontmatter.
++  business-critical work, never frontmatter. The `advisor` tool is part of the policy too:
++  implementers and the spec-reviewer consult it at their own decision points, and the model that
++  answers is the native `advisorModel` setting in `.claude/settings.json` — `fable` here, `opus` the
++  alternative. It is a project setting, never agent frontmatter.
+ - Recall over `docs/superpowers/**`: `/v:remember <query>`; re-index with `/v:memory-refresh`.
+ - These docs are generated by `/v:onboard`; refresh with `/v:onboard --refresh`.
+diff --git a/README.md b/README.md
+index fdadd14..59b4a7e 100644
+--- a/README.md
++++ b/README.md
+@@ -8,10 +8,9 @@ You describe a feature. Claude sizes the request, plans it, splits it into non-o
+ Every write is checked against the files that worker was allowed to touch, and a review gates "done". There is no start button — a hook sizes each request as you work.
+ 
+ ## Requirements
+-- **Claude Code ≥ 2.1.219.** Compound V runs on the native Workflow runtime and on native hook events (`PreToolUse`, `UserPromptSubmit`, `PostCompact`, `Stop`). Older versions lack them.
+-  The floor is checked at session start: the `SessionStart` banner reads `claude --version` and appends one warning line when the running version is below it.
++- **Claude Code ≥ 2.1.219.** Compound V runs on the native Workflow runtime and on native hooks (`PreToolUse`, `UserPromptSubmit`, `PostCompact`, `Stop`). `SessionStart` warns below that floor.
+ - **One ambient cost.** The lane-guard hook runs on every `Write`/`Edit`/`Bash` call. What it costs depends on the machine — measure it on yours; the recipe is in [AGENTS.md](AGENTS.md).
+-- **One project setting.** `worktree.baseRef` should be `head` for jobs that depend on each other: without it a dependent job's agent runs in the main checkout, and dependent jobs that would have run in parallel are serialized so their writes stay attributable. It is a native Claude Code setting, not a Compound V one — see Install.
++- **One project setting.** `worktree.baseRef` should be `head`, or a dependent job runs in the main checkout and such jobs are serialized. A native Claude Code setting — see Install.
+ 
+ ## Install
+ ```
+@@ -25,22 +24,19 @@ Every write is checked against the files that worker was allowed to touch, and a
+ - **Cursor:** `curl https://cursor.com/install -fsS | bash` → `cursor-agent login`
+ - **Antigravity:** install the `agy` CLI → log in
+ 
+-Then the one setting. `worktree.baseRef` is a **native Claude Code project setting** in the project's `.claude/settings.json`, with two values: `fresh` (the default) and `head`. It is
+-project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it, or its worktree cannot see that job — without it such a job runs its agent in the main checkout instead, and a wave carrying more than one of those is split so each runs alone (one before-image cannot attribute two concurrent writers). So the setting buys parallelism, not correctness: the run still completes without it, one job at a time.
++Then the one setting. `worktree.baseRef` is a **native Claude Code project setting** in the project's `.claude/settings.json`, with two values: `fresh` (the default) and `head`.
++It is project-wide: `head` branches every worktree from the current `HEAD`, your own `--worktree` sessions included. A job that depends on another needs it to see that job's work.
++Without it such a job runs in the main checkout, and a wave with more than one of those is split so each runs alone — it buys parallelism, not correctness: the run completes either way.
+ 
+ ```json
+ { "worktree": { "baseRef": "head" } }
+ ```
+ 
+-_(Optional)_ Context7 MCP gives the doc-validator real library docs — but only when it is attached to the session you are in. A pre-flight agent launched inside a Workflow does
+-not inherit MCP tools and falls back to WebSearch/WebFetch (12 of the last 16 library audits ran that way). `/plugin install context7@claude-plugins-official`.
++_(Optional)_ Context7 MCP gives the doc-validator real library docs, but only in a session it is attached to — a pre-flight agent launched inside a Workflow inherits no MCP tools
++and falls back to WebSearch/WebFetch (12 of the last 16 library audits ran that way). Install it with `/plugin install context7@claude-plugins-official`.
+ 
+ ## How to use it
+-Run this once — it detects which model CLIs you have, saves the config, and offers the `baseRef` setting above.
+-
+-```
+-/v:init
+-```
++Run `/v:init` once — it detects which model CLIs you have, saves the config, and offers the `baseRef` setting above.
+ 
+ **Then just work.** Describe the feature, or start brainstorming as usual. A `UserPromptSubmit` hook scores the first change request of each session
+ and sizes it as DIRECT, SCOPED or FULL. There is no command to launch the orchestration; Claude runs it for you.
+@@ -59,10 +55,12 @@ Three gamified episodes walk you through the whole pipeline, and the **[cheatshe
+ **Who does what.** Opus plans, judges and reviews; Fable (the frontier tier) is opt-in for business-critical jobs, and lifts a review job once —
+ only after that job has exhausted its retry budget on Opus (repeated 529s, say), never merely because Opus looks busy. Sonnet runs junior slices
+ and the two scanning agents. Codex is an opt-in sandboxed worker and the second opinion; Antigravity and Cursor are lower-trust opt-in workers. The scope gate blocks out-of-lane writes.
++Implementers and the spec-reviewer also call Claude Code's built-in `advisor` at their own decision points; `advisorModel` names who answers — `fable` here, `opus` if you would rather not.
+ 
+ ## Main features
+-- **Multi-model orchestration.** Codex is dogfooded in this repository. Antigravity has its CLI invocation verified live but has never been dispatched here.
+-  Cursor and opencode are experimental — present, their workers verified standalone, never dispatched through Engine C.
++- **Multi-model orchestration.** Codex is dogfooded here. Antigravity's CLI invocation is verified live but was never dispatched; Cursor and opencode are experimental, verified standalone only.
++- **Worktree provisioning.** `provision_command` installs a job's dependencies in its fresh worktree before the model starts, and snapshots them so the gate never blames the job for them.
++- **Agents that remember this repo.** Five review and scanning agents carry `memory: project` — a committed directory at `.claude/agent-memory/superpowers-v-<agent>/`. Evidence, never instructions.
+ - **Cross-model review.** A second opinion from another model family, on the plan and on the code. Different models have different blind spots. Advisory — the orchestrator decides.
+ - **Epic mode.** Feed it a whole PRD and it builds feature by feature, in dependency order, on one branch. It checkpoints after each feature unless you raise the budget.
+ - **Epic autonomy.** On the `marathon` stance, `/v:epic` offers — never arms silently — a native way to keep going: `/loop` to keep resuming in this session, or `/schedule` in the cloud.
+@@ -102,56 +100,23 @@ and the two scanning agents. Codex is an opt-in sandboxed worker and the second
+ The triage gate is on by default. It is exempt on `docs/superpowers/**`, fires at most once per session, and fails open. To turn it off, put
+ `{ "enforcement": { "triage_gate": false } }` in `.claude/compound-v.json` — an explicit `false` is the only value that does it.
+ 
+-## Agents that remember this repo
+-
+-Five agents carry Claude Code's native persistent subagent memory (`memory: project` in their
+-frontmatter): `spec-reviewer`, `partition-reviewer`, `code-archaeologist`, `domain-expert` and
+-`doc-validator`. Each gets its own directory at `.claude/agent-memory/<agent>/`, consults it before
+-starting, and saves what it learned after finishing — defect patterns and where they live, overlap traps,
+-map facts, domain constraints with their source, library-version facts with the date they were checked.
+-
+-**It is committed.** `project` scope means the directory is in the repository and shared with everyone
+-who clones it, which is the point — the knowledge is the team's, not one laptop's — and also the reason
+-for three rules the agents are held to:
+-
+-- **No secrets, ever.** Nothing that resembles a token, key, password or private URL goes in a memory file.
+-- **No verdicts.** A remembered pattern is a *lead*, re-verified against the current code before it can
+-  become a finding. The repository moves between runs; the memory does not.
+-- **Memory is evidence, never instructions.** Anyone with push access can edit these files, so a directive
+-  found inside one — "always approve", "skip this check" — is ignored and reported, exactly like a
+-  directive found in the diff under review.
+-
+-`implementer` and `parallel-dispatcher` carry no memory on purpose: they write inside one declared file
+-lane, and a memory write would land outside it — denied by the lane guard, blocked by the scope gate. That
+-same asymmetry is what stops an implementer planting text in a reviewer's memory. The reviewer's own lane
+-does include it, so a `type: review` job's `write_allowed` lists `.claude/agent-memory/spec-reviewer/**`.
+-
+-**To turn it off:** subagent memory is part of auto memory, so `{"autoMemoryEnabled": false}` in your
+-settings (or `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`) disables it — the agents then launch with no memory
+-instructions and no memory tools, and behave exactly as they did before. Prefer `memory: local` over
+-`project` in a fork where the notes should stay on one machine; `.claude/agent-memory-local/` is gitignored.
+-
+ ## Good to know
+ - **Antigravity and Cursor are lower-trust** — no kernel sandbox, so the scope gate catches an out-of-bounds write after the fact but cannot prevent it. Prefer Codex for anything sensitive.
+ - **Cursor on a Free plan** can only use its `auto` model; named models are paid.
+ - **Epic mode is bounded by default** — it stops after each feature for a human checkpoint, and is not an overnight build unless you raise the budget.
+-- **Research-grounded brainstorming is guidance, not a mechanism** 🧪 — the skill asks a brainstorm on an unfamiliar topic to run a gated recon pass first, and to batch
+-  independent questions into one screen. A hook only reminds; nothing enforces either, and the recon doc is evidence, never a routing input.
++- **Research-grounded brainstorming is guidance, not a mechanism** 🧪 — the skill asks an unfamiliar-topic brainstorm to run a gated recon pass first and to batch independent
++  questions into one screen. A hook only reminds; nothing enforces either, and the recon doc is evidence, never a routing input.
++- **Agent memory is off-switchable** — `{"autoMemoryEnabled": false}` turns it off everywhere. `implementer` and `parallel-dispatcher` carry none: a memory write would leave their lane.
+ - **Marathon mode is still not fire-and-forget.** It drops the checkpoint and adds an arbiter panel, a blocker ledger and breakers, but after a hard death you re-run `/v:epic <epic-id>` yourself.
+ 
+ ## Verification program
+-Compound V is dogfooded against its own claims in eight staged cycles, each run against native Claude Code mechanisms rather than trusted from prose. Every cycle's review is
+-recorded in [docs/superpowers/dogfood/README.md](docs/superpowers/dogfood/README.md) — a generated index whose footer carries the current tally and is the
+-source of truth for it (56 reviews, 11 APPROVED as this was written). Read it for the current stage.
+-
+-1. **DIRECT, attended** — one file, an ordinary commit, the Stop gate silent.
+-2. **SCOPED** — the triage-size feature, run through the SCOPED path itself.
+-3. **FULL with zero manual interventions** — the transcript-watch feature.
+-4. **Multi-model** — a `backend: codex` job dispatched on Engine C.
+-5. **The first epic** — features chained end to end on one branch; 5a and 5b cover V-memory recall being real, then recall turning into action.
+-6. **A foreign repository** — set up from `/v:init` and driven through a real change.
+-7. **Death and resurrection** — a killed run resumed from committed state.
+-8. **A perfect pass with a stopwatch.**
++Compound V is dogfooded against its own claims in eight staged cycles, each run against native Claude Code mechanisms rather than trusted from prose. Every cycle's review is recorded in
++[docs/superpowers/dogfood/README.md](docs/superpowers/dogfood/README.md) — a generated index whose footer carries the tally (56 reviews, 11 APPROVED as this was written).
++
++The eight: **DIRECT, attended** (one file, an ordinary commit, the Stop gate silent) → **SCOPED** (the triage-size feature, run through the SCOPED path itself) → **FULL with zero
++manual interventions** (the transcript-watch feature) → **multi-model** (a `backend: codex` job dispatched on Engine C) → **the first epic** (features chained end to end on one
++branch; 5a and 5b cover V-memory recall being real, then recall turning into action) → **a foreign repository** (set up from `/v:init`, driven through a real change) → **death and
++resurrection** (a killed run resumed from committed state) → **a perfect pass with a stopwatch**. Read the index for the current stage.
+ 
+ ## Under the hood
+ The orchestration, scope enforcement, routing and memory are plain bash and Python scripts and skill docs you can read.
+diff --git a/TROUBLESHOOTING.md b/TROUBLESHOOTING.md
+index 12ccfc6..a56223d 100644
+--- a/TROUBLESHOOTING.md
++++ b/TROUBLESHOOTING.md
+@@ -98,6 +98,40 @@ Never tell the implementer to "just peek" — that defeats the partition contrac
+ 
+ Never "just let it through." A BLOCKED job never merges by design.
+ 
++## A worktree job came back BLOCKED and every violation is under `node_modules/` (or `.venv/`, `vendor/`, a build cache)
++
++**Symptom:** a job that has to install something before it can build or test returns `"status": "blocked"` with hundreds of `violations`,
++all of them inside a dependency or build directory the model never meant to author.
++
++**Cause:** the model ran the install itself. The scope gate unions the worktree's untracked *and* ignored files into the changed set, so
++everything an install created reads as a write this job made — and none of it is in `write_allowed`.
++
++**Fix:** declare the install in the manifest instead, so the worker script runs it before the model ever starts:
++
++```yaml
++# top level of manifest.yaml — one dependency install for the whole run
++provision_command: "npm ci"
++provision_timeout_s: 600        # optional; defaults to 600, range 1-1800
++```
++
++A single job may override either key by declaring it on the job itself; the emitter reads the job's value first and falls back to the
++manifest's. Only worktree jobs provision — a `direct` job runs in the checkout, which already has its dependencies.
++
++The worker script — never the model — runs that command once inside the fresh worktree, then lists exactly what it created into
++`preexisting.txt` and hands that file to the gate as `--preexisting`. That subtraction is the *only* one the gate performs, and what makes
++it safe is when the snapshot is taken: after provisioning and before the model launches, so it can only ever contain what provisioning made.
++On the four headless backends the same two flags exist on the command line as `--provision-command` and `--provision-timeout-sec`.
++
++Two consequences worth knowing before you use it:
++
++- The command must be **idempotent and must not modify tracked files**. A tracked file it edits is still a violation — the snapshot only
++  ever forgives untracked and ignored paths.
++- A path whose filename contains a newline cannot be written to that line-oriented file, so it is **left out and stays a violation** —
++  fail closed, the same rule the gate applies to a file it could not read.
++
++Do not "fix" this by widening `write_allowed` to `node_modules/**`. That hands the job a lane it can write anything into for the rest of
++the run, and the gate will agree with it.
++
+ ## `validate-manifest.py` rejects the manifest before dispatch
+ 
+ **Symptom:** `partition-reviewer` fails (or `/v:dispatch` halts) with a manifest-invariant violation — e.g. overlapping `write_allowed`, a Codex job without `isolation: worktree`, or a reviewer not on Opus.
+@@ -169,6 +203,36 @@ At runtime the same fail-closed posture applies to individual commands: *"no cla
+ 
+ **Related:** if a job reads `forged` with a duplicate-receipt reason, look for a stray `results/<id>.<something>.json`. D1 requires **exactly one** receipt per job, so any dotted sibling of the primary is read as a rival receipt. Superseded attempts belong in `results/attempts/`.
+ 
++## Record reports a `verdict_disagreement`
++
++**Symptom:** a job's ack and its `state.json` entry carry a `verdict_disagreement` object — `field`, `receipt`, `workflow`, `receipt_path` —
++and, when `field` is `verdict`, the job's `summary` ends with:
++
++```text
++gate verdict disagreement: receipt <path> says <x>, the workflow held <y>; this comparison establishes no cause
++```
++
++**Cause:** two readings of the same gate differed, and Record says so instead of asserting why.
++
++- `receipt` is the value in the gate receipt on disk — the artefact the gate itself wrote, and the one the integration authority
++  re-derives against.
++- `workflow` is the value the workflow carried in `--expect-verdict` — a value that travelled through an agent's transport.
++
++**Neither of the two is a proven cause of the other.** A rewritten receipt, a mis-read field and a stale transport all look identical from
++where this comparison stands; before 3.6 the message named a cause the code had never established, and that sentence is gone.
++
++**Fix:** decide from the receipt, not from the summary.
++
++1. `field: verdict` — the **receipt's** verdict is what got recorded, deliberately. Open `receipt_path`, check it against the job's
++   `results/<id>.json` and the scope-gate outcome, and treat the workflow's value as the suspect reading.
++2. `field: diff_digest` — this is **not** a soft disagreement. The job is recorded as an `error` and the receipt's verdict is **not**
++   adopted, because the digest is what binds a receipt to the tree the gate measured. A missing digest counts as disagreement too, not as
++   agreement. Re-run the tail for that job (`/v:collect <run-id>`) so a fresh receipt is written against the tree as it is now.
++3. Never edit a receipt to make the two agree. That removes the signal and leaves the forgery check with nothing to catch.
++
++Two things the field is **not**: it is not a scope-gate verdict (that lives in the job result's `violations`), and `/v:status` does not
++render it — read it from `state.json` or the ack.
++
+ ## A job with `depends_on` runs in the shared checkout instead of its own worktree
+ 
+ **Symptom:** a dependent job (one with `depends_on` and `isolation: worktree` in the manifest) shows `agent_isolation: null` in its job spec inside `docs/superpowers/execution/<run>/dispatch.workflow.js` (never in `state.json`, which keeps the manifest's `isolation: worktree`) and its agent edited the main checkout directly, alongside whatever else that wave is running — not an isolated worktree.
+@@ -189,6 +253,37 @@ At runtime the same fail-closed posture applies to individual commands: *"no cla
+ 
+ Two honest limits: on Claude Code 2.1.238 an agent is **not told its own `agent_id`**, so the `agents` map is normally empty and resolution runs on the `worktrees` map — which is the fallback the 1D probe proved works. And the guard is **defence in depth, never the authority**: shell writes have unbounded evasions (`eval`, an interpreter one-liner, a variable holding the path), and the git-derived scope gate plus the integration postcondition still decide what enters the tree.
+ 
++## There is a line in `lane-guard-unresolved.jsonl`
++
++**Symptom:** `docs/superpowers/execution/<run-id>/lane-guard-unresolved.jsonl` has one or more JSON lines, and the session that produced
++one saw a notice saying an isolated agent resolved to no job in that run's live lane map and the write was not lane-checked.
++
++**Cause, stated exactly:** at the moment of that `Write`/`Edit`/`Bash` call, the agent's `agent_id` and its worktree matched nothing in the
++lane map, and all four recording gates were satisfied — a lane map was found, at least one worktree it names still exists on disk, the
++`cwd` is inside `.claude/worktrees/<id>`, and the command was **not** the `register-lane` bootstrap. That fourth gate is the bootstrap
++suppression: the one command every job must run *first* is, by construction, run before the job has an entry to resolve to, so recording it
++would have made the record's opening line an incident the run's own contract mandates. It suppresses **only that command** — nothing else.
++
++So what a record now means is narrow and worth reading literally: an isolated agent wrote something, under a live lane map, that the guard
++could not attribute. The entry's `why` states that observation and nothing about the cause — a registration that was never run and one a
++concurrent sibling's read-modify-write lost are indistinguishable from here. `candidate_runs` lists every lane map that was live at that
++instant, newest first, and the line is written into the newest of them, so a record read weeks later cannot be mistaken for one written
++while a different run held the tree. Lines are deduplicated per `(agent_id, cwd)` and the file is capped, so one mis-ordered job leaves one
++line, not thousands.
++
++**The two benign cases.** A job whose prompt orders a command *before* `register-lane` — a bare `pwd`, say — produces exactly one line, and
++the job is otherwise fully compliant. And a non-Compound-V agent worktree that happens to be running while a Compound V run is live is
++recorded the same way, because Engine C hands its workers no environment marker that would separate the two. Both are stated rather than
++hidden; the cost of each is one line and one notice.
++
++**Fix:** match the `cwd` and `ts` in the line against the run's jobs.
++
++1. If it is a job of this run, confirm `register-lane` was its first command with a **literal** `--cwd` — the bash clamp refuses `$(pwd)`
++   or `"$PWD"`, and a job denied on that command never registers at all, which leaves the guard nothing to resolve for the rest of the job.
++2. If the identity is not a job of this run, it is the foreign-worktree case above; nothing is wrong with the run.
++3. Either way the write was **allowed** — the guard is fail-open by contract. The authority is the git-derived scope gate, which measured
++   that job's diff regardless, so check `results/<id>.json` before concluding anything escaped.
++
+ ## The test floor reports nothing, or never ran
+ 
+ **Symptom:** no `tests` object on a job result, or a floor result that clearly executed no commands.

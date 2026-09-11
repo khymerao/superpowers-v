@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+  "diff_digest": "sha256:6d37fa6417a4249b6205adaadbcabad806bbd45886ff8ec9c2e8a44a1cddae26",
+  "exit_code": 0,
+  "job_id": "docs-core",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch-r2/jobs/docs-core.patch",
+  "patch_paths": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "README.md",
+    "TROUBLESHOOTING.md"
+  ],
+  "patch_sha256": "sha256:6d37fa6417a4249b6205adaadbcabad806bbd45886ff8ec9c2e8a44a1cddae26",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"94bc98db7ed43df6a94bee8d4232485be379e1ad\",\n  \"changed\": [\n    \"AGENTS.md\",\n    \"CLAUDE.md\",\n    \"README.md\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"allowed\": [\n    \"README.md\",\n    \"AGENTS.md\",\n    \"CLAUDE.md\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "README.md",
+      "TROUBLESHOOTING.md"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 4 command(s) from 4 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-8"
+}

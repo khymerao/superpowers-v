@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+  "diff_digest": "sha256:c447a1257167ef830ee0656b440c27a451e377406b85b5bf1ea9e33a2d393149",
+  "exit_code": 0,
+  "job_id": "docs-skills",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch-r2/jobs/docs-skills.patch",
+  "patch_paths": [
+    "commands/v-orchestrate.md",
+    "skills/compound-v/SKILL.md",
+    "skills/compound-v/execution-manifest.md",
+    "skills/compound-v/routing-policy.md"
+  ],
+  "patch_sha256": "sha256:c447a1257167ef830ee0656b440c27a451e377406b85b5bf1ea9e33a2d393149",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"94bc98db7ed43df6a94bee8d4232485be379e1ad\",\n  \"changed\": [\n    \"commands/v-orchestrate.md\",\n    \"skills/compound-v/SKILL.md\",\n    \"skills/compound-v/execution-manifest.md\",\n    \"skills/compound-v/routing-policy.md\"\n  ],\n  \"allowed\": [\n    \"skills/compound-v/execution-manifest.md\",\n    \"skills/compound-v/SKILL.md\",\n    \"skills/compound-v/routing-policy.md\",\n    \"commands/v-orchestrate.md\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-orchestrate.md",
+      "skills/compound-v/SKILL.md",
+      "skills/compound-v/execution-manifest.md",
+      "skills/compound-v/routing-policy.md"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 4 command(s) from 4 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_d7458ec6-edb-2"
+}
