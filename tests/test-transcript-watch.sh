@@ -540,6 +540,70 @@ check "so review 2's fixture emits EXACTLY the one real out-of-lane signal" \
       "$([ "$(grep -cE ' (out-of-lane|wrong-cwd|error|denied|stall) ' "$OUT10")" = 1 ] && echo 1 || echo 0)"
 
 # --------------------------------------------------------------------------- #
+# 11b. A JOB THAT BELONGS TO ANOTHER RUN, and a job whose lane is EMPTY.
+#
+# Live on 2026-09-11: a watch left pointed at a halted run reported the FOLLOW-UP
+# run's `docs-backend` editing two files that sit squarely inside its own declared
+# lane. The watcher had resolved the job against the manifest it was given, found
+# no entry, and rendered "no lane here" as "outside its lane" — the #19 E failure
+# mode, a signal that fires when nothing is wrong.
+#
+# The second row here fixes no bug and is not claimed to: a job declared with an
+# EMPTY `write_allowed` — a review job — already reports every repository write,
+# which is what the deterministic gate does too (an empty allow-list makes every
+# changed path a violation). It is planted as a REGRESSION GUARD, because the
+# obvious tidy-up of the line above — dropping its redundant `and allowed` — reads
+# like a behaviour change and the next reader deserves a test that says it is not.
+# --------------------------------------------------------------------------- #
+WF7="$SESSION/subagents/workflows/wf_foreign"
+mkdir -p "$WF7"
+A9="a9foreign00000000"
+A10="a10emptylane00000"
+cat >"$WF7/agent-$A9.meta.json" <<JSON
+{"agentType":"superpowers-v:implementer","description":"implement other-run-job","workflowPhase":"Implement"}
+JSON
+cat >"$WF7/agent-$A9.jsonl" <<JSONL
+{"type":"assistant","agentId":"$A9","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"f1","name":"Bash","input":{"command":"$PY -B $EMIT register-lane --run-dir $RUN --job-id other-run-job --cwd $WTA --repo-root $SANDBOX --isolation worktree"}}]}}
+{"type":"user","agentId":"$A9","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"f1","content":"{\"job_id\": \"other-run-job\"}"}]}}
+{"type":"assistant","agentId":"$A9","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"f2","name":"Edit","input":{"file_path":"$WTA/README.md","old_string":"a","new_string":"b"}}]}}
+{"type":"user","agentId":"$A9","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"f2","content":""}]}}
+JSONL
+cat >"$WF7/agent-$A10.meta.json" <<JSON
+{"agentType":"superpowers-v:spec-reviewer","description":"review c","workflowPhase":"Implement"}
+JSON
+cat >"$WF7/agent-$A10.jsonl" <<JSONL
+{"type":"assistant","agentId":"$A10","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"e1","name":"Bash","input":{"command":"$PY -B $EMIT register-lane --run-dir $RUN --job-id c --cwd $WTA --repo-root $SANDBOX --isolation worktree"}}]}}
+{"type":"user","agentId":"$A10","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e1","content":"{\"job_id\": \"c\"}"}]}}
+{"type":"assistant","agentId":"$A10","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"e2","name":"Write","input":{"file_path":"$WTA/src/anything.py","content":"x = 1"}}]}}
+{"type":"user","agentId":"$A10","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"e2","content":""}]}}
+JSONL
+cat >"$WF7/journal.jsonl" <<JSONL
+{"type":"started","key":"k9","agentId":"$A9"}
+{"type":"result","key":"k9","agentId":"$A9"}
+{"type":"started","key":"k10","agentId":"$A10"}
+{"type":"result","key":"k10","agentId":"$A10"}
+JSONL
+
+# Job `c` exists in the manifest with an EMPTY lane; `other-run-job` does not
+# exist at all. Append `c` rather than rewriting the fixture the earlier sections
+# depend on.
+cat >>"$RUN/manifest.yaml" <<YAML
+  - id: c
+    isolation: worktree
+    write_allowed: []
+YAML
+
+OUT11="$T/out11.txt"
+"$PY" -B "$WATCH" --run-dir "$RUN" --transcripts "$SESSION" --wf wf_foreign --once \
+      --state "$T/state11.json" >"$OUT11" 2>&1
+check "a job absent from THIS run's manifest raises no out-of-lane signal" \
+      "$(grep -qE 'other-run-job.*out-of-lane' "$OUT11" && echo 0 || echo 1)"
+check "...and its agent still appears on the roster, so it is not hidden" \
+      "$(grep -q 'other-run-job' "$OUT11" && echo 1 || echo 0)"
+check "a job whose declared lane is EMPTY may write nothing — the write fires" \
+      "$([ "$(grep -cE '\bc\b.*out-of-lane.*anything\.py' "$OUT11")" = 1 ] && echo 1 || echo 0)"
+
+# --------------------------------------------------------------------------- #
 # 12. The script's own --selftest, run through this suite so CI cannot lose it.
 # --------------------------------------------------------------------------- #
 "$PY" -B "$WATCH" --selftest >"$T/selftest.txt" 2>&1

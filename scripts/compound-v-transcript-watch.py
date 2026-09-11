@@ -762,7 +762,21 @@ def out_of_lane_targets(event, job, reg, ctx, repo_root, is_allowed):
     if not raw_targets:
         return []
 
-    allowed = ((ctx.get("jobs") or {}).get(job) or {}).get("write_allowed") or []
+    jobs_ctx = ctx.get("jobs") or {}
+    # A JOB ID THIS RUN'S MANIFEST DOES NOT CONTAIN BELONGS TO ANOTHER RUN, and
+    # this watcher cannot answer the lane question for it: there is no declared
+    # lane to compare against, and "no lane found here" is not "outside its lane".
+    # Reporting it anyway made every write of a sibling run read as a violation --
+    # observed live 2026-09-11, when a watch left pointed at a halted run reported
+    # the follow-up run's `docs-backend` editing two files that were squarely
+    # inside its own declared lane. That is the failure mode #19 E is about: a
+    # signal that fires when nothing is wrong teaches the reader to ignore the one
+    # that matters. An agent that registered NO job at all is a different case and
+    # is still reported -- a write by an agent with no lane is exactly what the
+    # unregistered signal exists for.
+    if job and job not in jobs_ctx:
+        return []
+    allowed = (jobs_ctx.get(job) or {}).get("write_allowed") or []
     roots = _roots_for(job, reg, ctx, repo_root)
     base = (reg or {}).get("--cwd") or repo_root or os.getcwd()
 
