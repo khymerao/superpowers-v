@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md",
+    "docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "447cf2db3f05e55f40d840dd2a9c7e96c0435c4c",
+    "diff_digest": "sha256:64dfe37901b1a059d08e8352eb32a67e4885276e5573ac80a219a3c75e34d4d0",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"447cf2db3f05e55f40d840dd2a9c7e96c0435c4c\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md\",\n    \"docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-09-11-v3.6-wide-dispatch-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "447cf2db3f05e55f40d840dd2a9c7e96c0435c4c",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 three passes against the spec and the nine acceptance criteria",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": ""
+}

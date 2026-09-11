@@ -1,6 +1,6 @@
 {
   "run_id": "2026-09-11-v3.6-wide-dispatch-r2",
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "jobs": {
     "docs-core": {
       "baseline": "94bc98db7ed43df6a94bee8d4232485be379e1ad",
@@ -48,6 +48,19 @@
         "integrated": true,
         "commit": "e0654cfc24f7a430b0f006387c4a833400213d76"
       }
+    },
+    "spec-review": {
+      "baseline": "447cf2db3f05e55f40d840dd2a9c7e96c0435c4c",
+      "isolation": "direct",
+      "worktree": "",
+      "realised_commit": "447cf2db3f05e55f40d840dd2a9c7e96c0435c4c",
+      "status": "done",
+      "merged": {
+        "realised_commit": "447cf2db3f05e55f40d840dd2a9c7e96c0435c4c",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "a8954ff2f2e7bbdaaf3d6305d1c0fbd2bf470b94"
+      }
     }
   },
   "updated_at": "2026-09-11T20:05:00Z",
@@ -65,6 +78,22 @@
       ],
       "commit": "e0654cfc24f7a430b0f006387c4a833400213d76",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "a8954ff2f2e7bbdaaf3d6305d1c0fbd2bf470b94",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-09-11T160644Z-build-v3-6-0-per-docs-superpowers-plans-2026-09-11-v3-6-wide-913d",
+    "run_id": "2026-09-11-v3.6-wide-dispatch-r2"
+  },
+  "merged_at": "2026-09-11T20:05:00Z"
 }
