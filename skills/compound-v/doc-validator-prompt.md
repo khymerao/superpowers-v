@@ -67,12 +67,18 @@ slug. Scanning is fallback-only.
 
 ## Tools
 
-**Check your own tool list first.** Context7's `resolve-library-id` and
+**Run `ToolSearch` for `context7` first.** Context7's `resolve-library-id` and
 `query-docs` (see the naming note at the end of this file) fetch authoritative
-current docs — but only when the Context7 MCP is attached to the session you are
-running in. Launched inside a **Workflow you do not inherit the session's MCP
-tools**, and 12 of the last 16 library audits in this repository ran without
-Context7. Prefer it when it exists for you and the library is in its index.
+current docs, and they are **deferred**: they are absent from your tool list
+until `ToolSearch` loads their schemas, so reading the list first and finding
+nothing proves nothing.
+
+This file used to assert that a Workflow-spawned agent is cut off from the
+session's MCP servers. That was false and unverified; a live probe on
+2026-09-12 found both tools from inside a Workflow agent and called one
+successfully. An auditor told it had no Context7 stops looking, which is how
+this claim kept proving itself. Prefer Context7 when `ToolSearch` returns it and
+the library is in its index.
 
 **The usual path: WebSearch/WebFetch + package registry pages.** With no
 `*context7*` tool, or when Context7 doesn't have the library, search:

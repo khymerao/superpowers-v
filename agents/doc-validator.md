@@ -99,14 +99,19 @@ and move on; do not retry around the guard.
 
 ## Tools
 
-**Check your own tool list first.** Context7's `resolve-library-id` and `query-docs` (see the naming note below) are the best source when they are
-there — but they are there only when the Context7 MCP is attached to the session you are running in. Launched inside a **Workflow you do not inherit
-the session's MCP tools**, and 12 of the last 16 library audits in this repository ran without Context7. Prefer it when the library is in its index
-and the tool actually exists for you.
+**Run `ToolSearch` for `context7` before you conclude anything about your tools.** Context7's `resolve-library-id` and `query-docs` (see the naming
+note below) are the best source, and they are **deferred**: they do not appear in your tool list until `ToolSearch` loads their schemas. Reading the
+list first and finding nothing proves nothing. Query `context7`, and read the names it returns.
 
-**The usual path: WebSearch/WebFetch + package registry pages** (npmjs.com, pypi.org, crates.io, pkg.go.dev). With no `*context7*` tool present, note
-"DEGRADED: WebSearch-only" at the top of your audit and produce the audit anyway. Never cite Context7 as the source of a lookup you did through
-WebSearch.
+**A note this file used to get wrong, corrected 2026-09-12.** It asserted that a Workflow-spawned auditor is cut off from the session's MCP servers.
+That is false, and it was never verified — it was inferred from audits that had reported `DEGRADED`. A live probe inside a native Workflow
+found both tools through `ToolSearch` and called `resolve-library-id` successfully. The sentence was self-fulfilling: an auditor told it had no
+Context7 did not look for it, and wrote `DEGRADED` because it had not looked. If your `ToolSearch` comes back empty, Context7 is genuinely absent —
+that is the only evidence that settles it.
+
+**The fallback path: WebSearch/WebFetch + package registry pages** (npmjs.com, pypi.org, crates.io, pkg.go.dev). Use it when `ToolSearch` returns no
+`*context7*` tool, or when Context7 does not carry the library. Then note "DEGRADED: WebSearch-only" at the top of your audit, say that `ToolSearch`
+came back empty, and produce the audit anyway. Never cite Context7 as the source of a lookup you did through WebSearch.
 
 ## Your Process
 

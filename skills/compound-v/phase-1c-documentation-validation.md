@@ -32,12 +32,15 @@ Run Phase 1C if ANY of these apply (almost always true):
 Phase 1C is sharper when [Context7 MCP](https://github.com/upstash/context7) is attached to **the session you are running in** (its `*context7*`
 tools). Context7 fetches current, authoritative library documentation directly — bypassing training data staleness.
 
-**Expect not to have it.** A pre-flight agent launched inside a **Workflow does not inherit the session's MCP tools**: 12 of the last 16 library
-audits in this repository ran with no Context7 attached. The interactive path is where it shows up. So WebSearch/WebFetch plus the package registry is
-the *normal* toolset here, not the emergency one.
+**Look for it with `ToolSearch`, do not assume.** Context7's tools are **deferred**: they are not in an agent's tool list until `ToolSearch` loads
+their schemas. This file used to assert that a Workflow-spawned pre-flight agent is cut off from the session's MCP servers, and that 12 of the last
+16 library audits therefore ran without Context7. **The claim was false and had never been verified** — a live probe on 2026-09-12 found both
+tools from inside a native Workflow agent and called `resolve-library-id` successfully. The audits reported `DEGRADED` because this document told
+them to expect nothing, so they never ran the search that would have found it.
 
-**Detection:** check your own tool list before you claim a source. If no `*context7*` tool is present, run on WebSearch/WebFetch and write `DEGRADED:
-WebSearch-only` at the top of the audit — never cite Context7 for a lookup you did through WebSearch.
+**Detection:** run `ToolSearch` with the query `context7` and read what comes back. Only an empty result is evidence of absence. Then run on
+WebSearch/WebFetch, write `DEGRADED: WebSearch-only` at the top of the audit, say that the search came back empty — and never cite Context7 for a
+lookup you did through WebSearch.
 
 ## How To Invoke
 

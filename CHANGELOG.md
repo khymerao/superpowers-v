@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.6.2] - 2026-09-12
+
+### Fixed — the library auditor was told it had no tools, so it never looked for them
+
+Issue #20 said MCP tools do not reach an agent inside a native Workflow, and that Phase 1C had
+therefore never had Context7 — the one tool it exists for. The evidence was strong: of the thirteen
+`doc-validator` agents ever spawned inside a Workflow in this repository, none ever called a Context7
+tool, and one transcript shows a tool search returning no match.
+
+**The premise is false.** A live probe on 2026-09-12 spawned an agent inside a native Workflow, ran
+`ToolSearch` for `context7`, got both tools back, and called `resolve-library-id` successfully —
+real data, not a stub. The Workflow authoring reference says the same in one line: workflow agents
+reach all session-connected MCP tools via `ToolSearch`.
+
+**The cause was ours, and it was a sentence.** Three documents told the auditor that a Workflow-spawned
+agent is cut off from the session's MCP servers, and cited those DEGRADED audits as proof. The claim
+had never been verified. MCP tools are **deferred** — absent from a tool list until `ToolSearch` loads
+their schemas — and the same documents told the auditor to "check your own tool list". So an auditor
+that had been told to expect nothing read a list that cannot show a deferred tool, found nothing, and
+wrote `DEGRADED`. That report was then read back as evidence for the claim that caused it.
+
+No document in this plugin had ever named `ToolSearch`. All three now tell the auditor to run it, say
+why a tool list cannot answer the question, and state that only an empty search is evidence of
+absence. `DEGRADED` stays reachable and stays the honest answer when the search really is empty.
+
+`tests/test-doc-validator-tools.sh` guards both halves: that the auditor is told to run the search,
+and that the refuted claim has not crept back. Re-introducing the sentence fails the row.
+
+**What this cost.** Every library audit run through the pre-flight Workflow since 3.3.5 ran on
+WebSearch and package registry pages while the better source sat one search away. Nothing was
+fabricated — the audits said `DEGRADED` and cited what they actually used — but a validator built
+around a tool spent thirteen runs not using it.
+
+**Nothing was re-architected.** #20's proposed fix — dispatching 1C outside the pre-flight Workflow —
+would have traded away the batched three-way structured result to solve a problem that does not
+exist. The issue is closed as refuted, with the probe recorded.
+
+
 ## [3.6.1] - 2026-09-12
 
 ### Fixed — the first FULL run of Compound V in someone else's repository, and what it cost them
