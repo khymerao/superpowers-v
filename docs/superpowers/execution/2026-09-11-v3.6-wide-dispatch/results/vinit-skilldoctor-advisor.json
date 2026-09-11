@@ -1,0 +1,29 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-init.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "diff_digest": "sha256:73ce788dff1980f44fdef5c1a110aecb11bd96a490da2942a4030f4d8c9a103d",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-init.md\"\n  ],\n  \"allowed\": [\n    \"commands/v-init.md\",\n    \".claude/settings.json\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-VINIT \u2014 /v:init Step 1f (native /skill-doctor) and Step 4e (advisorModel); this repo advises with Fable (F6, F7)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 1
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-4"
+}

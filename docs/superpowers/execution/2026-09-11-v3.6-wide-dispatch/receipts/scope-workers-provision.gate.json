@@ -1,0 +1,69 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:adcd42ee5c8fcefc7c7ccd2ed0f587fb54120b067a21d7f99c46551d60a51ed8",
+  "exit_code": 0,
+  "job_id": "scope-workers-provision",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/scope-workers-provision.patch",
+  "patch_paths": [
+    "scripts/compound-v-run-antigravity-worker.sh",
+    "scripts/compound-v-run-codex-worker.sh",
+    "scripts/compound-v-run-cursor-worker.sh",
+    "scripts/compound-v-run-opencode-worker.sh",
+    "scripts/compound-v-scope-check.py",
+    "tests/test-worker-path-transport.sh"
+  ],
+  "patch_sha256": "sha256:adcd42ee5c8fcefc7c7ccd2ed0f587fb54120b067a21d7f99c46551d60a51ed8",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"scripts/compound-v-run-antigravity-worker.sh\",\n    \"scripts/compound-v-run-codex-worker.sh\",\n    \"scripts/compound-v-run-cursor-worker.sh\",\n    \"scripts/compound-v-run-opencode-worker.sh\",\n    \"scripts/compound-v-scope-check.py\",\n    \"tests/test-worker-path-transport.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-scope-check.py\",\n    \"scripts/compound-v-run-codex-worker.sh\",\n    \"scripts/compound-v-run-cursor-worker.sh\",\n    \"scripts/compound-v-run-antigravity-worker.sh\",\n    \"scripts/compound-v-run-opencode-worker.sh\",\n    \"tests/test-worker-path-transport.sh\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "scripts/compound-v-run-antigravity-worker.sh",
+      "scripts/compound-v-run-codex-worker.sh",
+      "scripts/compound-v-run-cursor-worker.sh",
+      "scripts/compound-v-run-opencode-worker.sh",
+      "scripts/compound-v-scope-check.py",
+      "tests/test-worker-path-transport.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck scripts/compound-v-*.sh && bash tests/test-worker-path-transport.sh >/dev/null && echo workers-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "/usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-worker-path-transport.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 6 command(s) from 6 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-19"
+}

@@ -1,0 +1,41 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:73ce788dff1980f44fdef5c1a110aecb11bd96a490da2942a4030f4d8c9a103d",
+  "exit_code": 0,
+  "job_id": "vinit-skilldoctor-advisor",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/vinit-skilldoctor-advisor.patch",
+  "patch_paths": [
+    "commands/v-init.md"
+  ],
+  "patch_sha256": "sha256:73ce788dff1980f44fdef5c1a110aecb11bd96a490da2942a4030f4d8c9a103d",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-init.md\"\n  ],\n  \"allowed\": [\n    \"commands/v-init.md\",\n    \".claude/settings.json\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-init.md"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 1 command(s) from 1 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-4"
+}

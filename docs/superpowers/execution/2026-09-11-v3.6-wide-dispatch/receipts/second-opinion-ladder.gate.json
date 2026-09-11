@@ -1,0 +1,47 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:01c152da00a38a072f232b1eb394eab2cfdef4fec19cccb7f3259d1cc816e696",
+  "exit_code": 0,
+  "job_id": "second-opinion-ladder",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/second-opinion-ladder.patch",
+  "patch_paths": [
+    "commands/v-dispatch.md",
+    "commands/v-review-plan.md",
+    "skills/compound-v/cross-model-review.md",
+    "skills/compound-v/phase-3-parallel-opus-dispatch.md"
+  ],
+  "patch_sha256": "sha256:01c152da00a38a072f232b1eb394eab2cfdef4fec19cccb7f3259d1cc816e696",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-dispatch.md\",\n    \"commands/v-review-plan.md\",\n    \"skills/compound-v/cross-model-review.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\"\n  ],\n  \"allowed\": [\n    \"commands/v-review-plan.md\",\n    \"skills/compound-v/cross-model-review.md\",\n    \"commands/v-dispatch.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-dispatch.md",
+      "commands/v-review-plan.md",
+      "skills/compound-v/cross-model-review.md",
+      "skills/compound-v/phase-3-parallel-opus-dispatch.md"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 4 command(s) from 4 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-5"
+}

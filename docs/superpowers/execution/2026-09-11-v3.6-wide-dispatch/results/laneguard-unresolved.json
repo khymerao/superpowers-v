@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "hooks/lane-guard.sh",
+    "tests/test-lane-guard.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "diff_digest": "sha256:6e1a19ad758082450dd3b6c3b8ccdd2a7681b6e5f6c83243d6ba6cf39431fe57",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-LANEGUARD \u2014 the unresolved record names the acting run and the bootstrap (#19 E)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo lane-guard-ok'\nbash tests/test-lane-guard.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-3"
+}

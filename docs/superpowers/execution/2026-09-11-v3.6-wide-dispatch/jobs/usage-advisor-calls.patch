@@ -1,0 +1,609 @@
+diff --git a/commands/v-status.md b/commands/v-status.md
+index 7792737..79e81c0 100644
+--- a/commands/v-status.md
++++ b/commands/v-status.md
+@@ -58,7 +58,7 @@ The run-id (optional) is `{{args}}`.
+ 
+    **Liveness (hang detection).** Populate the `Liveness` column for any job whose `status` is `running` from [`scripts/compound-v-liveness.py`](../scripts/compound-v-liveness.py) `<run-dir> --json` — it classifies each running job from **git + filesystem only** (never model-self-report): `WORKING`, `LIKELY-DONE` (the worktree has a commit past its baseline — work landed, only the completion notification is stuck; hint: *`/v:resume`, or the dispatcher auto-collects it*), `STALE` (no progress past the threshold — a **suspected hang**), `DEAD` (a recorded pid died), or `UNKNOWN`. Non-running jobs show `—`. **Degrade-safe:** if the probe errors or is missing, show `—` for every row — never break the table. Surface any `STALE`/`DEAD` prominently in the summary and point the user at `/v:resume`. Never print fabricated metrics.
+ 
+-   **Usage (measured-only).** Populate the `Usage` column from [`scripts/compound-v-usage-aggregate.py`](../scripts/compound-v-usage-aggregate.py) `--run-dir <run-dir>` — it reads each job's OPTIONAL `usage` object out of `<run-dir>/results/*.json` (worker-sourced, git-collected) and returns a per-job list plus measured-only totals. For a job whose `usage.measured == true`, show its real token counts (e.g. `in=12.3k out=4.1k`). For any job that is **unmeasured** — `measured:false` (a backend with no machine-readable usage: agy/antigravity, claude Task subagent), or no `usage` key at all — show `—`. **Measured only, never estimated:** never derive, guess, or back-fill a token number the backend did not report; an honest `—` beats a fabricated count (anti-ruflo). **Degrade-safe:** when `results/` is absent (a pending run) the aggregator returns empty totals with a `note` and exits 0 — show `—` for every row and never break the table (same rule as the Liveness column above). Optionally add a run-level total line to the summary (step 6) from the aggregator's `--format text` output (e.g. `measured: in=1.2M out=340k | 4 measured, 2 unmeasured`) — it already reports the honest unmeasured count, so a partially-instrumented run is never dressed up as a complete one. Since 3.4.17 the aggregator's text line appends `cache_read=… cache_create=…` when a source reported them (Engine C transcripts do), and its JSON `totals` carries the same two keys — null for a pre-3.4.17 run, whose line is unchanged.
++   **Usage (measured-only).** Populate the `Usage` column from [`scripts/compound-v-usage-aggregate.py`](../scripts/compound-v-usage-aggregate.py) `--run-dir <run-dir>` — it reads each job's OPTIONAL `usage` object out of `<run-dir>/results/*.json` (worker-sourced, git-collected) and returns a per-job list plus measured-only totals. For a job whose `usage.measured == true`, show its real token counts (e.g. `in=12.3k out=4.1k`). For any job that is **unmeasured** — `measured:false` (a backend with no machine-readable usage: agy/antigravity, claude Task subagent), or no `usage` key at all — show `—`. **Measured only, never estimated:** never derive, guess, or back-fill a token number the backend did not report; an honest `—` beats a fabricated count (anti-ruflo). **Degrade-safe:** when `results/` is absent (a pending run) the aggregator returns empty totals with a `note` and exits 0 — show `—` for every row and never break the table (same rule as the Liveness column above). Optionally add a run-level total line to the summary (step 6) from the aggregator's `--format text` output (e.g. `measured: in=1.2M out=340k | 4 measured, 2 unmeasured`) — it already reports the honest unmeasured count, so a partially-instrumented run is never dressed up as a complete one. Since 3.4.17 the aggregator's text line appends `cache_read=… cache_create=…` when a source reported them (Engine C transcripts do), and its JSON `totals` carries the same two keys — null for a pre-3.4.17 run, whose line is unchanged. Since F7, `adv=N` in that same line is the measured count of advisor tool calls across the run's jobs, shown only when at least one was measured (`N > 0`) so a run that never touched the advisor renders exactly the line it always did.
+ 
+ 5. **Render backend health (the circuit breaker).** From `state.json`, surface graceful-failure state so re-routes and credit-exhaustion are never silent (the fields are defined in [`state-machine.md`](../skills/compound-v/state-machine.md), the policy in [`failure-policy.md`](../skills/compound-v/failure-policy.md)):
+    - **Circuit-open backends** — any `circuit_open[<backend>] == true` (out for the run — out-of-credits or auth). Call it out prominently.
+diff --git a/schemas/job_result.schema.json b/schemas/job_result.schema.json
+index 3151abd..6067234 100644
+--- a/schemas/job_result.schema.json
++++ b/schemas/job_result.schema.json
+@@ -235,6 +235,13 @@
+             "type": "string"
+           },
+           "description": "OPTIONAL, `workflow-transcript` source only. Basenames of the agent-*.jsonl transcripts that were summed for this job — normally its implement, gate and record stages. It is the evidence trail: a total whose transcripts cannot be named is a number nobody can re-derive."
++        },
++        "advisor_calls": {
++          "type": [
++            "integer",
++            "null"
++          ],
++          "description": "OPTIONAL, `workflow-transcript` source only (F7). The count of assistant content blocks {type: server_tool_use, name: advisor} across this job's transcripts, deduplicated by message id exactly like the token counts (never summed per streamed line). null when the job was not measured; a well-formed 0 means the transcripts were read and the advisor tool was never invoked."
+         }
+       }
+     },
+diff --git a/scripts/compound-v-usage-aggregate.py b/scripts/compound-v-usage-aggregate.py
+index 912ba31..b3eadab 100755
+--- a/scripts/compound-v-usage-aggregate.py
++++ b/scripts/compound-v-usage-aggregate.py
+@@ -145,6 +145,11 @@ def aggregate(results_dir: str,
+         # input/output totals are byte-identical to what they were before.
+         cr_tok = _valid_int(usage.get("cache_read_input_tokens")) if isinstance(usage, dict) else None
+         cc_tok = _valid_int(usage.get("cache_creation_input_tokens")) if isinstance(usage, dict) else None
++        # F7: the count of advisor tool calls (usage.advisor_calls), summed
++        # under the SAME null-safe rule as the cache metrics — a source that
++        # never reports it (every source but workflow-transcript, today)
++        # leaves it null and contributes nothing, never a fabricated 0.
++        adv_calls = _valid_int(usage.get("advisor_calls")) if isinstance(usage, dict) else None
+         jobs.append({
+             "id": job_id,
+             "measured": measured,
+@@ -152,6 +157,7 @@ def aggregate(results_dir: str,
+             "output_tokens": out_tok,
+             "cache_read_input_tokens": cr_tok,
+             "cache_creation_input_tokens": cc_tok,
++            "advisor_calls": adv_calls,
+             "source": usage.get("source") if isinstance(usage, dict) else None,
+         })
+ 
+@@ -172,6 +178,7 @@ def _assemble(jobs: List[Dict[str, Any]],
+     sum_out = None     # type: Optional[int]
+     sum_cr = None      # type: Optional[int]
+     sum_cc = None      # type: Optional[int]
++    sum_adv = None     # type: Optional[int]
+     measured_jobs = 0
+     unmeasured_jobs = 0
+ 
+@@ -191,6 +198,10 @@ def _assemble(jobs: List[Dict[str, Any]],
+                 sum_cr = (sum_cr or 0) + j["cache_read_input_tokens"]
+             if j.get("cache_creation_input_tokens") is not None:
+                 sum_cc = (sum_cc or 0) + j["cache_creation_input_tokens"]
++            # F7: same rule again for advisor_calls — null when the source
++            # never reports it, and null contributes nothing to the sum.
++            if j.get("advisor_calls") is not None:
++                sum_adv = (sum_adv or 0) + j["advisor_calls"]
+         else:
+             # measured==false OR no usage key: TOKENS honestly unmeasured.
+             unmeasured_jobs += 1
+@@ -200,6 +211,7 @@ def _assemble(jobs: List[Dict[str, Any]],
+         "output_tokens": sum_out,
+         "cache_read_input_tokens": sum_cr,
+         "cache_creation_input_tokens": sum_cc,
++        "advisor_calls": sum_adv,
+         "measured_jobs": measured_jobs,
+         "unmeasured_jobs": unmeasured_jobs,
+     }
+@@ -257,6 +269,12 @@ def _format_text(agg: Dict[str, Any]) -> str:
+     t = agg["totals"]
+     line = "measured: in=%s out=%s" % (
+         _fmt_num(t["input_tokens"]), _fmt_num(t["output_tokens"]))
++    # F7: adv=N renders right after the token fields, and ONLY when at least
++    # one advisor call was actually measured (N > 0) — a run that never
++    # touched the advisor tool renders exactly the line it rendered before
++    # this field existed.
++    if t.get("advisor_calls"):
++        line += " adv=%d" % t["advisor_calls"]
+     if t.get("cache_read_input_tokens") is not None \
+             or t.get("cache_creation_input_tokens") is not None:
+         line += " cache_read=%s cache_create=%s" % (
+@@ -380,6 +398,10 @@ def _selftest() -> int:
+         "input_tokens": 112, "output_tokens": 30478,
+         "cache_read_input_tokens": 4406873,
+         "cache_creation_input_tokens": 161008,
++        # F7: this job called the advisor twice; "load-bearing-row" above
++        # carries NO advisor_calls key at all (pre-F7 shape), proving the
++        # field is backward-compatible and null contributes nothing.
++        "advisor_calls": 2,
+         "backend": "claude", "measured": True,
+         "source": "workflow-transcript",
+         "transcripts": ["agent-a26c40b0a6bdb887a.jsonl"],
+@@ -395,14 +417,22 @@ def _selftest() -> int:
+     check("wf.cache_create", wt["cache_creation_input_tokens"], 286647)
+     check("wf.measured_jobs", wt["measured_jobs"], 2)
+     check("wf.unmeasured_jobs", wt["unmeasured_jobs"], 1)
++    # F7: advisor_calls sums like the cache metrics — "load-bearing-row" has
++    # no such key (pre-F7 shape) and contributes nothing; only spec-review-1's
++    # 2 calls reach the total.
++    check("wf.advisor_calls", wt["advisor_calls"], 2)
+     check("wf.text", _format_text(wfagg),
+-          "measured: in=174 out=40680 cache_read=6174478 cache_create=286647 "
+-          "| 2 measured, 1 unmeasured")
++          "measured: in=174 out=40680 adv=2 cache_read=6174478 "
++          "cache_create=286647 | 2 measured, 1 unmeasured")
+     wf_job = [j for j in wfagg["jobs"] if j["id"] == "spec-review-1"][0]
+     check("wf.job.source", wf_job["source"], "workflow-transcript")
++    check("wf.job.advisor_calls", wf_job["advisor_calls"], 2)
+     wf_none = [j for j in wfagg["jobs"] if j["id"] == "no-transcript"][0]
+     check("wf.job.no_source", wf_none["source"], None)
+     check("wf.job.no_cache", wf_none["cache_read_input_tokens"], None)
++    check("wf.job.no_advisor_calls", wf_none["advisor_calls"], None)
++    lbr_job = [j for j in wfagg["jobs"] if j["id"] == "load-bearing-row"][0]
++    check("wf.job.pre_f7_shape_has_no_advisor_calls", lbr_job["advisor_calls"], None)
+ 
+     # FIX 3: zero measured jobs -> NULL token totals + "—" text, never a real 0.
+     zero_dir = os.path.join(tmp, "zero", "results")
+@@ -424,6 +454,19 @@ def _selftest() -> int:
+     check("zero.text", _format_text(zagg),
+           "measured: in=%s out=%s | 0 measured, 2 unmeasured" % (_d, _d))
+ 
++    # F7: a genuinely measured 0 advisor calls must NOT render "adv=0" — the
++    # aggregate line renders adv=N only when N > 0 (spec, verbatim).
++    adv0_dir = os.path.join(tmp, "adv0", "results")
++    os.makedirs(adv0_dir)
++    _write_result(adv0_dir, "never-called-advisor", _base_result(usage={
++        "input_tokens": 1, "output_tokens": 1, "advisor_calls": 0,
++        "backend": "claude", "measured": True,
++        "source": "workflow-transcript",
++    }))
++    adv0agg = aggregate(adv0_dir)
++    check("adv0.advisor_calls", adv0agg["totals"]["advisor_calls"], 0)
++    check("adv0.text_has_no_adv_clause", "adv=" in _format_text(adv0agg), False)
++
+     # fail-open: missing results dir -> NULL totals + note, no crash
+     agg3 = aggregate(os.path.join(tmp, "does-not-exist", "results"))
+     check("missing.input_tokens", agg3["totals"]["input_tokens"], None)
+diff --git a/scripts/compound-v-usage-extract.py b/scripts/compound-v-usage-extract.py
+index 3c4929b..7f29f59 100755
+--- a/scripts/compound-v-usage-extract.py
++++ b/scripts/compound-v-usage-extract.py
+@@ -748,10 +748,35 @@ def scan_transcript(path):  # type: (str) -> Tuple[List[Tuple[Any, Any, Dict[str
+                 usage.get("cache_read_input_tokens")),
+             "cache_creation_input_tokens": _valid_int(
+                 usage.get("cache_creation_input_tokens")),
++            "advisor_calls": _count_advisor_blocks(msg.get("content")),
+         }))
+     return entries, malformed
+ 
+ 
++_ADVISOR_TOOL_NAME = "advisor"
++
++
++def _count_advisor_blocks(content):  # type: (Any) -> int
++    """How many {type: server_tool_use, name: advisor} blocks this message's
++    content carries RIGHT NOW (F7, usage.advisor_calls).
++
++    A message's content is a list of blocks (thinking, text, tool_use, ...)
++    that grows as the message streams, so this count grows the same way
++    output_tokens does — it is folded with the same last-wins / max-of-
++    snapshots rule as output_tokens in `_pick_snapshot`, never summed per
++    line. A `server_tool_result` block (the advisor's ANSWER, not the call)
++    is a different `type` and is never matched here.
++    """
++    if not isinstance(content, list):
++        return 0
++    return sum(
++        1 for block in content
++        if isinstance(block, dict)
++        and block.get("type") == "server_tool_use"
++        and block.get("name") == _ADVISOR_TOOL_NAME
++    )
++
++
+ def _manifest_run_id_and_jobs(run_dir):  # type: (str) -> Tuple[Optional[str], List[str]]
+     """`run_id` + job ids from <run-dir>/manifest.yaml, WITHOUT PyYAML.
+ 
+@@ -980,6 +1005,12 @@ def _pick_snapshot(snapshots):
+     outputs = [vals.get("output_tokens") for _key, vals in snapshots
+                if vals.get("output_tokens") is not None]
+     best["output_tokens"] = max(outputs) if outputs else None
++    # advisor_calls grows the same way output_tokens does (a message's content
++    # blocks accumulate as it streams), so it takes the same max-of-snapshots
++    # fallback rather than the first snapshot's (possibly incomplete) count.
++    adv_counts = [vals.get("advisor_calls") for _key, vals in snapshots
++                  if vals.get("advisor_calls") is not None]
++    best["advisor_calls"] = max(adv_counts) if adv_counts else None
+     return best
+ 
+ 
+@@ -994,6 +1025,7 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
+     nothing.
+     """
+     totals = dict((k, None) for k in _TOKEN_KEYS)  # type: Dict[str, Optional[int]]
++    adv_total = None  # type: Optional[int]
+     malformed = 0
+     merged = {}  # type: Dict[Any, List[Tuple[Any, Dict[str, Optional[int]]]]]
+     order = []  # type: List[Any]
+@@ -1017,6 +1049,12 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
+             val = vals.get(name)
+             if val is not None:
+                 totals[name] = (totals[name] or 0) + val
++        # advisor_calls is deduplicated by message id EXACTLY like the token
++        # counts above — one chosen snapshot per id, summed once — never
++        # summed per streamed JSONL line.
++        adv = vals.get("advisor_calls")
++        if adv is not None:
++            adv_total = (adv_total or 0) + adv
+ 
+     usage = {
+         "input_tokens": totals["input_tokens"],
+@@ -1030,6 +1068,10 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
+         "measured": messages > 0,
+         "source": WORKFLOW_TRANSCRIPT_SOURCE,
+         "transcripts": sorted(os.path.basename(p) for p in paths),
++        # null exactly when the job itself is unmeasured (messages == 0); a
++        # well-formed 0 means transcripts were read and advisor was never
++        # invoked — never a fabricated substitute for either state.
++        "advisor_calls": adv_total if messages > 0 else None,
+     }
+     return usage, malformed
+ 
+@@ -1348,12 +1390,14 @@ def _tx_user(text):  # type: (str) -> str
+                        "message": {"role": "user", "content": text}})
+ 
+ 
+-def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0):
+-    # type: (Any, int, int, int, int, Optional[str], int) -> str
++def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0, content=None):
++    # type: (Any, int, int, int, int, Optional[str], int, Optional[List[Any]]) -> str
+     """One streamed assistant line, shaped like the real thing.
+ 
+     `mid` of None omits `message.id` entirely (the NEW-3 case); `ts` of None
+-    omits `timestamp` (the ordering fallback case).
++    omits `timestamp` (the ordering fallback case); `content` of None omits
++    `message.content` entirely (F7: a real record with no advisor call has no
++    such block, and `_count_advisor_blocks` reads that as 0, not a crash).
+     """
+     message = {
+         "role": "assistant", "model": "claude-opus-5",
+@@ -1368,6 +1412,8 @@ def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0):
+     }  # type: Dict[str, Any]
+     if mid is not None:
+         message["id"] = mid
++    if content is not None:
++        message["content"] = content
+     record = {"type": "assistant", "apiBlockIndex": block,
+               "message": message}  # type: Dict[str, Any]
+     if ts is not None:
+@@ -1375,6 +1421,16 @@ def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0):
+     return json.dumps(record)
+ 
+ 
++def _advisor_block():  # type: () -> Dict[str, Any]
++    """One real {type: server_tool_use, name: advisor} block."""
++    return {"type": "server_tool_use", "name": "advisor", "input": {}}
++
++
++def _advisor_result_block():  # type: () -> Dict[str, Any]
++    """The advisor's ANSWER, not the call — a different `type`, never counted."""
++    return {"type": "server_tool_result", "name": "advisor", "content": []}
++
++
+ def _write_transcript(path, lines):  # type: (str, List[str]) -> None
+     with open(path, "w", encoding="utf-8") as fh:
+         fh.write("\n".join(lines) + "\n")
+@@ -1461,6 +1517,8 @@ def _selftest_workflow(check):  # type: (Any) -> None
+                      "  type: implement\n"
+                      "- id: job-zeta\n"
+                      "  type: implement\n"
++                     "- id: job-theta\n"
++                     "  type: implement\n"
+                      "- id: %s\n"
+                      "  type: implement\n"
+                      "- id: %s\n"
+@@ -1473,7 +1531,7 @@ def _selftest_workflow(check):  # type: (Any) -> None
+             "exit_code": 0, "failure_class": None, "retry_after_seconds": 0,
+         }
+         for job in ("job-alpha", "job-beta", "job-gamma", "job-epsilon",
+-                    "job-zeta"):
++                    "job-zeta", "job-theta"):
+             with open(os.path.join(results, job + ".json"), "w",
+                       encoding="utf-8") as fh:
+                 fh.write(json.dumps(dict(base), indent=2, sort_keys=True) + "\n")
+@@ -1542,6 +1600,28 @@ def _selftest_workflow(check):  # type: (Any) -> None
+                           "2026-09-04T12:00:01.000Z", 0),   # OLDER
+         ])
+ 
++        # job-theta (F7, usage.advisor_calls): msg_T1 carries one advisor call
++        # and is written TWICE across two transcripts of the SAME job — one
++        # streamed message, not two calls, exactly the msg_B1/msg_Z1
++        # cross-transcript dedup rule above, now applied to advisor_calls
++        # instead of tokens. msg_T2 carries a second call plus the
++        # server_tool_result block that answers it, which must never count.
++        _write_transcript(os.path.join(tx, "agent-tttt1.jsonl"), [
++            _tx_user(prompt("record", "job-theta")),
++            _tx_assistant("msg_T1", 10, 20, 30, 40,
++                          "2026-09-04T20:00:00.000Z", 0,
++                          content=[_advisor_block()]),
++        ])
++        _write_transcript(os.path.join(tx, "agent-tttt2.jsonl"), [
++            _tx_user(prompt("gate-receipt", "job-theta")),
++            _tx_assistant("msg_T1", 10, 20, 30, 40,
++                          "2026-09-04T20:00:00.000Z", 0,
++                          content=[_advisor_block()]),
++            _tx_assistant("msg_T2", 5, 6, 7, 8,
++                          "2026-09-04T20:00:01.000Z", 0,
++                          content=[_advisor_block(), _advisor_result_block()]),
++        ])
++
+         # job-gamma: NO transcript at all -> unmeasured.
+         # UNMATCHED: same job id, DIFFERENT run. This is the collision the run
+         # key exists to defend against; without it these 999 tokens would be
+@@ -1662,11 +1742,11 @@ def _selftest_workflow(check):  # type: (Any) -> None
+         ])
+ 
+         job_ids_expected = ["job-alpha", "job-beta", "job-epsilon",
+-                            "job-gamma", "job-zeta"]
++                            "job-gamma", "job-theta", "job-zeta"]
+ 
+         rep = extract_workflow_usage(run_dir, tx)
+         check("wf.run_id", rep["run_id"], "2026-09-04-selftest-run")
+-        check("wf.scanned", rep["scanned"], 19)
++        check("wf.scanned", rep["scanned"], 21)
+         # cccc1 (other run) + eeee1 (other checkout, same run id) + gggg1 (two
+         # job ids) + hhhh1 (rejected id) + iiii1 (not a transcript) + kkkk1
+         # (unresolvable relative run dir) + llll1 (prose run dir, other command)
+@@ -1857,6 +1937,26 @@ def _selftest_workflow(check):  # type: (Any) -> None
+         check("wf.pick.fallback_invariant_disagreement",
+               _pick_snapshot([(None, vals_new), (None, vals_bad)]), None)
+ 
++        # F7: advisor_calls takes the SAME max-of-snapshots fallback as
++        # output_tokens (a message's content blocks only ever grow as it
++        # streams), and the ORDERED branch just carries whatever count the
++        # winning snapshot happened to have — direct unit coverage of
++        # `_count_advisor_blocks` and this rule, ahead of the end-to-end
++        # job-theta case below.
++        check("_count_advisor_blocks.none_content", _count_advisor_blocks(None), 0)
++        check("_count_advisor_blocks.no_match",
++              _count_advisor_blocks([{"type": "text", "text": "hi"}]), 0)
++        check("_count_advisor_blocks.result_not_call",
++              _count_advisor_blocks([_advisor_result_block()]), 0)
++        check("_count_advisor_blocks.two_calls",
++              _count_advisor_blocks([_advisor_block(), _advisor_block(),
++                                     _advisor_result_block()]), 2)
++        vals_adv_partial = dict(vals_new, advisor_calls=1)
++        vals_adv_full = dict(vals_old, advisor_calls=2)
++        check("wf.pick.fallback_advisor_calls_takes_max",
++              _pick_snapshot([(None, vals_adv_partial),
++                              (None, vals_adv_full)])["advisor_calls"], 2)
++
+         a = rep["jobs"]["job-alpha"]
+         # msg_A1 counted ONCE at its LAST snapshot (40, not 5+40), + A2 + A3.
+         # These also carry findings 5 and NEW 3/4: an invalid-UTF-8 line, a
+@@ -1871,6 +1971,9 @@ def _selftest_workflow(check):  # type: (Any) -> None
+         check("wf.alpha.backend", a["backend"], "claude")
+         check("wf.alpha.transcripts", a["transcripts"],
+               ["agent-aaaa1.jsonl", "agent-aaaa2.jsonl", "agent-aaaa3.jsonl"])
++        # F7: no message in job-alpha's transcripts carries an advisor block —
++        # a measured job that never called the advisor reads 0, not null.
++        check("wf.alpha.advisor_calls", a["advisor_calls"], 0)
+ 
+         # --- FINDING 4: msg_B1 appears in BOTH of job-beta's transcripts ------
+         b = rep["jobs"]["job-beta"]
+@@ -1888,6 +1991,19 @@ def _selftest_workflow(check):  # type: (Any) -> None
+         check("wf.zeta.transcripts", z["transcripts"],
+               ["agent-zzzz1.jsonl", "agent-zzzz2.jsonl"])
+ 
++        # F7 end to end: job-theta. msg_T1's advisor call is written on TWO
++        # transcripts of this job and must count ONCE (the same cross-
++        # transcript dedup rule as msg_B1 above, now for advisor_calls); msg_T2
++        # adds a second, genuine call, and its server_tool_result sibling block
++        # must contribute nothing. Total: 2, never 3.
++        th = rep["jobs"]["job-theta"]
++        check("wf.theta.advisor_calls", th["advisor_calls"], 2)
++        check("wf.theta.measured", th["measured"], True)
++        check("wf.theta.input", th["input_tokens"], 10 + 5)
++        check("wf.theta.output", th["output_tokens"], 20 + 6)
++        check("wf.theta.transcripts", th["transcripts"],
++              ["agent-tttt1.jsonl", "agent-tttt2.jsonl"])
++
+         # job-epsilon proves the relative-run-dir rule end to end.
+         e = rep["jobs"]["job-epsilon"]
+         check("wf.epsilon.input", e["input_tokens"], 2)
+@@ -1938,7 +2054,7 @@ def _selftest_workflow(check):  # type: (Any) -> None
+         os.symlink(bait_target, tmp_bait)
+ 
+         written = write_workflow_usage(run_dir, rep)
+-        check("wf.write.count", len(written), 4)   # gamma is untouched
++        check("wf.write.count", len(written), 5)   # gamma is untouched
+         with open(bait_target, encoding="utf-8") as fh:
+             check("wf.write.predictable_tmp_symlink_not_followed", fh.read(),
+                   '{"bait": "untouched"}\n')
+@@ -1968,6 +2084,12 @@ def _selftest_workflow(check):  # type: (Any) -> None
+             gamma_doc = json.load(fh)
+         check("wf.write.gamma_untouched", "usage" in gamma_doc, False)
+ 
++        # F7: the written job-theta.json carries the deduplicated call count.
++        theta_path = os.path.join(results, "job-theta.json")
++        with open(theta_path, encoding="utf-8") as fh:
++            theta_doc = json.load(fh)
++        check("wf.write.theta_advisor_calls", theta_doc["usage"]["advisor_calls"], 2)
++
+         # NEW 1, the other half: a RESULT file that is itself a symlink is
+         # refused outright, so the bytes never reach what it points at.
+         link_target = os.path.join(tmp, "linked-result.json")
+@@ -2024,11 +2146,13 @@ def _selftest_workflow(check):  # type: (Any) -> None
+             spec.loader.exec_module(mod)
+             agg = mod.aggregate(results)
+             check("wf.agg.input", agg["totals"]["input_tokens"],
+-                  14 + 1001 + 2 + 5)
++                  14 + 1001 + 2 + 5 + 15)
+             check("wf.agg.output", agg["totals"]["output_tokens"],
+-                  49 + 701 + 4 + 42)
+-            check("wf.agg.measured_jobs", agg["totals"]["measured_jobs"], 4)
++                  49 + 701 + 4 + 42 + 26)
++            check("wf.agg.measured_jobs", agg["totals"]["measured_jobs"], 5)
+             check("wf.agg.unmeasured_jobs", agg["totals"]["unmeasured_jobs"], 1)
++            # F7: theta's 2 advisor calls are the only ones in this run.
++            check("wf.agg.advisor_calls", agg["totals"]["advisor_calls"], 2)
+ 
+         # --- fixed-CLI plumbing: main() returns 2 for a missing dir/run ------
+         # Their diagnostics go to stderr; swallow them so the selftest's own
+diff --git a/tests/test-usage-workflow.sh b/tests/test-usage-workflow.sh
+index 64a240e..6c96a6a 100755
+--- a/tests/test-usage-workflow.sh
++++ b/tests/test-usage-workflow.sh
+@@ -50,6 +50,14 @@
+ #  13. A NUL IN A COMMAND PATH IS REFUSED, never handed to a stat call.
+ #  14. results/ IS ANCHORED ON THE RUN. A symlinked results directory became
+ #      its own trusted root and --write replaced a file outside the run.
++#
++# F7 added usage.advisor_calls, tested here too (job-four): TWO distinct
++# messages carrying {type: server_tool_use, name: advisor}, one of them
++# repeated on a second JSONL line (the same streamed message, not a second
++# call), plus a server_tool_result block that is the advisor's ANSWER, never
++# the call. job-one/two/three carry no advisor blocks at all, so their
++# advisor_calls must read 0 — measured, just never invoked — while the
++# "lonely" job in section 6 has no transcript at all and must read null.
+ set -uo pipefail
+ 
+ REPO="$(cd "$(dirname "$0")/.." && pwd)"
+@@ -114,6 +122,8 @@ jobs:
+   type: review
+ - id: job-three
+   type: implement
++- id: job-four
++  type: implement
+ - id: $VICTIM
+   type: implement
+ - id: ../../escape
+@@ -122,7 +132,7 @@ max_parallel: 2
+ YAML
+ 
+ # Minimal, schema-valid job_result files for --write to merge into.
+-for job in job-one job-two job-three; do
++for job in job-one job-two job-three job-four; do
+   cat > "$RUN/results/$job.json" <<JSON
+ {
+   "blocked": false,
+@@ -162,6 +172,29 @@ A_FMT="$A_FMT"'"service_tier":"standard"}}}\n'
+ # this file exceeds 120 columns); the caller's arguments are still %s-quoted.
+ # shellcheck disable=SC2059
+ a() { printf "$A_FMT" "${6:-2026-09-04T08:00:00.000Z}" "$1" "$2" "$3" "$4" "$5"; }
++# `adv <id> <in> <out> <cache_read> <cache_create> <timestamp> <n_advisor> \
++#     <include_result_block:0|1>` — an assistant line whose CONTENT carries
++# `n_advisor` {type: server_tool_use, name: advisor} blocks (the calls this
++# release counts) and, when the last arg is 1, one server_tool_result block
++# too (the advisor's ANSWER — a different `type`, never counted).
++adv() {
++  "$PY" -c 'import json, sys
++mid, i, o, cr, cc, ts, n, incl_result = sys.argv[1:9]
++content = [{"type": "server_tool_use", "name": "advisor", "input": {}}
++           for _ in range(int(n))]
++if incl_result == "1":
++    content.append({"type": "server_tool_result", "name": "advisor",
++                     "content": []})
++content.append({"type": "text", "text": "..."})
++rec = {"type": "assistant", "timestamp": ts, "apiBlockIndex": 0,
++       "message": {"id": mid, "model": "claude-opus-5", "content": content,
++                   "usage": {"input_tokens": int(i), "output_tokens": int(o),
++                             "cache_read_input_tokens": int(cr),
++                             "cache_creation_input_tokens": int(cc),
++                             "service_tier": "standard"}}}
++sys.stdout.write(json.dumps(rec) + "\n")
++' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
++}
+ # An assistant record with usage but NO message.id at all (round-2, NEW 3).
+ a_noid() {
+   printf '{"type":"assistant","timestamp":"%s","message":{"model":"claude-opus-5",' \
+@@ -274,6 +307,18 @@ $EMIT record --run-dir '$OTHER' --job-id 'job-one' --repo-root '/repo'"
+   a msg_13 5 999 6 7 2026-09-04T12:00:01.000Z
+ } > "$TX/agent-a0014.jsonl"
+ 
++# job-four (F7, usage.advisor_calls): msg_20 carries one advisor call and is
++# WRITTEN TWICE — the same streamed message, not a second call, so it must
++# still count as 1. msg_21 carries a second, genuine advisor call PLUS the
++# server_tool_result block that is its answer, which must never be counted.
++# Total for the job: 2 advisor calls, regardless of the duplicate line.
++{
++  u "$EMIT record --run-dir '$RUN' --job-id 'job-four'"
++  adv msg_20 10 20 30 40 2026-09-04T13:00:00.000Z 1 0
++  adv msg_20 10 20 30 40 2026-09-04T13:00:00.000Z 1 0
++  adv msg_21 5 6 7 8 2026-09-04T13:00:01.000Z 1 1
++} > "$TX/agent-a0020.jsonl"
++
+ # job-two gets a second transcript carrying two ID-LESS usage records (NEW 3)
+ # and one line too deeply nested for the JSON parser (NEW 4). Both are malformed;
+ # job-two's totals below must not move by a single token.
+@@ -355,6 +400,8 @@ check $? "job-two line: prose-only, id-less and unparseable records all contribu
+ # Ordering by the record's timestamp picks 42; ordering by filename picks 999.
+ grep -qx 'job-three input=5 output=42 cache_read=6 cache_create=7 transcripts=2' "$DRY"
+ check $? "job-three line: the snapshot winner is the newest by timestamp, not the last filename"
++grep -qx 'job-four input=15 output=26 cache_read=37 cache_create=48 transcripts=1' "$DRY"
++check $? "job-four line: advisor content blocks never affect the token sums"
+ grep -qx 'unmeasured: (none)' "$DRY"
+ check $? "unmeasured line present"
+ grep -qx 'unmatched: 11' "$DRY"
+@@ -380,6 +427,30 @@ for leak in 999999 888888 666666 444444 333333 222222 111111; do
+   fi
+ done
+ 
++# F7: --format json exposes advisor_calls per job directly (the text report
++# has no per-job advisor field — only the aggregate renders adv=N — so json
++# is how this checks the count without also depending on that render).
++"$PY" "$EXTRACT" --backend claude --workflow-transcript "$T/projects" \
++  --run-dir "$RUN" --format json > "$T/dry.json" 2>/dev/null
++"$PY" - "$T/dry.json" <<'PY'
++import json, sys
++rep = json.load(open(sys.argv[1], encoding="utf-8"))
++jobs = rep["jobs"]
++rc = 0
++def check(ok, label):
++    global rc
++    print(("PASS " if ok else "FAIL ") + label)
++    if not ok:
++        rc = 1
++check(jobs["job-four"]["advisor_calls"] == 2,
++      "job-four: two distinct advisor calls, the duplicate line not double-counted")
++for job in ("job-one", "job-two", "job-three"):
++    check(jobs[job]["advisor_calls"] == 0,
++          "%s: transcript without advisor blocks reads 0, not null" % job)
++sys.exit(rc)
++PY
++check $? "advisor_calls per job (--format json)"
++
+ # The dry run must not touch the results.
+ if grep -q '"usage"' "$RUN/results/job-one.json"; then
+   fail "dry run wrote to results/ without --write"
+@@ -475,7 +546,8 @@ def check(ok, label):
+     if not ok:
+         rc = 1
+ 
+-for job, want_in, want_out in (("job-one", 16, 492), ("job-two", 7, 8)):
++for job, want_in, want_out, want_adv in (
++        ("job-one", 16, 492, 0), ("job-two", 7, 8, 0), ("job-four", 15, 26, 2)):
+     doc = json.load(open(os.path.join(sys.argv[2], job + ".json"), encoding="utf-8"))
+     errs = sorted(validator.iter_errors(doc), key=lambda e: list(e.path))
+     check(not errs, "%s: written job_result conforms to job_result.schema.json" % job)
+@@ -486,6 +558,7 @@ for job, want_in, want_out in (("job-one", 16, 492), ("job-two", 7, 8)):
+     check(u.get("measured") is True, "%s: usage.measured is true" % job)
+     check(u.get("input_tokens") == want_in, "%s: usage.input_tokens == %d" % (job, want_in))
+     check(u.get("output_tokens") == want_out, "%s: usage.output_tokens == %d" % (job, want_out))
++    check(u.get("advisor_calls") == want_adv, "%s: usage.advisor_calls == %d" % (job, want_adv))
+     check(u.get("source") == "workflow-transcript", "%s: usage.source names the record" % job)
+     check(isinstance(u.get("transcripts"), list) and u["transcripts"],
+           "%s: usage.transcripts names the evidence" % job)
+@@ -506,9 +579,9 @@ check $? "schema validation block"
+ # ---------------------------------------------------------------------------
+ AGG="$("$PY" "$AGGREGATE" --run-dir "$RUN" --format text)"
+ echo "aggregate: $AGG"
+-WANT="measured: in=28 out=542 cache_read=3018 cache_create=521 | 3 measured, 0 unmeasured"
++WANT="measured: in=43 out=568 adv=2 cache_read=3055 cache_create=569 | 4 measured, 0 unmeasured"
+ if [ "$AGG" = "$WANT" ]; then rc=0; else rc=1; fi
+-check "$rc" "aggregate totals the transcript-measured jobs (28 = 16+7+5, 542 = 492+8+42)"
++check "$rc" "aggregate totals the transcript-measured jobs (43 = 16+7+5+15, 568 = 492+8+42+26) and shows adv=2 after the token fields"
+ 
+ # ---------------------------------------------------------------------------
+ # 5. Exit 2 on a missing transcript dir / run dir; the run is not touched.
+@@ -558,6 +631,15 @@ if grep -q 'lonely input=0' "$T/empty.txt"; then
+ else
+   pass "an unmeasured job printed no fabricated 0"
+ fi
++# F7: an unmeasured job's advisor_calls is null too — never a fabricated 0.
++"$PY" "$EXTRACT" --backend claude --workflow-transcript "$T/projects" \
++  --run-dir "$EMPTY" --format json > "$T/empty.json" 2>/dev/null
++"$PY" -c '
++import json, sys
++rep = json.load(open(sys.argv[1], encoding="utf-8"))
++sys.exit(0 if rep["jobs"]["lonely"]["advisor_calls"] is None else 1)
++' "$T/empty.json"
++check $? "an unmeasured job (no transcript) reads advisor_calls: null"
+ 
+ # ---------------------------------------------------------------------------
+ # 7. An ASCII stdout must not take the render down (PYTHONIOENCODING=ascii is

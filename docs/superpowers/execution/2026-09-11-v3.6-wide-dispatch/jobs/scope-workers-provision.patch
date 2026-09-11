@@ -1,0 +1,984 @@
+diff --git a/scripts/compound-v-run-antigravity-worker.sh b/scripts/compound-v-run-antigravity-worker.sh
+index 95f244d..e63365c 100755
+--- a/scripts/compound-v-run-antigravity-worker.sh
++++ b/scripts/compound-v-run-antigravity-worker.sh
+@@ -33,7 +33,14 @@
+ #     --write-allowed "<glob>[:<glob>...]" \
+ #     [--timeout-sec <n>] [--network true|false] \
+ #     [--read-only true|false] [--output-schema <abs-path>] \
+-#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>]
++#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
++#     [--provision-command <string>] [--provision-timeout-sec <n>]
++#
++# --provision-command runs inside the fresh worktree BEFORE the model launches
++# (dependency install). On a non-zero exit nothing is launched and the job_result is
++# `status: error`. On success the worker snapshots the worktree's untracked+ignored
++# paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
++# installed dependencies are not charged to the model. Default timeout: 600 s.
+ #
+ # --model is OPTIONAL: when empty, `--model` is omitted from the agy invocation and
+ # agy uses its configured default. --output-schema is ACCEPTED for CLI parity with
+@@ -245,6 +252,38 @@ id_is_safe() {
+ }
+ 
+ # Directory of THIS script (resolves the sibling Python scope gate authority).
++# Snapshot a worktree's untracked ∪ ignored paths into a plain one-path-per-line
++# file, for the scope gate's --preexisting. This is BYTE-IDENTICAL in all four
++# worker scripts — fix it in all four, or in none.
++#
++# It runs the EXACT two `git ls-files` probes the gate itself unions in (sources 2
++# and 3 of compound-v-scope-check.py), so the subtraction agrees with the gate by
++# construction rather than by resemblance: whatever form git reports an ignored tree
++# in, both sides see the same strings.
++#
++# Both probes are NUL-delimited and read with `read -d ''`, so a path containing a
++# newline arrives intact. It cannot be WRITTEN on one line, though, and the gate's
++# --preexisting file is line-oriented — so such a path is DROPPED rather than split
++# into two half-paths. Dropping it means it is never exempt and the gate blocks it:
++# fail closed. Splitting it would put two strings that match nothing into the
++# exemption list, which is the direction that silently forgives.
++#
++# $1 = worktree   $2 = output file (outside the worktree)
++snapshot_preexisting() {
++  _sp_wt="$1"
++  _sp_out="$2"
++  {
++    git -C "$_sp_wt" ls-files --others --exclude-standard -z
++    git -C "$_sp_wt" ls-files --others --ignored --exclude-standard -z -- .
++  } | while IFS= read -r -d '' _sp_path; do
++        [ -n "$_sp_path" ] || continue
++        case "$_sp_path" in
++          *$'\n'*) continue ;;
++        esac
++        printf '%s\n' "$_sp_path"
++      done | sort -u > "$_sp_out"
++}
++
+ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ 
+ # --- argument parsing --------------------------------------------------------
+@@ -267,6 +306,13 @@ TEST_CONTRACT_FILE=""
+ TEST_TIMEOUT_SEC=900
+ TESTS_JSON="null"
+ 
++# --provision-command / --provision-timeout-sec (v3.6) — the job's dependency
++# install, run by THIS script inside the fresh worktree before the model launches.
++# Empty ⇒ no provisioning happens and nothing about this worker's behaviour changes.
++PROVISION_COMMAND=""
++PROVISION_TIMEOUT_SEC=600
++PREEXISTING_FILE=""
++
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     --run-id)        RUN_ID="$2"; shift 2 ;;
+@@ -275,6 +321,8 @@ while [ $# -gt 0 ]; do
+     --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
+     --model)         MODEL="$2"; shift 2 ;;
+     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
++    --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
++    --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
+     --network)       NETWORK="$2"; shift 2 ;;
+     --read-only)     READ_ONLY="$2"; shift 2 ;;
+@@ -305,6 +353,15 @@ case "$TIMEOUT_SEC" in
+   ''|*[!0-9]*) die "--timeout-sec must be a positive integer: $TIMEOUT_SEC" ;;
+ esac
+ 
++# --provision-timeout-sec bounds the dependency install. Pin it to a positive
++# integer for the same reason, and reject 0: a zero-second budget would kill the
++# install the instant it started and report a provision failure that is really a
++# usage fault.
++case "$PROVISION_TIMEOUT_SEC" in
++  ''|*[!0-9]*) die "--provision-timeout-sec must be a positive integer: $PROVISION_TIMEOUT_SEC" ;;
++esac
++[ "$PROVISION_TIMEOUT_SEC" -gt 0 ] || die "--provision-timeout-sec must be greater than 0"
++
+ # Path-traversal guard: run_id / job_id become path segments under $TMPROOT, and
+ # the stale-worktree cleanup does `rm -rf` on that path. A `../` (or any path
+ # separator) in an id would escape the tree and delete arbitrary dirs. Validate
+@@ -423,6 +480,51 @@ git -C "$REPO" worktree add "$WT" HEAD >/dev/null 2>&1 \
+ ART="$WT.art"
+ mkdir -p "$ART"
+ 
++# --- optional provisioning (v3.6) --------------------------------------------
++# A job whose manifest carries a `provision_command` needs its dependencies present
++# before the model starts — `npm ci`, `uv sync`, `bundle install`. The command runs
++# HERE: in the worker script, inside the fresh worktree, before the backend is
++# launched. That placement buys the one property the scope gate needs. A
++# `git worktree add HEAD` starts with NOTHING untracked, so every untracked or
++# ignored path in the tree the moment provisioning finishes was created by
++# provisioning — attribution by construction, not by trusting anyone's report.
++#
++# That snapshot is handed to the gate as --preexisting. Without it an installed
++# node_modules/ reads as a pile of ignored writes outside write_allowed and BLOCKS a
++# job that did nothing wrong. It does not relax the gate: the subtraction is bounded
++# to paths that existed before the model had taken a single turn, so anything the
++# model writes afterwards — into node_modules/ included — is still measured and still
++# blocks.
++#
++# ORDERING IS THE WHOLE SAFETY ARGUMENT: provision, then snapshot, then launch. A
++# snapshot taken after the launch would exempt the model's own writes.
++if [ -n "$PROVISION_COMMAND" ]; then
++  # Same supervisor, same shape as the test contract: bounded wall clock, killpg on
++  # expiry, output captured to files OUTSIDE the worktree (this worker's stdout is
++  # reserved for exactly one job_result JSON), stdin at EOF so an install that asks a
++  # question fails instead of hanging.
++  set +e
++  python3 "$SUPERVISOR" --timeout "$PROVISION_TIMEOUT_SEC" --grace 3 --cwd "$WT" \
++    --stdout "$ART/provision.out" --stderr "$ART/provision.err" \
++    --max-output-bytes 1048576 -- /bin/bash -c "$PROVISION_COMMAND" </dev/null
++  provision_rc=$?
++  set -e
++  if [ "$provision_rc" != "0" ]; then
++    # Launch NOTHING. A model run against missing dependencies fails in ways that
++    # teach nobody anything, and it would spend real model time to arrive there.
++    # Report the failure as the environment fault it is (rc 124 = the provision
++    # timeout fired) and let the caller's retry policy see a real failure_class.
++    emit_job_result \
++      "error" "false" "[]" "[]" \
++      "provision failed (rc=$provision_rc): $PROVISION_COMMAND" \
++      "" "$WT" "$provision_rc" "other" "0"
++    exit 0
++  fi
++  PREEXISTING_FILE="$ART/preexisting.txt"
++  snapshot_preexisting "$WT" "$PREEXISTING_FILE" \
++    || die "could not snapshot the post-provisioning state of $WT"
++fi
++
+ # --- run the headless Antigravity worker -------------------------------------
+ # VERIFIED live against agy 1.0.13 on stock macOS:
+ #   cd "$WT" && agy --dangerously-skip-permissions --add-dir "$WT" \
+@@ -519,8 +621,15 @@ IFS="$_OLDIFS"
+ GATE_JSON=""
+ gate_rc=0
+ set +e
+-GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+-  --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++if [ -n "$PREEXISTING_FILE" ]; then
++  # Provisioning ran: subtract exactly what it installed, nothing else.
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
++    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
++else
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++fi
+ gate_rc=$?
+ set -e
+ 
+diff --git a/scripts/compound-v-run-codex-worker.sh b/scripts/compound-v-run-codex-worker.sh
+index 495c0f8..d29cdf3 100755
+--- a/scripts/compound-v-run-codex-worker.sh
++++ b/scripts/compound-v-run-codex-worker.sh
+@@ -28,7 +28,14 @@
+ #     [--timeout-sec <n>] [--network true|false] \
+ #     [--read-only true|false] [--output-schema <abs-path>] \
+ #     [--effort low|medium|high|xhigh] [--events-log <abs-path>] \
+-#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>]
++#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
++#     [--provision-command <string>] [--provision-timeout-sec <n>]
++#
++# --provision-command runs inside the fresh worktree BEFORE the model launches
++# (dependency install). On a non-zero exit nothing is launched and the job_result is
++# `status: error`. On success the worker snapshots the worktree's untracked+ignored
++# paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
++# installed dependencies are not charged to the model. Default timeout: 600 s.
+ #
+ # All file paths MUST be absolute. write_allowed is a colon-separated glob list,
+ # each glob matched repo-relative against the changed paths. An EMPTY
+@@ -237,6 +244,38 @@ id_is_safe() {
+   return 0
+ }
+ 
++# Snapshot a worktree's untracked ∪ ignored paths into a plain one-path-per-line
++# file, for the scope gate's --preexisting. This is BYTE-IDENTICAL in all four
++# worker scripts — fix it in all four, or in none.
++#
++# It runs the EXACT two `git ls-files` probes the gate itself unions in (sources 2
++# and 3 of compound-v-scope-check.py), so the subtraction agrees with the gate by
++# construction rather than by resemblance: whatever form git reports an ignored tree
++# in, both sides see the same strings.
++#
++# Both probes are NUL-delimited and read with `read -d ''`, so a path containing a
++# newline arrives intact. It cannot be WRITTEN on one line, though, and the gate's
++# --preexisting file is line-oriented — so such a path is DROPPED rather than split
++# into two half-paths. Dropping it means it is never exempt and the gate blocks it:
++# fail closed. Splitting it would put two strings that match nothing into the
++# exemption list, which is the direction that silently forgives.
++#
++# $1 = worktree   $2 = output file (outside the worktree)
++snapshot_preexisting() {
++  _sp_wt="$1"
++  _sp_out="$2"
++  {
++    git -C "$_sp_wt" ls-files --others --exclude-standard -z
++    git -C "$_sp_wt" ls-files --others --ignored --exclude-standard -z -- .
++  } | while IFS= read -r -d '' _sp_path; do
++        [ -n "$_sp_path" ] || continue
++        case "$_sp_path" in
++          *$'\n'*) continue ;;
++        esac
++        printf '%s\n' "$_sp_path"
++      done | sort -u > "$_sp_out"
++}
++
+ # Directory of THIS script (resolves the sibling Python scope gate authority).
+ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ 
+@@ -262,6 +301,13 @@ TEST_CONTRACT_FILE=""
+ TEST_TIMEOUT_SEC=900
+ TESTS_JSON="null"
+ 
++# --provision-command / --provision-timeout-sec (v3.6) — the job's dependency
++# install, run by THIS script inside the fresh worktree before the model launches.
++# Empty ⇒ no provisioning happens and nothing about this worker's behaviour changes.
++PROVISION_COMMAND=""
++PROVISION_TIMEOUT_SEC=600
++PREEXISTING_FILE=""
++
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     --run-id)        RUN_ID="$2"; shift 2 ;;
+@@ -270,6 +316,8 @@ while [ $# -gt 0 ]; do
+     --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
+     --model)         MODEL="$2"; shift 2 ;;
+     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
++    --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
++    --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
+     --network)       NETWORK="$2"; shift 2 ;;
+     --read-only)     READ_ONLY="$2"; shift 2 ;;
+@@ -300,6 +348,15 @@ case "$TIMEOUT_SEC" in
+   ''|*[!0-9]*) die "--timeout-sec must be a positive integer: $TIMEOUT_SEC" ;;
+ esac
+ 
++# --provision-timeout-sec bounds the dependency install. Pin it to a positive
++# integer for the same reason, and reject 0: a zero-second budget would kill the
++# install the instant it started and report a provision failure that is really a
++# usage fault.
++case "$PROVISION_TIMEOUT_SEC" in
++  ''|*[!0-9]*) die "--provision-timeout-sec must be a positive integer: $PROVISION_TIMEOUT_SEC" ;;
++esac
++[ "$PROVISION_TIMEOUT_SEC" -gt 0 ] || die "--provision-timeout-sec must be greater than 0"
++
+ # Path-traversal guard: run_id / job_id become path segments under $TMPROOT, and
+ # the stale-worktree cleanup does `rm -rf` on that path. A `../` (or any path
+ # separator) in an id would escape the tree and delete arbitrary dirs. Validate
+@@ -420,6 +477,52 @@ ART="$WT.art"
+ mkdir -p "$ART"
+ RESULT_TXT="$ART/job_result.txt"
+ 
++# --- optional provisioning (v3.6) --------------------------------------------
++# A job whose manifest carries a `provision_command` needs its dependencies present
++# before the model starts — `npm ci`, `uv sync`, `bundle install`. The command runs
++# HERE: in the worker script, inside the fresh worktree, before the backend is
++# launched. That placement buys the one property the scope gate needs. A
++# `git worktree add HEAD` starts with NOTHING untracked, so every untracked or
++# ignored path in the tree the moment provisioning finishes was created by
++# provisioning — attribution by construction, not by trusting anyone's report.
++#
++# That snapshot is handed to the gate as --preexisting. Without it an installed
++# node_modules/ reads as a pile of ignored writes outside write_allowed and BLOCKS a
++# job that did nothing wrong. It does not relax the gate: the subtraction is bounded
++# to paths that existed before the model had taken a single turn, so anything the
++# model writes afterwards — into node_modules/ included — is still measured and still
++# blocks.
++#
++# ORDERING IS THE WHOLE SAFETY ARGUMENT: provision, then snapshot, then launch. A
++# snapshot taken after the launch would exempt the model's own writes.
++if [ -n "$PROVISION_COMMAND" ]; then
++  # Same supervisor, same shape as the test contract: bounded wall clock, killpg on
++  # expiry, output captured to files OUTSIDE the worktree (this worker's stdout is
++  # reserved for exactly one job_result JSON), stdin at EOF so an install that asks a
++  # question fails instead of hanging.
++  set +e
++  python3 "$SUPERVISOR" --timeout "$PROVISION_TIMEOUT_SEC" --grace 3 --cwd "$WT" \
++    --stdout "$ART/provision.out" --stderr "$ART/provision.err" \
++    --max-output-bytes 1048576 -- /bin/bash -c "$PROVISION_COMMAND" </dev/null
++  provision_rc=$?
++  set -e
++  if [ "$provision_rc" != "0" ]; then
++    # Launch NOTHING. A model run against missing dependencies fails in ways that
++    # teach nobody anything, and it would spend real model time to arrive there.
++    # Report the failure as the environment fault it is (rc 124 = the provision
++    # timeout fired) and let the caller's retry policy see a real failure_class.
++    emit_job_result \
++      "error" "false" "[]" "[]" \
++      "provision failed (rc=$provision_rc): $PROVISION_COMMAND" \
++      "" "$WT" "$provision_rc" "other" "0" \
++      '{"input_tokens":null,"output_tokens":null,"backend":"codex","measured":false}'
++    exit 0
++  fi
++  PREEXISTING_FILE="$ART/preexisting.txt"
++  snapshot_preexisting "$WT" "$PREEXISTING_FILE" \
++    || die "could not snapshot the post-provisioning state of $WT"
++fi
++
+ # --events-log: where the `codex exec --json` JSONL event stream is written. The
+ # dispatcher passes docs/superpowers/execution/<run-id>/logs/<job-id>.jsonl (its
+ # run-dir) and records that SAME path in state.json jobs[<id>].log for liveness.
+@@ -603,8 +706,15 @@ IFS="$_OLDIFS"
+ GATE_JSON=""
+ gate_rc=0
+ set +e
+-GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+-  --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++if [ -n "$PREEXISTING_FILE" ]; then
++  # Provisioning ran: subtract exactly what it installed, nothing else.
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
++    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
++else
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++fi
+ gate_rc=$?
+ set -e
+ 
+diff --git a/scripts/compound-v-run-cursor-worker.sh b/scripts/compound-v-run-cursor-worker.sh
+index 7dbd6f6..b067d79 100755
+--- a/scripts/compound-v-run-cursor-worker.sh
++++ b/scripts/compound-v-run-cursor-worker.sh
+@@ -42,7 +42,14 @@
+ #     --write-allowed "<glob>[:<glob>...]" \
+ #     [--timeout-sec <n>] [--network true|false] \
+ #     [--read-only true|false] [--output-schema <abs-path>] \
+-#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>]
++#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
++#     [--provision-command <string>] [--provision-timeout-sec <n>]
++#
++# --provision-command runs inside the fresh worktree BEFORE the model launches
++# (dependency install). On a non-zero exit nothing is launched and the job_result is
++# `status: error`. On success the worker snapshots the worktree's untracked+ignored
++# paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
++# installed dependencies are not charged to the model. Default timeout: 600 s.
+ #
+ # --model is OPTIONAL: when empty, `--model` is omitted and cursor-agent uses its configured
+ # default. --output-schema is ACCEPTED for CLI parity with the codex worker but IGNORED —
+@@ -249,6 +256,38 @@ id_is_safe() {
+   return 0
+ }
+ 
++# Snapshot a worktree's untracked ∪ ignored paths into a plain one-path-per-line
++# file, for the scope gate's --preexisting. This is BYTE-IDENTICAL in all four
++# worker scripts — fix it in all four, or in none.
++#
++# It runs the EXACT two `git ls-files` probes the gate itself unions in (sources 2
++# and 3 of compound-v-scope-check.py), so the subtraction agrees with the gate by
++# construction rather than by resemblance: whatever form git reports an ignored tree
++# in, both sides see the same strings.
++#
++# Both probes are NUL-delimited and read with `read -d ''`, so a path containing a
++# newline arrives intact. It cannot be WRITTEN on one line, though, and the gate's
++# --preexisting file is line-oriented — so such a path is DROPPED rather than split
++# into two half-paths. Dropping it means it is never exempt and the gate blocks it:
++# fail closed. Splitting it would put two strings that match nothing into the
++# exemption list, which is the direction that silently forgives.
++#
++# $1 = worktree   $2 = output file (outside the worktree)
++snapshot_preexisting() {
++  _sp_wt="$1"
++  _sp_out="$2"
++  {
++    git -C "$_sp_wt" ls-files --others --exclude-standard -z
++    git -C "$_sp_wt" ls-files --others --ignored --exclude-standard -z -- .
++  } | while IFS= read -r -d '' _sp_path; do
++        [ -n "$_sp_path" ] || continue
++        case "$_sp_path" in
++          *$'\n'*) continue ;;
++        esac
++        printf '%s\n' "$_sp_path"
++      done | sort -u > "$_sp_out"
++}
++
+ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ 
+ # --- argument parsing --------------------------------------------------------
+@@ -271,6 +310,13 @@ TEST_CONTRACT_FILE=""
+ TEST_TIMEOUT_SEC=900
+ TESTS_JSON="null"
+ 
++# --provision-command / --provision-timeout-sec (v3.6) — the job's dependency
++# install, run by THIS script inside the fresh worktree before the model launches.
++# Empty ⇒ no provisioning happens and nothing about this worker's behaviour changes.
++PROVISION_COMMAND=""
++PROVISION_TIMEOUT_SEC=600
++PREEXISTING_FILE=""
++
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     --run-id)        RUN_ID="$2"; shift 2 ;;
+@@ -279,6 +325,8 @@ while [ $# -gt 0 ]; do
+     --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
+     --model)         MODEL="$2"; shift 2 ;;
+     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
++    --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
++    --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
+     --network)       NETWORK="$2"; shift 2 ;;
+     --read-only)     READ_ONLY="$2"; shift 2 ;;
+@@ -303,6 +351,15 @@ done
+ case "$TIMEOUT_SEC" in
+   ''|*[!0-9]*) die "--timeout-sec must be a positive integer: $TIMEOUT_SEC" ;;
+ esac
++
++# --provision-timeout-sec bounds the dependency install. Pin it to a positive
++# integer for the same reason, and reject 0: a zero-second budget would kill the
++# install the instant it started and report a provision failure that is really a
++# usage fault.
++case "$PROVISION_TIMEOUT_SEC" in
++  ''|*[!0-9]*) die "--provision-timeout-sec must be a positive integer: $PROVISION_TIMEOUT_SEC" ;;
++esac
++[ "$PROVISION_TIMEOUT_SEC" -gt 0 ] || die "--provision-timeout-sec must be greater than 0"
+ [ "$TIMEOUT_SEC" -gt 0 ] || die "--timeout-sec must be > 0 (got $TIMEOUT_SEC): a 0 cap would kill the job instantly"
+ 
+ id_is_safe "$RUN_ID" || die "--run-id has invalid characters (allowed: A-Za-z0-9._-, not . or ..): $RUN_ID"
+@@ -386,6 +443,51 @@ git -C "$REPO" worktree add "$WT" HEAD >/dev/null 2>&1 \
+ ART="$WT.art"
+ mkdir -p "$ART"
+ 
++# --- optional provisioning (v3.6) --------------------------------------------
++# A job whose manifest carries a `provision_command` needs its dependencies present
++# before the model starts — `npm ci`, `uv sync`, `bundle install`. The command runs
++# HERE: in the worker script, inside the fresh worktree, before the backend is
++# launched. That placement buys the one property the scope gate needs. A
++# `git worktree add HEAD` starts with NOTHING untracked, so every untracked or
++# ignored path in the tree the moment provisioning finishes was created by
++# provisioning — attribution by construction, not by trusting anyone's report.
++#
++# That snapshot is handed to the gate as --preexisting. Without it an installed
++# node_modules/ reads as a pile of ignored writes outside write_allowed and BLOCKS a
++# job that did nothing wrong. It does not relax the gate: the subtraction is bounded
++# to paths that existed before the model had taken a single turn, so anything the
++# model writes afterwards — into node_modules/ included — is still measured and still
++# blocks.
++#
++# ORDERING IS THE WHOLE SAFETY ARGUMENT: provision, then snapshot, then launch. A
++# snapshot taken after the launch would exempt the model's own writes.
++if [ -n "$PROVISION_COMMAND" ]; then
++  # Same supervisor, same shape as the test contract: bounded wall clock, killpg on
++  # expiry, output captured to files OUTSIDE the worktree (this worker's stdout is
++  # reserved for exactly one job_result JSON), stdin at EOF so an install that asks a
++  # question fails instead of hanging.
++  set +e
++  python3 "$SUPERVISOR" --timeout "$PROVISION_TIMEOUT_SEC" --grace 3 --cwd "$WT" \
++    --stdout "$ART/provision.out" --stderr "$ART/provision.err" \
++    --max-output-bytes 1048576 -- /bin/bash -c "$PROVISION_COMMAND" </dev/null
++  provision_rc=$?
++  set -e
++  if [ "$provision_rc" != "0" ]; then
++    # Launch NOTHING. A model run against missing dependencies fails in ways that
++    # teach nobody anything, and it would spend real model time to arrive there.
++    # Report the failure as the environment fault it is (rc 124 = the provision
++    # timeout fired) and let the caller's retry policy see a real failure_class.
++    emit_job_result \
++      "error" "false" "[]" "[]" \
++      "provision failed (rc=$provision_rc): $PROVISION_COMMAND" \
++      "" "$WT" "$provision_rc" "other" "0"
++    exit 0
++  fi
++  PREEXISTING_FILE="$ART/preexisting.txt"
++  snapshot_preexisting "$WT" "$PREEXISTING_FILE" \
++    || die "could not snapshot the post-provisioning state of $WT"
++fi
++
+ # --- run the headless Cursor worker ------------------------------------------
+ # cursor-agent headless (verified flag surface, cursor-agent 2026.06.26 + docs/cli/headless):
+ #   cd "$WT" && cursor-agent -p [--force] --output-format json [--model "$M"] "$PROMPT" </dev/null
+@@ -468,8 +570,15 @@ IFS="$_OLDIFS"
+ GATE_JSON=""
+ gate_rc=0
+ set +e
+-GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+-  --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++if [ -n "$PREEXISTING_FILE" ]; then
++  # Provisioning ran: subtract exactly what it installed, nothing else.
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
++    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
++else
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++fi
+ gate_rc=$?
+ set -e
+ 
+diff --git a/scripts/compound-v-run-opencode-worker.sh b/scripts/compound-v-run-opencode-worker.sh
+index e478e7d..8927c3b 100755
+--- a/scripts/compound-v-run-opencode-worker.sh
++++ b/scripts/compound-v-run-opencode-worker.sh
+@@ -53,7 +53,14 @@
+ #     --write-allowed "<glob>[:<glob>...]" \
+ #     [--timeout-sec <n>] [--network true|false] \
+ #     [--read-only true|false] [--output-schema <abs-path>] [--effort <variant>] \
+-#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>]
++#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
++#     [--provision-command <string>] [--provision-timeout-sec <n>]
++#
++# --provision-command runs inside the fresh worktree BEFORE the model launches
++# (dependency install). On a non-zero exit nothing is launched and the job_result is
++# `status: error`. On success the worker snapshots the worktree's untracked+ignored
++# paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
++# installed dependencies are not charged to the model. Default timeout: 600 s.
+ #
+ # --model is REQUIRED (unlike antigravity/cursor): opencode addresses models as a
+ # `provider/model` string with no single-vendor default to fall back on. --effort is
+@@ -286,6 +293,38 @@ id_is_safe() {
+ }
+ 
+ # Directory of THIS script (resolves the sibling Python scope gate authority).
++# Snapshot a worktree's untracked ∪ ignored paths into a plain one-path-per-line
++# file, for the scope gate's --preexisting. This is BYTE-IDENTICAL in all four
++# worker scripts — fix it in all four, or in none.
++#
++# It runs the EXACT two `git ls-files` probes the gate itself unions in (sources 2
++# and 3 of compound-v-scope-check.py), so the subtraction agrees with the gate by
++# construction rather than by resemblance: whatever form git reports an ignored tree
++# in, both sides see the same strings.
++#
++# Both probes are NUL-delimited and read with `read -d ''`, so a path containing a
++# newline arrives intact. It cannot be WRITTEN on one line, though, and the gate's
++# --preexisting file is line-oriented — so such a path is DROPPED rather than split
++# into two half-paths. Dropping it means it is never exempt and the gate blocks it:
++# fail closed. Splitting it would put two strings that match nothing into the
++# exemption list, which is the direction that silently forgives.
++#
++# $1 = worktree   $2 = output file (outside the worktree)
++snapshot_preexisting() {
++  _sp_wt="$1"
++  _sp_out="$2"
++  {
++    git -C "$_sp_wt" ls-files --others --exclude-standard -z
++    git -C "$_sp_wt" ls-files --others --ignored --exclude-standard -z -- .
++  } | while IFS= read -r -d '' _sp_path; do
++        [ -n "$_sp_path" ] || continue
++        case "$_sp_path" in
++          *$'\n'*) continue ;;
++        esac
++        printf '%s\n' "$_sp_path"
++      done | sort -u > "$_sp_out"
++}
++
+ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ 
+ # --- argument parsing --------------------------------------------------------
+@@ -309,6 +348,13 @@ TEST_CONTRACT_FILE=""
+ TEST_TIMEOUT_SEC=900
+ TESTS_JSON="null"
+ 
++# --provision-command / --provision-timeout-sec (v3.6) — the job's dependency
++# install, run by THIS script inside the fresh worktree before the model launches.
++# Empty ⇒ no provisioning happens and nothing about this worker's behaviour changes.
++PROVISION_COMMAND=""
++PROVISION_TIMEOUT_SEC=600
++PREEXISTING_FILE=""
++
+ while [ $# -gt 0 ]; do
+   case "$1" in
+     --run-id)        RUN_ID="$2"; shift 2 ;;
+@@ -317,6 +363,8 @@ while [ $# -gt 0 ]; do
+     --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
+     --model)         MODEL="$2"; shift 2 ;;
+     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
++    --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
++    --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
+     --network)       NETWORK="$2"; shift 2 ;;
+     --read-only)     READ_ONLY="$2"; shift 2 ;;
+@@ -347,6 +395,15 @@ done
+ case "$TIMEOUT_SEC" in
+   ''|*[!0-9]*) die "--timeout-sec must be a positive integer: $TIMEOUT_SEC" ;;
+ esac
++
++# --provision-timeout-sec bounds the dependency install. Pin it to a positive
++# integer for the same reason, and reject 0: a zero-second budget would kill the
++# install the instant it started and report a provision failure that is really a
++# usage fault.
++case "$PROVISION_TIMEOUT_SEC" in
++  ''|*[!0-9]*) die "--provision-timeout-sec must be a positive integer: $PROVISION_TIMEOUT_SEC" ;;
++esac
++[ "$PROVISION_TIMEOUT_SEC" -gt 0 ] || die "--provision-timeout-sec must be greater than 0"
+ [ "$TIMEOUT_SEC" -gt 0 ] || die "--timeout-sec must be > 0 (got $TIMEOUT_SEC): a 0 cap would kill the job instantly"
+ 
+ # Path-traversal guard: run_id / job_id become path segments under $TMPROOT, and
+@@ -482,6 +539,52 @@ git -C "$REPO" worktree add "$WT" HEAD >/dev/null 2>&1 \
+ ART="$WT.art"
+ mkdir -p "$ART"
+ 
++# --- optional provisioning (v3.6) --------------------------------------------
++# A job whose manifest carries a `provision_command` needs its dependencies present
++# before the model starts — `npm ci`, `uv sync`, `bundle install`. The command runs
++# HERE: in the worker script, inside the fresh worktree, before the backend is
++# launched. That placement buys the one property the scope gate needs. A
++# `git worktree add HEAD` starts with NOTHING untracked, so every untracked or
++# ignored path in the tree the moment provisioning finishes was created by
++# provisioning — attribution by construction, not by trusting anyone's report.
++#
++# That snapshot is handed to the gate as --preexisting. Without it an installed
++# node_modules/ reads as a pile of ignored writes outside write_allowed and BLOCKS a
++# job that did nothing wrong. It does not relax the gate: the subtraction is bounded
++# to paths that existed before the model had taken a single turn, so anything the
++# model writes afterwards — into node_modules/ included — is still measured and still
++# blocks.
++#
++# ORDERING IS THE WHOLE SAFETY ARGUMENT: provision, then snapshot, then launch. A
++# snapshot taken after the launch would exempt the model's own writes.
++if [ -n "$PROVISION_COMMAND" ]; then
++  # Same supervisor, same shape as the test contract: bounded wall clock, killpg on
++  # expiry, output captured to files OUTSIDE the worktree (this worker's stdout is
++  # reserved for exactly one job_result JSON), stdin at EOF so an install that asks a
++  # question fails instead of hanging.
++  set +e
++  python3 "$SUPERVISOR" --timeout "$PROVISION_TIMEOUT_SEC" --grace 3 --cwd "$WT" \
++    --stdout "$ART/provision.out" --stderr "$ART/provision.err" \
++    --max-output-bytes 1048576 -- /bin/bash -c "$PROVISION_COMMAND" </dev/null
++  provision_rc=$?
++  set -e
++  if [ "$provision_rc" != "0" ]; then
++    # Launch NOTHING. A model run against missing dependencies fails in ways that
++    # teach nobody anything, and it would spend real model time to arrive there.
++    # Report the failure as the environment fault it is (rc 124 = the provision
++    # timeout fired) and let the caller's retry policy see a real failure_class.
++    emit_job_result \
++      "error" "false" "[]" "[]" \
++      "provision failed (rc=$provision_rc): $PROVISION_COMMAND" \
++      "" "$WT" "$provision_rc" "other" "0" \
++      '{"input_tokens":null,"output_tokens":null,"backend":"opencode","measured":false}'
++    exit 0
++  fi
++  PREEXISTING_FILE="$ART/preexisting.txt"
++  snapshot_preexisting "$WT" "$PREEXISTING_FILE" \
++    || die "could not snapshot the post-provisioning state of $WT"
++fi
++
+ # --- MANDATORY: pin a restrictive opencode.json into the worktree (SAFETY) --------------
+ # opencode discovers its config from the run directory (--dir "$WT"), so the restrictive
+ # permission file MUST physically live inside $WT for opencode to see it — there is no
+@@ -803,8 +906,15 @@ IFS="$_OLDIFS"
+ GATE_JSON=""
+ gate_rc=0
+ set +e
+-GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+-  --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++if [ -n "$PREEXISTING_FILE" ]; then
++  # Provisioning ran: subtract exactly what it installed, nothing else.
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
++    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
++else
++  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
++    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
++fi
+ gate_rc=$?
+ set -e
+ 
+diff --git a/scripts/compound-v-scope-check.py b/scripts/compound-v-scope-check.py
+index 7b6992d..6001eb6 100755
+--- a/scripts/compound-v-scope-check.py
++++ b/scripts/compound-v-scope-check.py
+@@ -12,7 +12,7 @@ Computes the set of files a job actually changed, purely from git:
+     changed = (git diff --name-only --no-renames -z <baseline>)
+               ∪ (git ls-files --others --exclude-standard -z)
+               ∪ (git ls-files --others --ignored --exclude-standard -z -- .)
+-              − (preexisting untracked/ignored snapshot, direct mode only)
++              − (preexisting untracked/ignored snapshot, both modes)
+ 
+ Three union terms and ONE subtraction. THIS SCRIPT ORIGINATES NO EXEMPTION OF ITS
+ OWN: it forgives nothing by extension and nothing by name. Everything it forgives
+@@ -21,11 +21,13 @@ is part of describing the gate honestly (eighth review pass, 2026-09-03; the
+ previous wording said "NO carve-outs" full stop, which read as "the gate exempts
+ nothing" and is not what a direct-mode run actually does).
+ 
+-WHAT THE ``--preexisting`` LIST CONTAINS TODAY, as written by
+-``compound-v-emit-workflow.py`` at ``register-lane`` time and verified by it
+-again at gate time (see ``run_dir_owned_by_name`` and the exemption-snapshot
+-docstring there — if these two descriptions ever disagree, that file is the one
+-that decides):
++WHAT THE ``--preexisting`` LIST CONTAINS TODAY. Classes 1-3 are written by
++``compound-v-emit-workflow.py`` at ``register-lane`` time and verified by it again
++at gate time (see ``run_dir_owned_by_name`` and the exemption-snapshot docstring
++there — if these two descriptions ever disagree, that file is the one that
++decides). Class 4 has a different author and a different guarantee: the worker
++scripts write it inside a fresh worktree after provisioning, and what makes it safe
++is WHEN it is taken, not a digest:
+ 
+ 1. **Pre-existing untracked/ignored FILES, bound to a digest.** A path recorded
+    as ``<sha256>  <relpath>`` is dropped only while its bytes still hash to that
+@@ -44,6 +46,18 @@ that decides):
+    ``manifest.yaml`` is deliberately NOT among them: it DEFINES ``write_allowed``,
+    so a by-name exemption for it would let a job widen its own lane and have both
+    the gate and the integration authority agree.
++4. **A worktree job's post-provisioning snapshot** (``preexisting.txt``, plain
++   repo-relative paths, one per line). A job whose manifest carries a
++   ``provision_command`` needs its dependencies installed before the model starts,
++   and those installed files are untracked or ignored writes the job did not make.
++   The worker script — never the model — runs the command inside the fresh
++   worktree, then lists exactly what this gate's own probes 2 and 3 would list, and
++   passes that file back as ``--preexisting``. Ordering is the whole safety
++   argument: the snapshot is taken AFTER provisioning and BEFORE the model launches,
++   so it can only ever contain what provisioning created. A path a worker cannot
++   represent on one line (a filename containing a newline) is left OUT of the file
++   and is therefore never exempt — fail closed, the same rule as an unreadable file
++   in class 1.
+ 
+ Two exemptions of a different kind — interpreter bytecode by extension, and the
+ pipeline's two outcome streams by name — existed briefly in 3.4.0 development and
+@@ -94,9 +108,11 @@ a link is outside the tree and outside git's view. Kernel-level write confinemen
+ (the codex backend's sandbox) is the preventive layer; this scan is the
+ detection layer.
+ 
+-The optional ``--preexisting`` subtraction (direct mode) drops paths that were
+-ALREADY untracked/ignored before the job started, so a normal dirty tree does not
+-produce false BLOCKs for files this job never touched.
++The optional ``--preexisting`` subtraction drops paths that were ALREADY
++untracked/ignored before the job started, so a normal dirty tree does not produce
++false BLOCKs for files this job never touched. BOTH modes honour it. Direct mode
++uses it for the repo's pre-dispatch dirt; worktree mode uses it for what a
++``provision_command`` installed into the fresh worktree before the model ran.
+ 
+ then matches each changed path against the job's ``write_allowed`` glob list.
+ Any changed file that matches NO allowed glob is a violation. One or more
+@@ -261,10 +277,13 @@ def changed_files(cwd, baseline, preexisting=None):
+     extension and nothing by name: an ignored write is a write.
+ 
+     ``preexisting`` (optional set/iterable of repo-relative paths) is SUBTRACTED
+-    from the union: in direct mode the dispatcher snapshots untracked/ignored paths
+-    that existed BEFORE the job, so files this job never created are not attributed
+-    to it. (Worktree mode passes nothing — a fresh ``worktree add HEAD`` has no
+-    pre-existing untracked.) Result is deduped/sorted, repo-relative.
++    from the union, in BOTH modes. In direct mode the dispatcher snapshots
++    untracked/ignored paths that existed BEFORE the job, so files this job never
++    created are not attributed to it. A fresh ``worktree add HEAD`` starts with no
++    untracked paths at all, so worktree mode used to pass nothing — but a job with a
++    ``provision_command`` has its dependencies installed into that worktree before
++    the model starts, and the worker snapshots them at exactly that moment and
++    passes them here. Result is deduped/sorted, repo-relative.
+     """
+     # All three probes use NUL-delimited (-z) output, split on '\0'. NUL is the
+     # only byte that cannot occur in a path, so a filename containing a newline
+@@ -298,12 +317,13 @@ def changed_files(cwd, baseline, preexisting=None):
+     if preexisting:
+         files -= set(preexisting)
+     # NO carve-out ORIGINATES HERE. Every path the three probes produced reaches
+-    # the matcher, minus only the direct-mode `preexisting` snapshot the CALLER
+-    # passed in — whose three classes (digest-bound pre-existing files,
+-    # pre-existing directories by name, and the pipeline's own run-dir files for
+-    # this job, the closed list RUN_DIR_EXEMPT_BY_NAME plus the attempts family)
+-    # are named in this module's docstring and defined in
+-    # compound-v-emit-workflow.py. Interpreter
++    # the matcher, minus only the `preexisting` snapshot the CALLER passed in —
++    # whose four classes (digest-bound pre-existing files, pre-existing directories
++    # by name, the pipeline's own run-dir files for this job — the closed list
++    # RUN_DIR_EXEMPT_BY_NAME plus the attempts family — and a worktree job's
++    # post-provisioning snapshot) are named in this module's docstring; the first
++    # three are defined in compound-v-emit-workflow.py and the fourth is written by
++    # the worker scripts. Interpreter
+     # bytecode is NOT forgiven here: a `.pyc` never merges, but it is executed in
+     # place by hooks/lane-guard.sh's loader and by compound-v-integration-gate.py's
+     # importer of THIS module, so dropping it traded the last detection signal for
+@@ -544,9 +564,13 @@ def build_parser():
+         metavar="PATH",
+         help="file of repo-relative paths (one per line) that existed BEFORE the "
+         "job (untracked/ignored snapshot); these are EXCLUDED from the changed/"
+-        "violation set. Direct mode: the dispatcher snapshots pre-existing "
+-        "untracked+ignored paths before launch and passes them here so a normal "
+-        "dirty tree does not produce false BLOCKs.",
++        "violation set. Honoured in BOTH modes. Direct mode: the dispatcher "
++        "snapshots pre-existing untracked+ignored paths before launch and passes "
++        "them here so a normal dirty tree does not produce false BLOCKs. Worktree "
++        "mode: a job with a provision_command has its dependencies installed into "
++        "the fresh worktree, and the worker snapshots them AFTER provisioning and "
++        "BEFORE the model launches, so an installed node_modules/ is not charged "
++        "to the model.",
+     )
+     p.add_argument("--selftest", action="store_true", help="run built-in tests")
+     return p
+@@ -806,6 +830,77 @@ def _selftest():
+             "docs/new_leak.md" in viol_snap,
+         )
+ 
++        # PROVISIONING (worktree mode) case: a job whose manifest carries a
++        # provision_command gets its dependencies installed into the fresh worktree
++        # before the model starts. Those files are ignored writes outside
++        # write_allowed, so without the snapshot the gate BLOCKS a job that did
++        # nothing wrong. With the worker's post-provisioning snapshot passed as
++        # --preexisting, they are subtracted — and worktree mode honours it exactly
++        # as direct mode does. Build a repo whose .gitignore ignores node_modules/,
++        # add a worktree, and install into it the way a provision_command would.
++        prepo = os.path.join(tmp, "prepo")
++        os.makedirs(os.path.join(prepo, "src"))
++        run(["git", "init", "-q"], cwd=prepo)
++        run(["git", "config", "user.email", "t@t.t"], cwd=prepo)
++        run(["git", "config", "user.name", "t"], cwd=prepo)
++        with open(os.path.join(prepo, ".gitignore"), "w") as f:
++            f.write("node_modules/\n")
++        with open(os.path.join(prepo, "src", "base.ts"), "w") as f:
++            f.write("base\n")
++        run(["git", "add", "-A"], cwd=prepo)
++        run(["git", "commit", "-q", "-m", "base"], cwd=prepo)
++        pwt = os.path.join(tmp, "pwt")
++        run(["git", "worktree", "add", "-q", pwt, "HEAD"], cwd=prepo)
++        os.makedirs(os.path.join(pwt, "node_modules", "x"))
++        with open(os.path.join(pwt, "node_modules", "x", "a"), "w") as f:
++            f.write("installed by provisioning\n")
++        # Ask git what the snapshot would contain, exactly as the worker does —
++        # the same two probes this gate itself unions in, so the two agree by
++        # construction rather than by a hardcoded guess about git's output form.
++        prov_snapshot = sorted(
++            set(
++                _split_nul(
++                    _git(pwt, ["ls-files", "--others", "--exclude-standard", "-z"])[1]
++                )
++            )
++            | set(
++                _split_nul(
++                    _git(
++                        pwt,
++                        [
++                            "ls-files", "--others", "--ignored",
++                            "--exclude-standard", "-z", "--", ".",
++                        ],
++                    )[1]
++                )
++            )
++        )
++        changed_noprov, viol_noprov = check(pwt, "HEAD", ["src/**"])
++        expect(
++            "provisioning: without the snapshot the installed file is a violation",
++            "node_modules/x/a" in changed_noprov and "node_modules/x/a" in viol_noprov,
++        )
++        expect(
++            "provisioning: the worker's two probes list the installed file",
++            "node_modules/x/a" in prov_snapshot,
++        )
++        changed_prov, viol_prov = check(
++            pwt, "HEAD", ["src/**"], preexisting=prov_snapshot
++        )
++        expect(
++            "provisioning: worktree mode honours --preexisting (empty changed set)",
++            changed_prov == [] and viol_prov == [],
++        )
++        # The subtraction is bounded to what provisioning actually created: a file
++        # the MODEL then writes outside write_allowed still BLOCKS.
++        with open(os.path.join(pwt, "node_modules", "x", "b"), "w") as f:
++            f.write("written by the model, after the snapshot\n")
++        _, viol_after = check(pwt, "HEAD", ["src/**"], preexisting=prov_snapshot)
++        expect(
++            "provisioning: a post-snapshot ignored write still BLOCKS",
++            "node_modules/x/b" in viol_after,
++        )
++
+         # IGNORED-FILE case: a worker writes a gitignored path OUTSIDE
+         # write_allowed. --exclude-standard would hide it, so the gate must union
+         # in `--others --ignored` and BLOCK on it. Set up a fresh repo with a
+diff --git a/tests/test-worker-path-transport.sh b/tests/test-worker-path-transport.sh
+index 0784094..d249bb3 100755
+--- a/tests/test-worker-path-transport.sh
++++ b/tests/test-worker-path-transport.sh
+@@ -8,6 +8,13 @@
+ # array element (the bug was: a newline-joined round-trip split it into two phantom paths).
+ # The scope gate itself is NUL-correct (compound-v-scope-check.py), so the BLOCK decision was
+ # always right; this guards the REPORTED arrays.
++#
++# Case 3 covers the other half of what a worker hands the gate: the post-provisioning
++# --preexisting snapshot. It drives the REAL codex worker end to end against a stub `codex`
++# on PATH, with a --provision-command that installs into a gitignored node_modules/, and
++# proves the job is not blocked by files the model never wrote. Revert the provisioning
++# support and this case fails — either the flag is rejected outright, or the installed
++# files come back as ignored writes outside write_allowed.
+ set -eu
+ 
+ SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts" && pwd -P)"
+@@ -74,6 +81,92 @@ fi
+ 
+ git -C "$REPO" worktree remove -f "$WT" >/dev/null 2>&1 || true
+ 
++# --- case 3: provisioning --------------------------------------------------------------
++# The real worker, a stub backend, and a provision command that installs into an ignored
++# path. Nothing the model did creates node_modules/, so nothing about node_modules/ may
++# appear in files_changed or violations, and the job must not be blocked.
++PREPO="$TMP/prepo"
++mkdir -p "$PREPO/src"
++git -C "$PREPO" init -q
++git -C "$PREPO" config user.email t@t.co
++git -C "$PREPO" config user.name t
++printf 'node_modules/\n' > "$PREPO/.gitignore"
++printf 'base\n' > "$PREPO/src/base.ts"
++git -C "$PREPO" add -A
++git -C "$PREPO" commit -qm base >/dev/null
++
++# Stub `codex`: exits 0 having written nothing. The point of the case is the gate's input,
++# not the model — a real backend here would make the test non-deterministic and networked.
++STUB="$TMP/stub"
++mkdir -p "$STUB"
++printf '#!/bin/sh\nexit 0\n' > "$STUB/codex"
++chmod +x "$STUB/codex"
++
++printf 'do nothing\n' > "$TMP/prompt.md"
++
++# TMPDIR puts the worker's worktree under $TMP (a sibling of the repo, which the worker
++# requires) so the trap cleans it up with everything else.
++set +e
++PROV_JSON="$(
++  TMPDIR="$TMP" PATH="$STUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
++    --run-id provrun --job-id provjob --repo "$PREPO" \
++    --prompt-file "$TMP/prompt.md" --model stub-model \
++    --write-allowed 'src/**' --timeout-sec 120 \
++    --provision-command 'mkdir -p node_modules/x && printf a > node_modules/x/a' \
++    --provision-timeout-sec 120 2>"$TMP/prov.err"
++)"
++prov_rc=$?
++set -e
++
++prov_status="$(printf '%s' "$PROV_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
++# `.blocked | tostring`, NOT `.blocked // "MISSING"`: jq's `//` treats `false` as empty, so
++# the alternative would fire on exactly the value this case is asserting.
++prov_blocked="$(printf '%s' "$PROV_JSON" | jq -r 'if has("blocked") then (.blocked | tostring) else "MISSING" end' 2>/dev/null || echo PARSE_FAIL)"
++prov_nm="$(printf '%s' "$PROV_JSON" \
++  | jq -r '[(.files_changed // [])[], (.violations // [])[]]
++           | map(startswith("node_modules")) | any' 2>/dev/null || echo PARSE_FAIL)"
++# Anti-vacuity: a provision command that created NOTHING would satisfy every assertion
++# above without the subtraction doing any work. Read the worker's own snapshot and require
++# the installed path to be in it, so the case can only pass by the mechanism it is about.
++prov_wt="$(printf '%s' "$PROV_JSON" | jq -r '.worktree // ""' 2>/dev/null || echo "")"
++prov_snap="MISSING"
++if [ -n "$prov_wt" ] && [ -f "$prov_wt.art/preexisting.txt" ]; then
++  prov_snap="$(grep -c '^node_modules/x/a$' "$prov_wt.art/preexisting.txt" || true)"
++fi
++
++if [ "$prov_rc" = "0" ] && [ "$prov_status" = "success" ] && [ "$prov_blocked" = "false" ] \
++   && [ "$prov_nm" = "false" ] && [ "$prov_snap" = "1" ]; then
++  echo "  case3 provisioning: installed node_modules/ is not charged to the job ✅"
++else
++  echo "  case3 FAIL: rc=$prov_rc status=$prov_status blocked=$prov_blocked node_modules=$prov_nm snapshot=$prov_snap"
++  echo "    stdout: $PROV_JSON"
++  echo "    stderr: $(cat "$TMP/prov.err" 2>/dev/null || true)"
++  fail=1
++fi
++
++# The snapshot must be bounded to what provisioning created: a provision command that FAILS
++# launches nothing and reports the failure verbatim, rather than running the model blind.
++set +e
++FAIL_JSON="$(
++  TMPDIR="$TMP" PATH="$STUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
++    --run-id provrun --job-id provfail --repo "$PREPO" \
++    --prompt-file "$TMP/prompt.md" --model stub-model \
++    --write-allowed 'src/**' --timeout-sec 120 \
++    --provision-command 'exit 7' 2>"$TMP/provfail.err"
++)"
++set -e
++fail_status="$(printf '%s' "$FAIL_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
++fail_summary="$(printf '%s' "$FAIL_JSON" | jq -r '.summary // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
++if [ "$fail_status" = "error" ] && [ "$fail_summary" = "provision failed (rc=7): exit 7" ]; then
++  echo "  case4 provisioning: a failed provision is reported, not run past ✅"
++else
++  echo "  case4 FAIL: status=$fail_status summary=$fail_summary"
++  fail=1
++fi
++
++git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provjob" >/dev/null 2>&1 || true
++git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provfail" >/dev/null 2>&1 || true
++
+ if [ "$fail" = "0" ]; then
+   echo "SELFTEST PASSED"
+   exit 0

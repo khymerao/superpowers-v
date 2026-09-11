@@ -1,0 +1,55 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:6e1a19ad758082450dd3b6c3b8ccdd2a7681b6e5f6c83243d6ba6cf39431fe57",
+  "exit_code": 0,
+  "job_id": "laneguard-unresolved",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/laneguard-unresolved.patch",
+  "patch_paths": [
+    "hooks/lane-guard.sh",
+    "tests/test-lane-guard.sh"
+  ],
+  "patch_sha256": "sha256:6e1a19ad758082450dd3b6c3b8ccdd2a7681b6e5f6c83243d6ba6cf39431fe57",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "hooks/lane-guard.sh",
+      "tests/test-lane-guard.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo lane-guard-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-lane-guard.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-3"
+}

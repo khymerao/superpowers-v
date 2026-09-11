@@ -1,0 +1,67 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:65bdd13bfe544bd149daed1443061a7af6b851277acb97d3a7984254ac93c5fa",
+  "exit_code": 0,
+  "job_id": "usage-advisor-calls",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/usage-advisor-calls.patch",
+  "patch_paths": [
+    "commands/v-status.md",
+    "schemas/job_result.schema.json",
+    "scripts/compound-v-usage-aggregate.py",
+    "scripts/compound-v-usage-extract.py",
+    "tests/test-usage-workflow.sh"
+  ],
+  "patch_sha256": "sha256:65bdd13bfe544bd149daed1443061a7af6b851277acb97d3a7984254ac93c5fa",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-status.md\",\n    \"schemas/job_result.schema.json\",\n    \"scripts/compound-v-usage-aggregate.py\",\n    \"scripts/compound-v-usage-extract.py\",\n    \"tests/test-usage-workflow.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-usage-extract.py\",\n    \"scripts/compound-v-usage-aggregate.py\",\n    \"schemas/job_result.schema.json\",\n    \"commands/v-status.md\",\n    \"tests/test-usage-workflow.sh\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-status.md",
+      "schemas/job_result.schema.json",
+      "scripts/compound-v-usage-aggregate.py",
+      "scripts/compound-v-usage-extract.py",
+      "tests/test-usage-workflow.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-usage-extract.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-usage-aggregate.py --selftest >/dev/null && bash tests/test-usage-workflow.sh >/dev/null && echo usage-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-usage-workflow.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 5 command(s) from 5 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-6"
+}

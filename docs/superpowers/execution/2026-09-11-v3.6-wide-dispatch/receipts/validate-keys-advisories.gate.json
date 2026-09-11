@@ -1,0 +1,79 @@
+{
+  "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "diff_digest": "sha256:0e29b92d336ddcc4346f1179e8629a11b5c3cc11096e5ce53e8b240e9adfcd24",
+  "exit_code": 0,
+  "job_id": "validate-keys-advisories",
+  "patch_path": "/Users/oleg/Dev/superpowers-v/docs/superpowers/execution/2026-09-11-v3.6-wide-dispatch/jobs/validate-keys-advisories.patch",
+  "patch_paths": [
+    "agents/partition-reviewer.md",
+    "examples/manifest.example.yaml",
+    "schemas/cross-model-receipt.schema.json",
+    "scripts/compound-v-validate-manifest.py",
+    "tests/test-agent-memory.sh"
+  ],
+  "patch_sha256": "sha256:0e29b92d336ddcc4346f1179e8629a11b5c3cc11096e5ce53e8b240e9adfcd24",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"agents/partition-reviewer.md\",\n    \"examples/manifest.example.yaml\",\n    \"schemas/cross-model-receipt.schema.json\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-agent-memory.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-validate-manifest.py\",\n    \"examples/manifest.example.yaml\",\n    \"agents/partition-reviewer.md\",\n    \"schemas/cross-model-receipt.schema.json\",\n    \"tests/test-agent-memory.sh\"\n  ],\n  \"violations\": []\n}\n",
+  "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "agents/partition-reviewer.md",
+      "examples/manifest.example.yaml",
+      "schemas/cross-model-receipt.schema.json",
+      "scripts/compound-v-validate-manifest.py",
+      "tests/test-agent-memory.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo agents-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "/usr/bin/python3 -B scripts/compound-v-validate-manifest.py examples/manifest.example.yaml",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo validator-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-agent-memory.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 5 command(s) from 5 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "verdict": "pass",
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-15"
+}

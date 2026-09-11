@@ -1,0 +1,129 @@
+{
+  "run_id": "2026-09-11-v3.6-wide-dispatch",
+  "phase": "DISPATCHED",
+  "jobs": {
+    "scope-workers-provision": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-19",
+      "retries": [
+        {
+          "stage": "implement",
+          "job": "scope-workers-provision",
+          "attempt": 1,
+          "wait_ms": 2000
+        },
+        {
+          "stage": "implement",
+          "job": "scope-workers-provision",
+          "attempt": 2,
+          "wait_ms": 4000
+        }
+      ],
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    },
+    "laneguard-unresolved": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-3",
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    },
+    "vinit-skilldoctor-advisor": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-4",
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    },
+    "second-opinion-ladder": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-5",
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    },
+    "validate-keys-advisories": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-15",
+      "retries": [
+        {
+          "stage": "implement",
+          "job": "validate-keys-advisories",
+          "attempt": 1,
+          "wait_ms": 2000
+        }
+      ],
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    },
+    "usage-advisor-calls": {
+      "baseline": "3509f762cdea5394522264205f00779b049fc852",
+      "isolation": "worktree",
+      "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-6",
+      "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+      "status": "done",
+      "merged": {
+        "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a"
+      }
+    }
+  },
+  "updated_at": "2026-09-11T17:45:00Z",
+  "waves": {
+    "1": {
+      "jobs": [
+        "scope-workers-provision",
+        "validate-keys-advisories",
+        "laneguard-unresolved",
+        "vinit-skilldoctor-advisor",
+        "second-opinion-ladder",
+        "usage-advisor-calls"
+      ],
+      "merged": [
+        "scope-workers-provision",
+        "validate-keys-advisories",
+        "laneguard-unresolved",
+        "vinit-skilldoctor-advisor",
+        "second-opinion-ladder",
+        "usage-advisor-calls"
+      ],
+      "commit": "7309b8fcaa312e7d7ed022b7138d7ced1be84f5a",
+      "integrated": true
+    }
+  }
+}

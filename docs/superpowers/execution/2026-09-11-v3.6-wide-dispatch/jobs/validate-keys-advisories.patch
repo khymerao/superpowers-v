@@ -1,0 +1,540 @@
+diff --git a/agents/partition-reviewer.md b/agents/partition-reviewer.md
+index a6a6738..b356b21 100644
+--- a/agents/partition-reviewer.md
++++ b/agents/partition-reviewer.md
+@@ -101,7 +101,9 @@ to invent. The exit code is unchanged by a warning; only `violations` decides FA
+ 
+ | Validator warning | `WARNINGS` code | What it means |
+ |---|---|---|
+-| `memory-only lane` | `WARN: MEMORY_ONLY_LANE` | A job's `write_allowed` is nothing but agent-memory globs (`.claude/agent-memory{,-local}/**`). Such a job is refused as `no_work` the moment the agent has nothing durable to save, which pressures it to invent a memory entry. Pair the memory glob with the job's real output lane, or declare `write_allowed: []`. |
++| `memory-only lane` | `WARN: MEMORY_ONLY_LANE` | A job's `write_allowed` is nothing but agent-memory globs (`.claude/agent-memory{,-local}/**`). Such a job is refused as `no_work` the moment the agent has nothing durable to save, which pressures it to invent a memory entry. Pair the memory glob with the job's real output lane, or declare `write_allowed: []`. Fires for both the bare and the namespaced form of the glob. |
++| `not namespaced` | `WARN: MEMORY_LANE_UNNAMESPACED` | A job's committed, project-scope memory lane is `.claude/agent-memory/<agent>/**` — bare, not `.claude/agent-memory/superpowers-v-<agent>/**`. That directory is shared with every plugin installed in the same repo, and an unnamespaced agent name can collide with another plugin's memory-bearing agent of the same name. Independent of `MEMORY_ONLY_LANE` — fires whether or not the lane is paired with a real output lane. |
++| (cross-model receipt, `reviewer_backend: claude-advisor` + `cross_model: false`) | `WARN: SECOND_OPINION_SAME_FAMILY` | The SCOPED+ second opinion was produced by `claude-advisor` (v2.12's read-only advisor), not `codex` — the SAME model family as the implementer and the in-harness reviewer. The receipt is honestly labelled (`cross_model: false`), so this is not a violation; it is a signal that this run got a same-family opinion, not an independent one. |
+ 
+ **`compound-v-validate-manifest.py` is the gate; you do not hand-wave past it.** If *it* exits non-zero, the verdict is FAIL regardless of how the prose reads. This applies to `compound-v-validate-manifest.py` and nothing else — it is **not** a general rule about every script this agent runs. The co-change advisory in Step 7 has the opposite contract, stated there. Your remaining steps add the human-judgment checks the script can't make (Sonnet eligibility against the 8-box taxonomy, tests-with-code coupling, batch sanity).
+ 
+@@ -135,7 +137,7 @@ If any appears in a parallel-task list instead of a serial Task 0 → **FAIL: SH
+ 
+ ### Step 4 — Sonnet-justification check (judgment — the validator can't do this)
+ 
+-> **Stance gate (read `routing_stance` from the manifest first).** Since 3.1.0 the ladder splits on execution vs judgment: under `balanced` and `cost-aware` a `standard`-tier `claude` job resolves to **`sonnet`** (`scripts/compound-v-resolve-model.py` `_CLAUDE_BALANCED`), and only `conservative` / `claude-only` keep `standard` on Opus — never assume `standard ⇒ opus` under `balanced` (stage 7 of the verification program, finding 153: three reviews said so while the implementer ran as Sonnet and paraphrased an exact-text task). So the Sonnet-eligibility judgment below applies to every job that RESOLVES to Sonnet in the manifest's stance — `standard` and `light` alike — and the question is the policy's own: is the task *execution* (exact instructions, exact text, a decided design, no judgment call left to the worker), or does it require *judgment* (constraints to weigh, text to compose, a decision to make)? Judgment ⇒ recommend `deep`. **Reviewers ⇒ deep ⇒ opus and sensitive ⇒ deep ⇒ opus stay enforced in every stance** (unchanged).
++> **Stance gate (read `routing_stance` from the manifest first).** Since 3.0.5 the ladder splits on execution vs judgment: under `balanced` and `cost-aware` a `standard`-tier `claude` job resolves to **`sonnet`** (`scripts/compound-v-resolve-model.py` `_CLAUDE_BALANCED`), and only `conservative` / `claude-only` keep `standard` on Opus — never assume `standard ⇒ opus` under `balanced` (stage 7 of the verification program, finding 153: three reviews said so while the implementer ran as Sonnet and paraphrased an exact-text task). So the Sonnet-eligibility judgment below applies to every job that RESOLVES to Sonnet in the manifest's stance — `standard` and `light` alike — and the question is the policy's own: is the task *execution* (exact instructions, exact text, a decided design, no judgment call left to the worker), or does it require *judgment* (constraints to weigh, text to compose, a decision to make)? Judgment ⇒ recommend `deep`. **Reviewers ⇒ deep ⇒ opus and sensitive ⇒ deep ⇒ opus stay enforced in every stance** (unchanged).
+ 
+ For every job assigned `model: sonnet`, verify the manifest/Partition Map carries a justification AND it plausibly maps to the strict 8-box taxonomy from [`phase-3-parallel-opus-dispatch.md`](../skills/compound-v/phase-3-parallel-opus-dispatch.md):
+ 
+@@ -285,11 +287,26 @@ WARNINGS
+     → Advisory. Re-run the copy step in /v:orchestrate, or confirm the omission is intentional.
+ 
+   WARN: MEMORY_ONLY_LANE
+-    - job 'task-4-review' declares only .claude/agent-memory/spec-reviewer/** — a job that writes
+-      nothing else is blocked as no_work, and an agent with nothing to save cannot pass it honestly.
++    - job 'task-4-review' declares only .claude/agent-memory/superpowers-v-spec-reviewer/** — a job
++      that writes nothing else is blocked as no_work, and an agent with nothing to save cannot pass
++      it honestly.
+     → Advisory, quoted from the validator's `warnings`. Pair the memory glob with the job's real
+       output lane, or declare write_allowed: [].
+ 
++  WARN: MEMORY_LANE_UNNAMESPACED
++    - job 'task-4-review' declares .claude/agent-memory/spec-reviewer/** — bare, not namespaced.
++      This project's own agents write to .claude/agent-memory/superpowers-v-spec-reviewer/**; a
++      committed, project-scope memory directory is shared with every plugin in the repo, and an
++      unnamespaced agent name can collide with another plugin's memory-bearing agent of the same
++      name.
++    → Advisory, quoted from the validator's `warnings`. Rename the glob to the namespaced form.
++
++  WARN: SECOND_OPINION_SAME_FAMILY
++    - the cross-model receipt's reviewer_backend is 'claude-advisor' with cross_model: false — an
++      honestly-labelled SAME-family second opinion, not an independent one.
++    → Advisory, quoted from cross_model_receipt_advisories. Confirm a same-family opinion was
++      acceptable for this run, or re-run with codex when it is available.
++
+   NOTE: MATERIALIZATION_UNCHECKED
+     - The plan named by `plan_path` is not readable from here, so the 6.2.0 field check did not
+       run. This is NOT "the fields are present" — it is "we could not look".
+diff --git a/examples/manifest.example.yaml b/examples/manifest.example.yaml
+index 0e90164..4247ae8 100644
+--- a/examples/manifest.example.yaml
++++ b/examples/manifest.example.yaml
+@@ -28,6 +28,12 @@ acceptance_criteria:
+ routing_stance: balanced            # balanced | conservative | cost-aware | claude-only
+ max_parallel: 5                     # batch ceiling (phase-3 concurrency reality)
+ 
++# v3.6 — runs ONCE in a fresh worktree, before the before-image is captured.
++# Idempotent; must not modify tracked files. provision_timeout_s defaults to 600
++# when absent (range 1-1800).
++provision_command: "npm ci"
++provision_timeout_s: 600
++
+ # v3.4.17 — the plan's `## Global Constraints` section (Superpowers 6.2.0), copied
+ # VERBATIM, one line per entry. OPTIONAL: a plan written before 6.2.0 has no such
+ # section and a manifest materialized from it carries no such key — still valid.
+@@ -201,7 +207,7 @@ jobs:
+     # nothing keeps `write_allowed: []` instead.
+     write_allowed:
+       - "docs/superpowers/dogfood/sequence-editor-review-1.md"
+-      - ".claude/agent-memory/spec-reviewer/**"
++      - ".claude/agent-memory/superpowers-v-spec-reviewer/**"
+     read_allowed:
+       - "src/features/sequences/**"
+       - "docs/features/sequences.md"
+diff --git a/schemas/cross-model-receipt.schema.json b/schemas/cross-model-receipt.schema.json
+index 5044d44..fa32a1b 100644
+--- a/schemas/cross-model-receipt.schema.json
++++ b/schemas/cross-model-receipt.schema.json
+@@ -11,6 +11,7 @@
+     "diff_digest",
+     "reviewer_backend",
+     "reviewer_model",
++    "cross_model",
+     "produced_at",
+     "review",
+     "digest"
+@@ -31,12 +32,16 @@
+     },
+     "reviewer_backend": {
+       "type": "string",
+-      "const": "codex",
+-      "description": "MUST be codex. The point of the SCOPED+ receipt is a DIFFERENT model family from the one that wrote the code and the one that reviews it in-harness; a Claude-on-Claude second opinion is not a second opinion."
++      "enum": ["codex", "claude-advisor"],
++      "description": "codex is the genuine cross-model second opinion the SCOPED+ receipt was built for: a DIFFERENT model family from the one that wrote the code and the one that reviews it in-harness. claude-advisor is the on-demand read-only advisor (v2.12) run instead when Codex is unavailable or declined — SAME family as the implementer, so it is recorded honestly via `cross_model: false` rather than misrepresented as codex. The validator refuses a receipt whose `cross_model` value disagrees with this field."
+     },
+     "reviewer_model": {
+       "type": "string",
+-      "description": "The concrete model the driver resolved to (e.g. gpt-5.6-sol). Recorded, not constrained: the codex family map moves faster than this schema."
++      "description": "The concrete model the driver resolved to (e.g. gpt-5.6-sol, or the advisor's Claude model id). Recorded, not constrained: the codex family map moves faster than this schema."
++    },
++    "cross_model": {
++      "type": "boolean",
++      "description": "true when `reviewer_backend` is a genuinely different model family from the implementer (codex); false when it is not (claude-advisor). REQUIRED so the flag is asserted, not inferred — the validator refuses a receipt where this disagrees with `reviewer_backend` (codex+false or claude-advisor+true), and warns SECOND_OPINION_SAME_FAMILY on the honest claude-advisor+false case."
+     },
+     "produced_at": {
+       "type": "string",
+diff --git a/scripts/compound-v-validate-manifest.py b/scripts/compound-v-validate-manifest.py
+index 11c1413..f8b92ac 100755
+--- a/scripts/compound-v-validate-manifest.py
++++ b/scripts/compound-v-validate-manifest.py
+@@ -944,6 +944,12 @@ _RECEIPT_SCHEMA = os.path.join("schemas", "fastpath-review-receipt.schema.json")
+ # v3.4.1 — the SCOPED+ cross-model receipt and the advisory review nested inside it.
+ _CROSS_MODEL_SCHEMA = os.path.join("schemas", "cross-model-receipt.schema.json")
+ _PLAN_REVIEW_SCHEMA = os.path.join("schemas", "plan-review.schema.json")
++
++# The two reviewer_backend values a cross-model receipt may carry, and the
++# `cross_model` boolean each one is honest at. codex is a genuine second
++# opinion (a different model family); claude-advisor (v2.12) is the SAME
++# family as the implementer, run instead when Codex is unavailable/declined.
++_CROSS_MODEL_EXPECTED = {"codex": True, "claude-advisor": False}
+ # Bounded `git diff` capture for the anti-stale-replay diff-digest recompute —
+ # MUST match the producer's cap (compound-v-fastpath-run.py MAX_DIFF_BYTES) so a
+ # receipt written by the producer content-addresses to the same value here.
+@@ -2087,6 +2093,25 @@ def _validate_cross_model_receipt(manifest, receipt_path, expected_diff_digest=N
+     if not isinstance(receipt, dict):
+         return problems
+ 
++    # --- reviewer_backend / cross_model must agree (v3.6) ---
++    # `claude-advisor` (v2.12's on-demand read-only advisor) is a legitimate
++    # receipt producer beside `codex`, but it is the SAME model family as the
++    # implementer — so the receipt's own `cross_model` boolean must say so
++    # honestly. A mismatch either overstates a same-family opinion as
++    # independent (claude-advisor + true) or understates a genuine second
++    # opinion (codex + false); both are fail-closed violations, never a WARN.
++    rb = receipt.get("reviewer_backend")
++    cm = receipt.get("cross_model")
++    if rb in _CROSS_MODEL_EXPECTED and isinstance(cm, bool):
++        expected_cm = _CROSS_MODEL_EXPECTED[rb]
++        if cm != expected_cm:
++            problems.append(
++                "cross-model receipt cross_model=%r disagrees with "
++                "reviewer_backend '%s' (expected %r) — a mismatched flag "
++                "misrepresents whether an independent model family actually "
++                "reviewed this diff" % (cm, rb, expected_cm)
++            )
++
+     review = receipt.get("review")
+     if isinstance(review, dict):
+         pr_schema, pr_err = _load_bundled_schema(_PLAN_REVIEW_SCHEMA, "plan-review")
+@@ -2282,6 +2307,33 @@ def _validate_retry(manifest):
+     return problems
+ 
+ 
++def _validate_provision(manifest):
++    """Return violations for the optional top-level ``provision_command`` +
++    ``provision_timeout_s`` fields — a command a fresh worktree runs ONCE before
++    the before-image is captured (e.g. ``npm ci``). Idempotent by convention and
++    must not modify tracked files; the caller (not this validator) is what
++    actually runs it. ABSENT is valid — every manifest committed before this
++    field existed has neither key. ``provision_timeout_s`` defaults to 600 when
++    absent; that default is applied by the caller, never asserted here as a
++    violation of absence."""
++    problems = []
++    if "provision_command" in manifest and manifest.get("provision_command") is not None:
++        pc = manifest.get("provision_command")
++        if not isinstance(pc, str) or not pc.strip() or "\n" in pc:
++            problems.append(
++                "manifest 'provision_command' must be a non-empty, single-line "
++                "string (got %r)" % (pc,)
++            )
++    if "provision_timeout_s" in manifest and manifest.get("provision_timeout_s") is not None:
++        pt = manifest.get("provision_timeout_s")
++        if isinstance(pt, bool) or not isinstance(pt, int) or not (1 <= pt <= 1800):
++            problems.append(
++                "manifest 'provision_timeout_s' must be an integer between 1 "
++                "and 1800 (got %r)" % (pt,)
++            )
++    return problems
++
++
+ def _string_list_problems(value, label):
+     """Return violations for ``value`` as a list of non-empty strings.
+ 
+@@ -2452,6 +2504,10 @@ def validate(manifest, mode=None, repo_root=None, config_path=None,
+     # in some other way must not hide a malformed constraints list.
+     problems.extend(_validate_global_constraints(manifest))
+ 
++    # provision_command / provision_timeout_s: same reasoning as the blocks above —
++    # checked before the jobs early-return so a broken manifest never hides them.
++    problems.extend(_validate_provision(manifest))
++
+     jobs = manifest.get("jobs")
+     if not isinstance(jobs, list) or not jobs:
+         problems.append("manifest has no non-empty 'jobs' list")
+@@ -2874,6 +2930,30 @@ def is_agent_memory_glob(glob):
+     return False
+ 
+ 
++def unnamespaced_agent_memory_name(glob):
++    """Return the bare agent name if ``glob`` addresses a non-namespaced,
++    project-scope agent-memory directory (``.claude/agent-memory/<agent>/**``),
++    else ``None``.
++
++    Excludes the ``-local`` scope root: that directory is gitignored (never
++    committed, see ``tests/test-agent-memory.sh``), so it cannot collide with
++    another plugin's memory. Also excludes any glob already namespaced
++    ``superpowers-v-<agent>`` — that IS the recommended form. Tolerant of the
++    same forms ``is_agent_memory_glob`` is (leading ``./``, a stray leading
++    ``/``, quotes)."""
++    g = (glob or "").strip().strip('"').strip("'").strip()
++    while g.startswith("./"):
++        g = g[2:]
++    g = g.lstrip("/")
++    root = ".claude/agent-memory"
++    if g == root or not g.startswith(root + "/"):
++        return None
++    agent = g[len(root) + 1:].split("/", 1)[0]
++    if not agent or agent.startswith("superpowers-v-"):
++        return None
++    return agent
++
++
+ def advisories(manifest):
+     """Return a list of ADVISORY strings. Never violations; never verdict-changing.
+ 
+@@ -2886,6 +2966,13 @@ def advisories(manifest):
+     and belongs to the author: pair the memory glob with the job's real output lane,
+     or declare `write_allowed: []` and let the agent's memory write fail loudly
+     instead of quietly deciding the job's verdict.
++
++    **memory lane not namespaced (MEMORY_LANE_UNNAMESPACED).** A job's committed,
++    project-scope memory directory `.claude/agent-memory/<agent>/**` is shared with
++    every plugin installed in the same repo; an unnamespaced agent name (`spec-reviewer`
++    rather than `superpowers-v-spec-reviewer`) can collide with another plugin's
++    memory-bearing agent of the same name. Independent of the memory-only-lane check
++    above — it fires whether or not the memory glob is paired with a real output lane.
+     """
+     out = []
+     if not isinstance(manifest, dict):
+@@ -2899,12 +2986,59 @@ def advisories(manifest):
+         globs = job.get("write_allowed")
+         if not isinstance(globs, list) or not globs:
+             continue
++        jid = job.get("id") or "<no id>"
++
++        seen_agents = set()
++        for g in globs:
++            if not isinstance(g, str):
++                continue
++            agent = unnamespaced_agent_memory_name(g)
++            if agent is None or agent in seen_agents:
++                continue
++            seen_agents.add(agent)
++            out.append(
++                "job %r: memory lane '.claude/agent-memory/%s/**' is not "
++                "namespaced — this project's own agents write to "
++                "'.claude/agent-memory/superpowers-v-%s/**'; a committed, "
++                "project-scope memory directory is shared with every plugin "
++                "in the repo, and an unnamespaced agent name can collide "
++                "with another plugin's memory-bearing agent of the same name"
++                % (jid, agent, agent)
++            )
++
+         if not all(isinstance(g, str) and is_agent_memory_glob(g) for g in globs):
+             continue
+         out.append(
+             "job %r: memory-only lane: a job that writes nothing else is blocked as "
+             "no_work; pair the memory glob with the job's real output lane or declare "
+-            "write_allowed: []" % (job.get("id") or "<no id>")
++            "write_allowed: []" % (jid,)
++        )
++    return out
++
++
++def cross_model_receipt_advisories(receipt):
++    """Return ADVISORY strings for a (already-parsed) cross-model receipt.
++    Never violations; never verdict-changing — called independently of
++    ``_validate_cross_model_receipt``, which owns the hard fail-closed checks.
++
++    **SECOND_OPINION_SAME_FAMILY.** A receipt with `reviewer_backend:
++    claude-advisor` and `cross_model: false` is a VALID, honestly-labelled
++    receipt — the validator's disagreement check in
++    ``_validate_cross_model_receipt`` already refuses the dishonest shape
++    (claude-advisor + `cross_model: true`). But honest is not the same as a
++    genuine second opinion: the advisor is the SAME model family that wrote
++    the code and reviews it in-harness, so this is a same-family opinion, and
++    the orchestrator should know that even on a clean PASS."""
++    out = []
++    if not isinstance(receipt, dict):
++        return out
++    if (str(receipt.get("reviewer_backend")) == "claude-advisor"
++            and receipt.get("cross_model") is False):
++        out.append(
++            "cross-model receipt reviewer_backend 'claude-advisor' is the SAME "
++            "model family as the implementer and the in-harness reviewer — "
++            "cross_model: false makes this explicit. This is a same-family "
++            "second opinion, not an independent one"
+         )
+     return out
+ 
+@@ -3050,6 +3184,17 @@ def main(argv):
+     # cannot change `problems`, the verdict, or the exit code — that separation is
+     # the whole contract, and `agents/partition-reviewer.md` restates it.
+     warnings = advisories_text(text)
++    # The cross-model receipt is a separate file the manifest text alone can't see;
++    # read it independently, same fail-soft rule as everything in this channel — an
++    # unreadable/absent receipt contributes no advisory (the hard checks above
++    # already fail-closed on that; this channel never duplicates a violation).
++    if cross_model_receipt not in (None, ""):
++        try:
++            with open(cross_model_receipt, "r", encoding="utf-8") as _cm_fh:
++                _cm_receipt = json.load(_cm_fh)
++        except Exception:  # noqa: BLE001 - advisory channel is fail-soft
++            _cm_receipt = None
++        warnings.extend(cross_model_receipt_advisories(_cm_receipt))
+     for w in warnings:
+         print("ADVISORY: %s" % w, file=sys.stderr)
+ 
+@@ -5243,6 +5388,7 @@ def _selftest():
+             "diff_digest": "sha256:" + "a" * 64,
+             "reviewer_backend": "codex",
+             "reviewer_model": "gpt-5.6-sol",
++            "cross_model": True,
+             "produced_at": "2026-09-03T04:00:00Z",
+             "review": {
+                 "verdict": "concerns",
+@@ -5310,14 +5456,57 @@ def _selftest():
+     expect("cross-model-receipt: malformed diff_digest caught",
+            any("diff_digest 'deadbeef' is malformed" in p for p in _r_dd))
+ 
+-    # Schema shape: a same-family reviewer is not a second opinion, and an unknown
+-    # envelope field is a violation (additionalProperties: false).
++    # Schema shape: an unrecognised reviewer_backend is refused (enum), and an
++    # unknown envelope field is a violation (additionalProperties: false).
+     _r_fam = validate_text(_cm_manifest, repo_root=_tri_root, require_triage=True,
+                            cross_model_receipt=_cm_write("claudereview.json",
+                                                          reviewer_backend="claude"))
+-    expect("cross-model-receipt: a claude reviewer is refused (same family is not a "
+-           "second opinion)",
+-           any("reviewer_backend must be 'codex'" in p for p in _r_fam))
++    expect("cross-model-receipt: an unrecognised reviewer_backend is refused",
++           any("reviewer_backend must be one of" in p for p in _r_fam))
++
++    # v3.6: reviewer_backend 'claude-advisor' beside 'codex', gated by `cross_model`.
++    _r_advisor_ok = validate_text(
++        _cm_manifest, repo_root=_tri_root, require_triage=True,
++        cross_model_receipt=_cm_write("advisor-ok.json",
++                                      reviewer_backend="claude-advisor",
++                                      reviewer_model="claude-opus-4-5",
++                                      cross_model=False))
++    expect("cross-model-receipt: claude-advisor + cross_model:false is ACCEPTED "
++           "(%r)" % _r_advisor_ok, _r_advisor_ok == [])
++    expect("cross-model-receipt: claude-advisor + cross_model:false WARNs "
++           "SECOND_OPINION_SAME_FAMILY",
++           any("same-family" in w
++               for w in cross_model_receipt_advisories(
++                   {"reviewer_backend": "claude-advisor", "cross_model": False})))
++    expect("cross-model-receipt: codex + cross_model:true never warns "
++           "SECOND_OPINION_SAME_FAMILY",
++           cross_model_receipt_advisories(
++               {"reviewer_backend": "codex", "cross_model": True}) == [])
++
++    _r_advisor_lie = validate_text(
++        _cm_manifest, repo_root=_tri_root, require_triage=True,
++        cross_model_receipt=_cm_write("advisor-lie.json",
++                                      reviewer_backend="claude-advisor",
++                                      reviewer_model="claude-opus-4-5",
++                                      cross_model=True))
++    expect("cross-model-receipt: claude-advisor + cross_model:true is REFUSED "
++           "(disagreement)",
++           any("disagrees with reviewer_backend" in p for p in _r_advisor_lie))
++
++    _r_codex_lie = validate_text(
++        _cm_manifest, repo_root=_tri_root, require_triage=True,
++        cross_model_receipt=_cm_write("codex-lie.json", cross_model=False))
++    expect("cross-model-receipt: codex + cross_model:false is REFUSED "
++           "(disagreement)",
++           any("disagrees with reviewer_backend" in p for p in _r_codex_lie))
++
++    _r_unknown_backend = validate_text(
++        _cm_manifest, repo_root=_tri_root, require_triage=True,
++        cross_model_receipt=_cm_write("unknown-backend.json",
++                                      reviewer_backend="gemini",
++                                      cross_model=True))
++    expect("cross-model-receipt: an unknown backend ('gemini') is refused",
++           any("reviewer_backend must be one of" in p for p in _r_unknown_backend))
+     _r_extra = validate_text(_cm_manifest, repo_root=_tri_root, require_triage=True,
+                              cross_model_receipt=_cm_write("extra.json", note="hi"))
+     expect("cross-model-receipt: unknown envelope field caught",
+@@ -5668,7 +5857,10 @@ def _selftest():
+             "write_allowed: [src/features/**]",
+             "write_allowed: [%s]" % ", ".join(globs))
+ 
+-    _mem_only = _lane('".claude/agent-memory/spec-reviewer/**"')
++    # Namespaced form (`superpowers-v-<agent>`) is the recommended shape, so it is
++    # the "clean" baseline used below for cases that assert NO advisory fires for
++    # a reason unrelated to namespacing.
++    _mem_only = _lane('".claude/agent-memory/superpowers-v-spec-reviewer/**"')
+     _mem_msgs = advisories_text(_mem_only)
+     expect("advisory: a memory-only lane warns", len(_mem_msgs) == 1)
+     # Bound-checked on purpose: a regressed detector must FAIL this row, not raise
+@@ -5681,23 +5873,82 @@ def _selftest():
+     expect("advisory: a memory-only lane does NOT change the verdict",
+            validate_text(_mem_only) == [])
+     expect("advisory: memory glob + a real output lane does NOT warn",
+-           advisories_text(_lane('".claude/agent-memory/spec-reviewer/**"',
++           advisories_text(_lane('".claude/agent-memory/superpowers-v-spec-reviewer/**"',
+                                  '"docs/superpowers/dogfood/r-1.md"')) == [])
+     expect("advisory: an empty write_allowed does NOT warn",
+            advisories_text(_lane()) == [])
+     expect("advisory: an ordinary code lane does NOT warn",
+            advisories_text(_lane('"src/**"')) == [])
+     # `in any form`: a detector that knows one spelling detects nothing.
+-    for _form in ('"./.claude/agent-memory/spec-reviewer/**"',
+-                  '".claude/agent-memory/spec-reviewer"',
++    for _form in ('"./.claude/agent-memory/superpowers-v-spec-reviewer/**"',
++                  '".claude/agent-memory/superpowers-v-spec-reviewer"',
+                   '".claude/agent-memory-local/spec-reviewer/**"',
+-                  '"/.claude/agent-memory/spec-reviewer/MEMORY.md"'):
++                  '"/.claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md"'):
+         expect("advisory: memory-only lane detected as %s" % _form,
+                len(advisories_text(_lane(_form))) == 1)
+     expect("advisory: a look-alike path outside the memory roots does NOT warn",
+            advisories_text(_lane('".claude/agent-memoryX/spec-reviewer/**"')) == [])
+     expect("advisory: an unparseable manifest yields no advisory, only violations",
+            advisories_text("\tnot: [valid") == [])
++
++    # --- ADVISORIES: MEMORY_LANE_UNNAMESPACED (v3.6) --------------------------
++    # A bare (non-namespaced) project-scope memory lane collides with another
++    # plugin's memory-bearing agent of the same name; the namespaced form does
++    # not. Independent of whether the lane is paired with a real output lane.
++    for _bare in ('"./.claude/agent-memory/spec-reviewer/**"',
++                  '".claude/agent-memory/spec-reviewer"',
++                  '"/.claude/agent-memory/spec-reviewer/MEMORY.md"'):
++        _u_msgs = advisories_text(
++            _lane(_bare, '"docs/superpowers/dogfood/r-1.md"'))
++        expect("advisory: bare memory lane %s raises MEMORY_LANE_UNNAMESPACED"
++               % _bare,
++               any("not namespaced" in w and "superpowers-v-spec-reviewer" in w
++                   for w in _u_msgs))
++    expect("advisory: the namespaced lane does NOT raise MEMORY_LANE_UNNAMESPACED",
++           not any("not namespaced" in w for w in advisories_text(
++               _lane('".claude/agent-memory/superpowers-v-spec-reviewer/**"',
++                     '"docs/superpowers/dogfood/r-1.md"'))))
++    expect("advisory: the gitignored -local scope never raises "
++           "MEMORY_LANE_UNNAMESPACED",
++           not any("not namespaced" in w for w in advisories_text(
++               _lane('".claude/agent-memory-local/spec-reviewer/**"',
++                     '"docs/superpowers/dogfood/r-1.md"'))))
++    expect("advisory: MEMORY_LANE_UNNAMESPACED does NOT change the verdict",
++           validate_text(_lane('".claude/agent-memory/spec-reviewer/**"',
++                               '"docs/superpowers/dogfood/r-1.md"')) == [])
++    expect("unnamespaced_agent_memory_name: bare form -> agent name",
++           unnamespaced_agent_memory_name(".claude/agent-memory/spec-reviewer/**")
++           == "spec-reviewer")
++    expect("unnamespaced_agent_memory_name: namespaced form -> None",
++           unnamespaced_agent_memory_name(
++               ".claude/agent-memory/superpowers-v-spec-reviewer/**") is None)
++
++    # --- v3.6: provision_command / provision_timeout_s -------------------------
++    def _prov(extra):
++        return _v3_manifest() + extra
++
++    expect("provision: a valid command + timeout pair is PASS",
++           validate_text(_prov("provision_command: \"npm ci\"\n"
++                               "provision_timeout_s: 600\n")) == [])
++    expect("provision: absent is valid (no key at all)",
++           validate_text(_v3_manifest()) == [])
++    expect("provision: provision_command 3 (not a string) is FAIL",
++           any("provision_command" in p for p in
++               validate_text(_prov("provision_command: 3\n"))))
++    expect("provision: provision_command \"\" (empty) is FAIL",
++           any("provision_command" in p for p in
++               validate_text(_prov('provision_command: ""\n'))))
++    expect("provision: provision_timeout_s 0 is FAIL",
++           any("provision_timeout_s" in p for p in
++               validate_text(_prov("provision_command: \"npm ci\"\n"
++                                   "provision_timeout_s: 0\n"))))
++    expect("provision: provision_timeout_s 1801 is FAIL",
++           any("provision_timeout_s" in p for p in
++               validate_text(_prov("provision_command: \"npm ci\"\n"
++                                   "provision_timeout_s: 1801\n"))))
++    expect("provision: provision_command with a newline is FAIL",
++           any("provision_command" in p for p in
++               _validate_provision({"provision_command": "npm ci\nrm -rf /"})))
+     # The SHIPPED example must not trip the advisory it documents.
+     _ex = os.path.join(_repo3, "examples", "manifest.example.yaml")
+     if os.path.isfile(_ex):
+diff --git a/tests/test-agent-memory.sh b/tests/test-agent-memory.sh
+index 480e70f..1a662e4 100755
+--- a/tests/test-agent-memory.sh
++++ b/tests/test-agent-memory.sh
+@@ -31,8 +31,12 @@ for _cand in "$PY" python3 /usr/bin/python3 python; do
+   if "$_cand" -B -c 'import yaml' >/dev/null 2>&1; then PY_YAML="$_cand"; break; fi
+ done
+ SCOPE="$REPO/scripts/compound-v-scope-check.py"
+-MEM_GLOB=".claude/agent-memory/spec-reviewer/**"
+-MEM_FILE=".claude/agent-memory/spec-reviewer/MEMORY.md"
++MEM_GLOB=".claude/agent-memory/superpowers-v-spec-reviewer/**"
++MEM_FILE=".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md"
++# The bare (non-namespaced) form of the same lane — used only to assert the
++# MEMORY_LANE_UNNAMESPACED advisory below; never the lane under test elsewhere
++# in this file.
++BARE_MEM_GLOB=".claude/agent-memory/spec-reviewer/**"
+ 
+ TMP_EARLY="$(mktemp -d "${TMPDIR:-/tmp}/cv-agent-memory-XXXXXX")"
+ cleanup() { rm -rf "$TMP_EARLY"; }
+@@ -143,6 +147,27 @@ check "planted: the advisory does NOT change the exit code (still 0)" \
+ check "the advisory is echoed to stderr for a human" \
+   "$(grep -q 'ADVISORY: ' "$TMP_EARLY/memonly.err" && echo 1 || echo 0)"
+ 
++# A bare (non-namespaced) memory lane must WARN MEMORY_LANE_UNNAMESPACED — even
++# when it IS paired with a real output lane, unlike the memory-only-lane case above.
++UNNAMESPACED="$TMP_EARLY/unnamespaced.yaml"
++"$PY_YAML" -B - "$EXAMPLE" "$UNNAMESPACED" <<PYEOF
++import io, sys
++src, dst = sys.argv[1], sys.argv[2]
++t = io.open(src, encoding="utf-8").read()
++t = t.replace('$MEM_GLOB', '$BARE_MEM_GLOB')
++io.open(dst, "w", encoding="utf-8").write(t)
++PYEOF
++"$PY_YAML" -B "$VALIDATOR" "$UNNAMESPACED" \
++  >"$TMP_EARLY/unnamespaced.json" 2>"$TMP_EARLY/unnamespaced.err" || true
++check "planted: the bare memory lane raises MEMORY_LANE_UNNAMESPACED" \
++  "$(grep -q 'not namespaced' "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
++check "planted: the advisory names the namespaced remedy" \
++  "$(grep -qF -- "$MEM_GLOB" "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
++check "planted: MEMORY_LANE_UNNAMESPACED does NOT change the verdict (still valid)" \
++  "$(grep -q '\"verdict\": \"valid\"' "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
++check "planted: MEMORY_LANE_UNNAMESPACED does NOT change the exit code (still 0)" \
++  "$(yes_no "$PY_YAML" -B "$VALIDATOR" "$UNNAMESPACED")"
++
+ # --------------------------------------------------------------------------- #
+ # 5. The lane, proved against the real scope gate in a throwaway git repo.
+ # --------------------------------------------------------------------------- #

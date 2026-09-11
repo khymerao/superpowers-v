@@ -1,0 +1,130 @@
+diff --git a/commands/v-init.md b/commands/v-init.md
+index bf86882..ef58da4 100644
+--- a/commands/v-init.md
++++ b/commands/v-init.md
+@@ -230,6 +230,55 @@ pure Python stdlib, **no `timeout`/`gtimeout` binary required**. On a job timeou
+ whole backend process tree (not just the direct child) and reports `status: timeout`. Nothing to
+ configure; just confirm `python3` is present (the workers already require it).
+ 
++### 1f. Skill hygiene (native `/skill-doctor`)
++
++**Version gate first.** `/skill-doctor` needs Claude Code **v2.1.261 or later** — the version the
++official `CHANGELOG.md` names for the feature. (`skills.md` itself says 2.1.252; the two
++Anthropic-owned sources disagree and this step cites the stricter one so the probe never fires on
++a build that lacks the command.) Check with:
++
++```bash
++claude --version
++```
++
++Below 2.1.261 → skip this step (say so plainly — "skipped, below the 1f version floor" — rather
++than attempting the command).
++
++At or above the floor, run it headless, as text, with no stdin:
++
++```bash
++python3 scripts/compound-v-run-with-timeout.py --timeout 180 -- claude -p '/skill-doctor' --output-format text < /dev/null
++```
++
++**What to parse.** From the printed report, print in full the rows whose first column begins with
++`superpowers-v:`. Other rows belong to other plugins or to skills the user or the project defined
++directly — bundled and enterprise skills never appear in the report at all, per its own documented
++exclusions.
++
++**What to print.** For each `superpowers-v:` row: its context size, its 7-day token count, its use
++count, and when it was last used. Then print one more line: the sum of the context column over
++**every loaded skill in the report**, `superpowers-v:` and non-`superpowers-v:` alike — that total
++is the whole-session context cost this project's rows sit inside, not just this plugin's share of
++it.
++
++**State these three limits plainly, every time this step runs:**
++- The report reflects **this machine's session history**, not a property of the repo — a fresh
++  machine or a cleared history reports zero uses for everything, and that is not evidence a skill
++  is unused project-wide.
++- A skill invoked only through a hook or a description-driven trigger (Trigger 0's recon, the
++  Compound V phase-transition sidekick) never shows a `/skill-doctor` use count for that
++  invocation — the report counts explicit skill invocations, not hook firings or description
++  matches. A `0×` beside `v-dispatch` is not proof it went unused; it may have fired entirely
++  through the sidekick's description trigger instead of a direct `/v:dispatch` call.
++- `/skill-doctor` is unavailable over Remote Control (it replies that usage reports aren't
++  available on that connection) and is unavailable whenever the session skips feature-flag
++  fetching (e.g. `DISABLE_TELEMETRY`) — a session in either state reports nothing, which is not
++  evidence any skill is unused.
++
++**This step only ever reports.** It never disables a skill and never writes a file — turning a
++skill off is the user's own call, made in the `/plugin` manager's Stats tab (interactive) or by
++editing plugin config directly, never by this walkthrough.
++
+ ---
+ 
+ ## Step 2 — Walk through missing installs, ONE AT A TIME
+@@ -711,6 +760,53 @@ only Compound V's own dispatch.
+ Read the file first if it exists, merge `worktree.baseRef` into the parsed object, and
+ write the merged result back — never truncate the file to just this one key.
+ 
++### 4e. One optional project setting — `advisorModel`
++
++**Offer it; never write it without a yes.** `advisorModel` is, like `worktree.baseRef`, a **native
++Claude Code project setting** in the project's own `.claude/settings.json` — not a Compound V key,
++and not `.claude/compound-v.json`. It names the model the built-in `advisor` tool consults, and
++it has legal values `fable`, `opus`, `sonnet`, or a full model ID.
++
++> Every job Compound V dispatches — and every review agent — can call the advisor tool at its own
++> decision points: before committing to an approach, when stuck, before declaring done. A stronger
++> model judging those moments catches what the acting model, mid-task, is the wrong vantage point
++> to catch itself. Subagents inherit whatever `advisorModel` this project sets and apply the same
++> pairing check against their own model. Shall I show you the edit?
++
++```jsonc
++// .claude/settings.json — the PROJECT's file, not the plugin's, not ~/.claude/settings.json.
++// Merge only the "advisorModel" key in; every other key already in this file (worktree,
++// permissions, hooks, env, ...) is preserved untouched. Create the file if it does not exist yet.
++{
++  "advisorModel": "fable"
++}
++```
++
++**The `opus` alternative.** If the user would rather not opt into Fable, `"advisorModel": "opus"`
++gets the same advisor-at-decision-points behavior from an Opus reviewer instead — offer it in the
++same breath as the Fable default.
++
++**The pairing rule.** An advisor must be at least as capable as the session's main model, or the
++harness rejects the pairing. Concretely: a Fable main only accepts a same-or-newer Fable advisor
++— a Fable 5.1 main accepts Fable 5.1 and rejects everything else, including Opus. Say this before
++the user picks, since it means "set advisorModel to fable" and "the main model is Fable" are not
++independent choices.
++
++**The cost, honestly.** Every advisor call re-reads the entire conversation transcript from
++scratch — nothing is cached, so a long-running job pays that re-read on every call, not just the
++first. On plans where Fable usage bills to usage credits, Fable-as-advisor bills there too, after
++the one-time `/model fable` consent step that both selects Fable as a model and unlocks it as an
++advisor choice.
++
++**Two ways it turns off**, worth naming so a later "why did advice stop happening" has an answer:
++`DISABLE_TELEMETRY` (and anything else that skips feature-flag fetching) disables the advisor tool
++entirely, same as it disables `/skill-doctor` in Step 1f; `CLAUDE_CODE_DISABLE_ADVISOR_TOOL=1`
++disables it outright regardless of `advisorModel` — the setting is then ignored, not an error.
++
++Read the file first if it exists, merge `advisorModel` into the parsed object alongside whatever
++is already there (including `worktree` from Step 4d), and write the merged result back — never
++truncate the file to just this one key.
++
+ ---
+ 
+ ## Step 5 — Report
+@@ -723,9 +819,14 @@ default tier→model `models` map was seeded into `.claude/compound-v.json`, and
+ models.
+ 
+ - **Next:** run `/v:onboard` to build the project knowledge base (architecture docs + AGENTS.md bridge). This is a suggestion, not automatic.
++- Report whether Step 1f's `/skill-doctor` hygiene check ran (and its `superpowers-v:` summary, if
++  so) — or was skipped below the version floor — and whether Step 4e's `advisorModel` offer was
++  accepted or declined.
+ 
+ **Honesty rules:** report only what the probes actually returned. Never print token or
+-cost numbers. Never claim a backend works that the probe did not confirm.
++cost numbers of your own estimation. (Step 1f's context/7-day-token figures are an exception:
++they are the harness's own `/skill-doctor` report reproduced verbatim, not a Compound V estimate.)
++Never claim a backend works that the probe did not confirm.
+ 
+ ---
+ 

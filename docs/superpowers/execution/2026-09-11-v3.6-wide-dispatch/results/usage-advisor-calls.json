@@ -1,0 +1,33 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-status.md",
+    "schemas/job_result.schema.json",
+    "scripts/compound-v-usage-aggregate.py",
+    "scripts/compound-v-usage-extract.py",
+    "tests/test-usage-workflow.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "diff_digest": "sha256:65bdd13bfe544bd149daed1443061a7af6b851277acb97d3a7984254ac93c5fa",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-status.md\",\n    \"schemas/job_result.schema.json\",\n    \"scripts/compound-v-usage-aggregate.py\",\n    \"scripts/compound-v-usage-extract.py\",\n    \"tests/test-usage-workflow.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-usage-extract.py\",\n    \"scripts/compound-v-usage-aggregate.py\",\n    \"schemas/job_result.schema.json\",\n    \"commands/v-status.md\",\n    \"tests/test-usage-workflow.sh\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-USAGE \u2014 usage.advisor_calls measured from transcripts (F7)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'\nbash -c '/usr/bin/python3 -B scripts/compound-v-usage-extract.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-usage-aggregate.py --selftest >/dev/null && bash tests/test-usage-workflow.sh >/dev/null && echo usage-ok'\nbash tests/test-usage-workflow.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 4
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-6"
+}

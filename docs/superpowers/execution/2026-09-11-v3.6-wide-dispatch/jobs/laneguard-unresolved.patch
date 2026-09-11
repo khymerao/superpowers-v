@@ -1,0 +1,244 @@
+diff --git a/hooks/lane-guard.sh b/hooks/lane-guard.sh
+index 40dd7e9..2de3e2e 100755
+--- a/hooks/lane-guard.sh
++++ b/hooks/lane-guard.sh
+@@ -861,13 +861,21 @@ def resolve_job(agent_id, cwd, maps=None):
+ # read-modify-write lost. One deduplicated line goes into the run directory so
+ # afterwards the run says so, instead of reading as a clean run.
+ #
+-# THE THREE GATES ON RECORDING, and why each is there:
++# THE FOUR GATES ON RECORDING, and why each is there:
+ #   1. a lane map was found            -- otherwise Compound V is not involved
+ #   2. at least one worktree it names still EXISTS on disk -- a finished run's
+ #      worktrees are removed (`git worktree remove` runs on Merge AND Discard),
+ #      so a repo full of historical run dirs does not make every call an incident
+ #   3. cwd is inside `.claude/worktrees/<id>` -- a plain human session in the
+ #      main checkout stays exactly as silent as it is today
++#   4. the call is not the `register-lane` BOOTSTRAP itself (BOOTSTRAP_RE) -- the
++#      one command every job is required to run FIRST is, by construction, run
++#      before the job has an entry to resolve to. Recording it made the record's
++#      first line an incident that the run's own contract mandates.
++# THE RECORD NAMES THE RUNS IT WAS JUDGED AGAINST. `candidate_runs` carries every
++# lane map that was LIVE at that moment, newest first, and the line is written
++# into the newest of them. Without it a record read later cannot be told apart
++# from one written while a different run held the tree.
+ # Residual false positive, stated rather than hidden: a NON-Compound-V agent
+ # worktree running while a Compound V run is genuinely live. Cost of that: one
+ # recorded line and one notice. There is no signal that separates the two --
+@@ -903,9 +911,12 @@ def live_lane_map(path):
+     return False
+ 
+ 
+-def record_unresolved(map_path, agent_id, cwd, tool):
++def record_unresolved(map_path, agent_id, cwd, tool, candidate_runs=()):
+     """Append one DEDUPLICATED line to <run-dir>/lane-guard-unresolved.jsonl.
+ 
++    `candidate_runs` is every lane map that was LIVE when this call was judged,
++    newest first; `map_path` is the newest of them and owns the record.
++
+     -> True when a new line was written (the caller announces it once; every
+     later call for the same identity stays quiet).
+ 
+@@ -938,9 +949,14 @@ def record_unresolved(map_path, agent_id, cwd, tool):
+             "tool": tool,
+             "agent_id": key[0],
+             "cwd": key[1],
+-            "why": ("lane guard could not resolve this caller to a job; the "
+-                    "write was NOT lane-checked (register-lane missing, ran "
+-                    "late, or its entry was lost)"),
++            # States what was observed, and nothing about the cause. The old
++            # wording named `register-lane missing` as the reason, which reads
++            # as a finding; a lost registration and a late one look identical
++            # from here.
++            "candidate_runs": [str(p) for p in candidate_runs],
++            "why": ("isolated agent %s did not resolve to a job in this run's "
++                    "lane map at the time of this %s call; the write was "
++                    "allowed and not lane-checked" % (key[1], tool)),
+         }
+     except Exception as exc:
+         log("RECORD FAILED (setup): %r" % (exc,))
+@@ -1151,6 +1167,21 @@ def load_matcher():
+ # why the git gate keeps the authority.
+ # --------------------------------------------------------------------------- #
+ WORKER_RE = re.compile(r"compound-v-run-[A-Za-z0-9_.-]+-worker\.sh")
++# The `register-lane` BOOTSTRAP. Every job's prompt orders this command first,
++# and it necessarily runs BEFORE the entry it creates exists -- so under the old
++# rule the very first command of a correctly-behaved job wrote the run's first
++# unresolved record.
++# ITS OWN LIMIT (the domain audit's MUST), stated where it is implemented, not
++# in a doc somewhere else: this keys on the TEXT of the
++# command being run, which is a weaker subject than a process identity. Any
++# command whose text merely CONTAINS this spelling -- an echo, a grep, a comment
++# in a heredoc -- is suppressed too. What that buys an attacker is nothing: the
++# suppression covers only the RECORD, never a lane decision. A write from an
++# unresolved identity is still allowed exactly as before (it was never
++# lane-checked), and a write from a RESOLVED job never reaches this branch at
++# all -- it is matched against its lane exactly as before, register-lane in the
++# command text or not.
++BOOTSTRAP_RE = re.compile(r"compound-v-emit-workflow\.py\b.*\bregister-lane\b")
+ REDIR_WORDS = (">", ">>", ">|", "&>", "&>>", "1>", "1>>", "2>", "2>>")
+ REDIR_ATTACHED = re.compile(r"^(?:[0-9]*|&)>>?\|?(?P<t>.+)$")
+ CD_LIKE = ("cd", "pushd", "popd", "chdir")
+@@ -1541,16 +1572,22 @@ def main():
+         # An ISOLATED AGENT that matches nothing in a LIVE lane map is the
+         # dangerous case, not the ordinary one: it wrote before `register-lane`,
+         # or its registration was lost. Record it so the run cannot afterwards
+-        # read as clean. See the block above for the three gates and the
++        # read as clean. See the block above for the four gates and the
+         # residual false positive.
+         if agent_worktree_root(cwd):
+-            for path in maps:
+-                if not live_lane_map(path):
+-                    continue
+-                first = record_unresolved(path, agent_id, cwd, tool)
++            live = [p for p in maps if live_lane_map(p)]
++            if live:
++                # Gate 4: the bootstrap that CREATES the entry cannot be blamed
++                # for the entry not existing yet. Log it, record nothing.
++                if tool == "Bash" and BOOTSTRAP_RE.search(command):
++                    log("ALLOW (register-lane bootstrap) cwd=%s cmd=%s"
++                        % (cwd, command[:200]))
++                    return 0
++                path = live[0]   # newest live run owns the record
++                first = record_unresolved(path, agent_id, cwd, tool, live)
+                 log("ALLOW (UNRESOLVED IDENTITY under a live lane map %s) "
+-                    "tool=%s agent_id=%r cwd=%s first=%s"
+-                    % (path, tool, agent_id, cwd, first))
++                    "tool=%s agent_id=%r cwd=%s candidates=%d first=%s"
++                    % (path, tool, agent_id, cwd, len(live), first))
+                 if first:
+                     open_notice(
+                         "an isolated agent (cwd %s) resolved to NO job in the "
+diff --git a/tests/test-lane-guard.sh b/tests/test-lane-guard.sh
+index 79efa76..72ff76d 100755
+--- a/tests/test-lane-guard.sh
++++ b/tests/test-lane-guard.sh
+@@ -209,6 +209,27 @@ cat >"$RUN3/lane-map.json" <<JEOF
+  "worktrees": {"$GONE": "job-gone"}}
+ JEOF
+ 
++# A THIRD project with TWO runs live at the same time. A record has to say which
++# runs it was judged against, and land in the NEWEST of them — `$PROJ` cannot
++# show that, because several of its fixture runs are live and the count would
++# drift with every fixture added later. `map_files` orders run dirs by MTIME,
++# not by name, so the newer run is made newest by mtime too.
++PROJ3="$WORK/proj3"
++RUN_A="$PROJ3/docs/superpowers/execution/2099-02-01-older"
++RUN_B="$PROJ3/docs/superpowers/execution/2099-02-02-newer"
++WT_A="$PROJ3/.claude/worktrees/wf_a-1"
++WT_B="$PROJ3/.claude/worktrees/wf_b-1"
++WT_UNREG3="$PROJ3/.claude/worktrees/wf_unreg3-1"
++mkdir -p "$RUN_A" "$RUN_B" "$WT_A" "$WT_B" "$WT_UNREG3"
++cat >"$RUN_A/lane-map.json" <<JEOF
++{"run_id": "2099-02-01-older", "agents": {}, "worktrees": {"$WT_A": "job-a"}}
++JEOF
++cat >"$RUN_B/lane-map.json" <<JEOF
++{"run_id": "2099-02-02-newer", "agents": {}, "worktrees": {"$WT_B": "job-b"}}
++JEOF
++touch -t 209902010000 "$RUN_A"
++touch -t 209902020000 "$RUN_B"
++
+ # Where every MUTATED copy of the hook lives. It has to MIRROR THE PLUGIN
+ # LAYOUT (`<root>/hooks/<hook>` beside `<root>/scripts/`), because the hook
+ # locates the matcher and the YAML loader relative to its own directory. A
+@@ -224,8 +245,20 @@ records()  { find "$PROJ/docs/superpowers/execution" \
+ reclines() { find "$PROJ/docs/superpowers/execution" \
+                   -name lane-guard-unresolved.jsonl -exec cat {} + 2>/dev/null \
+              | grep -c . ; }
+-recreset() { find "$PROJ/docs/superpowers/execution" \
++recreset() { find "$PROJ/docs/superpowers/execution" "$PROJ3/docs/superpowers/execution" \
+                   -name lane-guard-unresolved.jsonl -delete 2>/dev/null; }
++# recfield <record-file> <python expression over the dict `r`> -> 1 | 0.
++# The record is JSON, so it is PARSED: a grep for `candidate_runs` would pass on
++# a field that carried the wrong runs, or one run instead of two.
++recfield() { CV_F="$1" CV_E="$2" python3 -c '
++import json, os, sys
++try:
++    lines = [l for l in open(os.environ["CV_F"]).read().splitlines() if l.strip()]
++    r = json.loads(lines[0])
++    print("1" if eval(os.environ["CV_E"]) else "0")
++except Exception as exc:
++    print("0 (%r)" % (exc,), file=sys.stderr)
++    print("0")'; }
+ 
+ # --------------------------------------------------------------------------- #
+ # Driver
+@@ -661,7 +694,7 @@ wait
+ check "8 CONCURRENT identical calls record exactly ONE line (locked)" \
+   "$([ "$(reclines)" = "1" ] && echo 1 || echo 0)"
+ 
+-# The three gates on recording, each asserted.
++# The first three gates on recording, each asserted (gate 4 follows below).
+ recreset
+ file_case "a resolved job records NOTHING (the guard did its job)" deny \
+   Write agent_abc123 "$WT" "$WT/README.md"
+@@ -682,6 +715,69 @@ check "gate 3: a human session records nothing and stays silent" \
+   "$([ -z "$(records)" ] && [ "$(silent)" = yes ] && echo 1 || echo 0)"
+ recreset
+ 
++# Gate 4: the `register-lane` BOOTSTRAP is not an incident. It is the command
++# every job's prompt orders FIRST, and it necessarily runs before the entry it
++# creates exists — so the old rule made a correctly-behaved job's first command
++# write the run's first unresolved record.
++recreset
++EMITTER="$REPO/scripts/compound-v-emit-workflow.py"
++bash_case "the register-lane bootstrap under a LIVE lane map is allowed" allow \
++  "" "$WTX" "python3 -B $EMITTER register-lane --run-dir $RUN --job-id j --isolation worktree --cwd $WTX"
++check "gate 4: the bootstrap records NOTHING" \
++  "$([ -z "$(records)" ] && echo 1 || echo 0)"
++check "gate 4: and is logged by name, not as an unresolved identity" \
++  "$([ "$(logged 'register-lane bootstrap')" = yes ] \
++     && [ "$(logged 'UNRESOLVED IDENTITY')" = no ] && echo 1 || echo 0)"
++check "gate 4: and stays silent — no notice on a job doing exactly as told" \
++  "$([ "$(silent)" = yes ] && echo 1 || echo 0)"
++
++# ...and the suppression covers the RECORD only. A job that HAS resolved is
++# matched against its lane exactly as before, whatever its command says.
++bash_case "a RESOLVED job's out-of-lane write is still denied when the command names register-lane" deny \
++  agent_abc123 "$WT" "echo register-lane compound-v-emit-workflow.py >> README.md"
++
++# The record names the runs it was judged against, and lands in the NEWER one.
++recreset
++run "$(encode Write "" "$WT_UNREG3" file_path "$WT_UNREG3/README.md")" \
++    CV_PROJECT_DIR="$PROJ3"
++verdict "an unregistered isolated agent with TWO runs live" allow
++check "exactly one record, written into the NEWER run dir" \
++  "$([ -f "$RUN_B/lane-guard-unresolved.jsonl" ] \
++     && [ ! -f "$RUN_A/lane-guard-unresolved.jsonl" ] \
++     && [ "$(grep -c . "$RUN_B/lane-guard-unresolved.jsonl")" = "1" ] \
++     && echo 1 || echo 0)"
++check "candidate_runs names BOTH live lane maps, newest first" \
++  "$(recfield "$RUN_B/lane-guard-unresolved.jsonl" \
++     "r['candidate_runs'] == ['$RUN_B/lane-map.json', '$RUN_A/lane-map.json']")"
++check "why states what was OBSERVED — the acting cwd and the tool" \
++  "$(recfield "$RUN_B/lane-guard-unresolved.jsonl" \
++     "'$WT_UNREG3' in r['why'] and 'Write call' in r['why'] and 'not lane-checked' in r['why']")"
++
++# A record must never report a CAUSE it cannot know: a registration that was
++# lost and one that ran late are indistinguishable from inside this hook.
++file_case "an unresolved identity in the sandbox project is still recorded" allow \
++  Write "" "$WTY" "$WTY/README.md"
++check "NO record anywhere blames a missing register-lane" \
++  "$(find "$PROJ/docs/superpowers/execution" "$PROJ3/docs/superpowers/execution" \
++        -name lane-guard-unresolved.jsonl -exec cat {} + 2>/dev/null \
++     | grep -q 'register-lane missing' && echo 0 || echo 1)"
++recreset
++
++# PLANTED VIOLATION 5: suppress the bootstrap gate, and the first command of
++# every well-behaved job is an incident again.
++MUTANT_BOOT="$MUTROOT/hooks/lane-guard-no-bootstrap.sh"
++sed 's/if tool == "Bash" and BOOTSTRAP_RE.search(command):/if False:/' "$HOOK" >"$MUTANT_BOOT"
++chmod +x "$MUTANT_BOOT"
++grep -q 'if False:' "$MUTANT_BOOT" \
++  || { echo "FATAL: the bootstrap mutation did not apply"; exit 1; }
++HOOK_UNDER_TEST="$MUTANT_BOOT"
++bash_case "PLANTED: bootstrap gate removed" allow \
++  "" "$WTX" "python3 -B $EMITTER register-lane --run-dir $RUN --job-id j --isolation worktree --cwd $WTX"
++check "PLANTED: without gate 4 the register-lane bootstrap records an incident" \
++  "$([ "$(reclines)" = "1" ] && echo 1 || echo 0)"
++HOOK_UNDER_TEST=""
++recreset
++
+ # PLANTED VIOLATION 3: strip the recording, and the incident becomes exactly the
+ # silent fail-open this section exists to end.
+ MUTANT_REC="$MUTROOT/hooks/lane-guard-no-record.sh"

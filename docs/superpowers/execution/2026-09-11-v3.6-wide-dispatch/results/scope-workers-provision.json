@@ -1,0 +1,48 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-run-antigravity-worker.sh",
+    "scripts/compound-v-run-codex-worker.sh",
+    "scripts/compound-v-run-cursor-worker.sh",
+    "scripts/compound-v-run-opencode-worker.sh",
+    "scripts/compound-v-scope-check.py",
+    "tests/test-worker-path-transport.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "diff_digest": "sha256:adcd42ee5c8fcefc7c7ccd2ed0f587fb54120b067a21d7f99c46551d60a51ed8",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"scripts/compound-v-run-antigravity-worker.sh\",\n    \"scripts/compound-v-run-codex-worker.sh\",\n    \"scripts/compound-v-run-cursor-worker.sh\",\n    \"scripts/compound-v-run-opencode-worker.sh\",\n    \"scripts/compound-v-scope-check.py\",\n    \"tests/test-worker-path-transport.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-scope-check.py\",\n    \"scripts/compound-v-run-codex-worker.sh\",\n    \"scripts/compound-v-run-cursor-worker.sh\",\n    \"scripts/compound-v-run-antigravity-worker.sh\",\n    \"scripts/compound-v-run-opencode-worker.sh\",\n    \"tests/test-worker-path-transport.sh\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "verdict": "pass"
+  },
+  "retries": [
+    {
+      "attempt": 1,
+      "job": "scope-workers-provision",
+      "stage": "implement",
+      "wait_ms": 2000
+    },
+    {
+      "attempt": 2,
+      "job": "scope-workers-provision",
+      "stage": "implement",
+      "wait_ms": 4000
+    }
+  ],
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-SCOPE \u2014 --preexisting honoured in worktree mode; provisioning in the four worker scripts (#19 A/B, gate half)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck scripts/compound-v-*.sh && bash tests/test-worker-path-transport.sh >/dev/null && echo workers-ok'\n/usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest\nbash tests/test-worker-path-transport.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 4
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-19"
+}

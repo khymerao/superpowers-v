@@ -1,0 +1,32 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-dispatch.md",
+    "commands/v-review-plan.md",
+    "skills/compound-v/cross-model-review.md",
+    "skills/compound-v/phase-3-parallel-opus-dispatch.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "diff_digest": "sha256:01c152da00a38a072f232b1eb394eab2cfdef4fec19cccb7f3259d1cc816e696",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"3509f762cdea5394522264205f00779b049fc852\",\n  \"changed\": [\n    \"commands/v-dispatch.md\",\n    \"commands/v-review-plan.md\",\n    \"skills/compound-v/cross-model-review.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\"\n  ],\n  \"allowed\": [\n    \"commands/v-review-plan.md\",\n    \"skills/compound-v/cross-model-review.md\",\n    \"commands/v-dispatch.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\"\n  ],\n  \"violations\": []\n}\n",
+    "realised_commit": "3509f762cdea5394522264205f00779b049fc852",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task J-SECOND \u2014 the second-opinion ladder: Codex, else advisor-assisted, else skip (F7)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 1
+  },
+  "violations": [],
+  "worktree": "/Users/oleg/Dev/superpowers-v/.claude/worktrees/wf_b210c5be-a8e-5"
+}

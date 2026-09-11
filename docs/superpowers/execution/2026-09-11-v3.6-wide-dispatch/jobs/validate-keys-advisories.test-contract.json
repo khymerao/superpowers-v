@@ -1,0 +1,14 @@
+{
+  "scope": "impacted",
+  "resolved_commands": [
+    "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo agents-ok'",
+    "/usr/bin/python3 -B scripts/compound-v-validate-manifest.py examples/manifest.example.yaml",
+    "bash -c 'bash tests/test-engine-c-contract.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && echo schemas-ok'",
+    "bash -c '/usr/bin/python3 -B scripts/compound-v-validate-manifest.py --selftest >/dev/null && bash tests/test-agent-memory.sh >/dev/null && echo validator-ok'",
+    "bash tests/test-agent-memory.sh"
+  ],
+  "floor_command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+  "full_command": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+  "timeout_s": 540
+}
