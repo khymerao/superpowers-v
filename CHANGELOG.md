@@ -1654,6 +1654,8 @@ Five live dispatches. It emits, implements, gates, records, finalizes the wave, 
 
 The caveat carried since 3.0 — *"treat the first live run as a first live run"* — is now discharged for a single-job manifest. **It has still not run a real 18-job dispatch.**
 
+> **Corrected 2026-09-11 (3.6.0).** Discharged since: multi-wave `depends_on` dispatch in 3.0.4, a Codex job on Engine C in 3.4.3, every 3.4.x/3.5.x build of this repo, and a downstream seven-job feature (issue #19). The widest recorded run on this date held five jobs; see the 3.6.0 entry for the wide-dispatch record.
+
 ### Also corrected
 
 `docs/superpowers/dogfood/` withdraws its own tier table: every figure in it was measured with the broken probe above. `README.md`, `CHANGELOG.md` and `TROUBLESHOOTING.md` were all listed as auto-routable and **none of the three is**. Recorded rather than fixed: a file large enough to exhaust the content-scan byte cap scores `unknown`, so **file size alone can force the full pipeline**.
@@ -1691,6 +1693,8 @@ A `type: review` job was receiving the generic implementer prompt with none of t
 ### Still true
 
 Engine C now carries 143 selftest checks and 50 contract assertions and **has still not run a real 18-job dispatch.** Treat the first live run as a first live run — that caveat is what 3.0 wrote and then ignored by shipping it as the default.
+
+> **Corrected 2026-09-11 (3.6.0).** This caveat is historical and no longer true as written. Since 3.0.3 Engine C has run every dogfood build of this repo — more than eighty recorded runs under `docs/superpowers/execution/2026-09-0*`, multi-job and multi-wave with `depends_on` (3.0.4), a Codex job on Engine C (3.4.3), and a downstream user's seven-job feature (issue #19). What was still outstanding on this date was a **wide** dispatch: the widest recorded run held five jobs. The sentence above stays as the record of what 3.0.2 knew; it is not a description of the plugin today.
 
 ## [3.0.1] - 2026-09-01
 
