@@ -101,7 +101,9 @@ to invent. The exit code is unchanged by a warning; only `violations` decides FA
 
 | Validator warning | `WARNINGS` code | What it means |
 |---|---|---|
-| `memory-only lane` | `WARN: MEMORY_ONLY_LANE` | A job's `write_allowed` is nothing but agent-memory globs (`.claude/agent-memory{,-local}/**`). Such a job is refused as `no_work` the moment the agent has nothing durable to save, which pressures it to invent a memory entry. Pair the memory glob with the job's real output lane, or declare `write_allowed: []`. |
+| `memory-only lane` | `WARN: MEMORY_ONLY_LANE` | A job's `write_allowed` is nothing but agent-memory globs (`.claude/agent-memory{,-local}/**`). Such a job is refused as `no_work` the moment the agent has nothing durable to save, which pressures it to invent a memory entry. Pair the memory glob with the job's real output lane, or declare `write_allowed: []`. Fires for both the bare and the namespaced form of the glob. |
+| `not namespaced` | `WARN: MEMORY_LANE_UNNAMESPACED` | A job's committed, project-scope memory lane is `.claude/agent-memory/<agent>/**` — bare, not `.claude/agent-memory/superpowers-v-<agent>/**`. That directory is shared with every plugin installed in the same repo, and an unnamespaced agent name can collide with another plugin's memory-bearing agent of the same name. Independent of `MEMORY_ONLY_LANE` — fires whether or not the lane is paired with a real output lane. |
+| (cross-model receipt, `reviewer_backend: claude-advisor` + `cross_model: false`) | `WARN: SECOND_OPINION_SAME_FAMILY` | The SCOPED+ second opinion was produced by `claude-advisor` (v2.12's read-only advisor), not `codex` — the SAME model family as the implementer and the in-harness reviewer. The receipt is honestly labelled (`cross_model: false`), so this is not a violation; it is a signal that this run got a same-family opinion, not an independent one. |
 
 **`compound-v-validate-manifest.py` is the gate; you do not hand-wave past it.** If *it* exits non-zero, the verdict is FAIL regardless of how the prose reads. This applies to `compound-v-validate-manifest.py` and nothing else — it is **not** a general rule about every script this agent runs. The co-change advisory in Step 7 has the opposite contract, stated there. Your remaining steps add the human-judgment checks the script can't make (Sonnet eligibility against the 8-box taxonomy, tests-with-code coupling, batch sanity).
 
@@ -135,7 +137,7 @@ If any appears in a parallel-task list instead of a serial Task 0 → **FAIL: SH
 
 ### Step 4 — Sonnet-justification check (judgment — the validator can't do this)
 
-> **Stance gate (read `routing_stance` from the manifest first).** Since 3.1.0 the ladder splits on execution vs judgment: under `balanced` and `cost-aware` a `standard`-tier `claude` job resolves to **`sonnet`** (`scripts/compound-v-resolve-model.py` `_CLAUDE_BALANCED`), and only `conservative` / `claude-only` keep `standard` on Opus — never assume `standard ⇒ opus` under `balanced` (stage 7 of the verification program, finding 153: three reviews said so while the implementer ran as Sonnet and paraphrased an exact-text task). So the Sonnet-eligibility judgment below applies to every job that RESOLVES to Sonnet in the manifest's stance — `standard` and `light` alike — and the question is the policy's own: is the task *execution* (exact instructions, exact text, a decided design, no judgment call left to the worker), or does it require *judgment* (constraints to weigh, text to compose, a decision to make)? Judgment ⇒ recommend `deep`. **Reviewers ⇒ deep ⇒ opus and sensitive ⇒ deep ⇒ opus stay enforced in every stance** (unchanged).
+> **Stance gate (read `routing_stance` from the manifest first).** Since 3.0.5 the ladder splits on execution vs judgment: under `balanced` and `cost-aware` a `standard`-tier `claude` job resolves to **`sonnet`** (`scripts/compound-v-resolve-model.py` `_CLAUDE_BALANCED`), and only `conservative` / `claude-only` keep `standard` on Opus — never assume `standard ⇒ opus` under `balanced` (stage 7 of the verification program, finding 153: three reviews said so while the implementer ran as Sonnet and paraphrased an exact-text task). So the Sonnet-eligibility judgment below applies to every job that RESOLVES to Sonnet in the manifest's stance — `standard` and `light` alike — and the question is the policy's own: is the task *execution* (exact instructions, exact text, a decided design, no judgment call left to the worker), or does it require *judgment* (constraints to weigh, text to compose, a decision to make)? Judgment ⇒ recommend `deep`. **Reviewers ⇒ deep ⇒ opus and sensitive ⇒ deep ⇒ opus stay enforced in every stance** (unchanged).
 
 For every job assigned `model: sonnet`, verify the manifest/Partition Map carries a justification AND it plausibly maps to the strict 8-box taxonomy from [`phase-3-parallel-opus-dispatch.md`](../skills/compound-v/phase-3-parallel-opus-dispatch.md):
 
@@ -285,10 +287,25 @@ WARNINGS
     → Advisory. Re-run the copy step in /v:orchestrate, or confirm the omission is intentional.
 
   WARN: MEMORY_ONLY_LANE
-    - job 'task-4-review' declares only .claude/agent-memory/spec-reviewer/** — a job that writes
-      nothing else is blocked as no_work, and an agent with nothing to save cannot pass it honestly.
+    - job 'task-4-review' declares only .claude/agent-memory/superpowers-v-spec-reviewer/** — a job
+      that writes nothing else is blocked as no_work, and an agent with nothing to save cannot pass
+      it honestly.
     → Advisory, quoted from the validator's `warnings`. Pair the memory glob with the job's real
       output lane, or declare write_allowed: [].
+
+  WARN: MEMORY_LANE_UNNAMESPACED
+    - job 'task-4-review' declares .claude/agent-memory/spec-reviewer/** — bare, not namespaced.
+      This project's own agents write to .claude/agent-memory/superpowers-v-spec-reviewer/**; a
+      committed, project-scope memory directory is shared with every plugin in the repo, and an
+      unnamespaced agent name can collide with another plugin's memory-bearing agent of the same
+      name.
+    → Advisory, quoted from the validator's `warnings`. Rename the glob to the namespaced form.
+
+  WARN: SECOND_OPINION_SAME_FAMILY
+    - the cross-model receipt's reviewer_backend is 'claude-advisor' with cross_model: false — an
+      honestly-labelled SAME-family second opinion, not an independent one.
+    → Advisory, quoted from cross_model_receipt_advisories. Confirm a same-family opinion was
+      acceptable for this run, or re-run with codex when it is available.
 
   NOTE: MATERIALIZATION_UNCHECKED
     - The plan named by `plan_path` is not readable from here, so the 6.2.0 field check did not

@@ -8,6 +8,13 @@
 # array element (the bug was: a newline-joined round-trip split it into two phantom paths).
 # The scope gate itself is NUL-correct (compound-v-scope-check.py), so the BLOCK decision was
 # always right; this guards the REPORTED arrays.
+#
+# Case 3 covers the other half of what a worker hands the gate: the post-provisioning
+# --preexisting snapshot. It drives the REAL codex worker end to end against a stub `codex`
+# on PATH, with a --provision-command that installs into a gitignored node_modules/, and
+# proves the job is not blocked by files the model never wrote. Revert the provisioning
+# support and this case fails — either the flag is rejected outright, or the installed
+# files come back as ignored writes outside write_allowed.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts" && pwd -P)"
@@ -73,6 +80,92 @@ else
 fi
 
 git -C "$REPO" worktree remove -f "$WT" >/dev/null 2>&1 || true
+
+# --- case 3: provisioning --------------------------------------------------------------
+# The real worker, a stub backend, and a provision command that installs into an ignored
+# path. Nothing the model did creates node_modules/, so nothing about node_modules/ may
+# appear in files_changed or violations, and the job must not be blocked.
+PREPO="$TMP/prepo"
+mkdir -p "$PREPO/src"
+git -C "$PREPO" init -q
+git -C "$PREPO" config user.email t@t.co
+git -C "$PREPO" config user.name t
+printf 'node_modules/\n' > "$PREPO/.gitignore"
+printf 'base\n' > "$PREPO/src/base.ts"
+git -C "$PREPO" add -A
+git -C "$PREPO" commit -qm base >/dev/null
+
+# Stub `codex`: exits 0 having written nothing. The point of the case is the gate's input,
+# not the model — a real backend here would make the test non-deterministic and networked.
+STUB="$TMP/stub"
+mkdir -p "$STUB"
+printf '#!/bin/sh\nexit 0\n' > "$STUB/codex"
+chmod +x "$STUB/codex"
+
+printf 'do nothing\n' > "$TMP/prompt.md"
+
+# TMPDIR puts the worker's worktree under $TMP (a sibling of the repo, which the worker
+# requires) so the trap cleans it up with everything else.
+set +e
+PROV_JSON="$(
+  TMPDIR="$TMP" PATH="$STUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
+    --run-id provrun --job-id provjob --repo "$PREPO" \
+    --prompt-file "$TMP/prompt.md" --model stub-model \
+    --write-allowed 'src/**' --timeout-sec 120 \
+    --provision-command 'mkdir -p node_modules/x && printf a > node_modules/x/a' \
+    --provision-timeout-sec 120 2>"$TMP/prov.err"
+)"
+prov_rc=$?
+set -e
+
+prov_status="$(printf '%s' "$PROV_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
+# `.blocked | tostring`, NOT `.blocked // "MISSING"`: jq's `//` treats `false` as empty, so
+# the alternative would fire on exactly the value this case is asserting.
+prov_blocked="$(printf '%s' "$PROV_JSON" | jq -r 'if has("blocked") then (.blocked | tostring) else "MISSING" end' 2>/dev/null || echo PARSE_FAIL)"
+prov_nm="$(printf '%s' "$PROV_JSON" \
+  | jq -r '[(.files_changed // [])[], (.violations // [])[]]
+           | map(startswith("node_modules")) | any' 2>/dev/null || echo PARSE_FAIL)"
+# Anti-vacuity: a provision command that created NOTHING would satisfy every assertion
+# above without the subtraction doing any work. Read the worker's own snapshot and require
+# the installed path to be in it, so the case can only pass by the mechanism it is about.
+prov_wt="$(printf '%s' "$PROV_JSON" | jq -r '.worktree // ""' 2>/dev/null || echo "")"
+prov_snap="MISSING"
+if [ -n "$prov_wt" ] && [ -f "$prov_wt.art/preexisting.txt" ]; then
+  prov_snap="$(grep -c '^node_modules/x/a$' "$prov_wt.art/preexisting.txt" || true)"
+fi
+
+if [ "$prov_rc" = "0" ] && [ "$prov_status" = "success" ] && [ "$prov_blocked" = "false" ] \
+   && [ "$prov_nm" = "false" ] && [ "$prov_snap" = "1" ]; then
+  echo "  case3 provisioning: installed node_modules/ is not charged to the job ✅"
+else
+  echo "  case3 FAIL: rc=$prov_rc status=$prov_status blocked=$prov_blocked node_modules=$prov_nm snapshot=$prov_snap"
+  echo "    stdout: $PROV_JSON"
+  echo "    stderr: $(cat "$TMP/prov.err" 2>/dev/null || true)"
+  fail=1
+fi
+
+# The snapshot must be bounded to what provisioning created: a provision command that FAILS
+# launches nothing and reports the failure verbatim, rather than running the model blind.
+set +e
+FAIL_JSON="$(
+  TMPDIR="$TMP" PATH="$STUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
+    --run-id provrun --job-id provfail --repo "$PREPO" \
+    --prompt-file "$TMP/prompt.md" --model stub-model \
+    --write-allowed 'src/**' --timeout-sec 120 \
+    --provision-command 'exit 7' 2>"$TMP/provfail.err"
+)"
+set -e
+fail_status="$(printf '%s' "$FAIL_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
+fail_summary="$(printf '%s' "$FAIL_JSON" | jq -r '.summary // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
+if [ "$fail_status" = "error" ] && [ "$fail_summary" = "provision failed (rc=7): exit 7" ]; then
+  echo "  case4 provisioning: a failed provision is reported, not run past ✅"
+else
+  echo "  case4 FAIL: status=$fail_status summary=$fail_summary"
+  fail=1
+fi
+
+git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provjob" >/dev/null 2>&1 || true
+git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provfail" >/dev/null 2>&1 || true
 
 if [ "$fail" = "0" ]; then
   echo "SELFTEST PASSED"

@@ -28,6 +28,12 @@ acceptance_criteria:
 routing_stance: balanced            # balanced | conservative | cost-aware | claude-only
 max_parallel: 5                     # batch ceiling (phase-3 concurrency reality)
 
+# v3.6 — runs ONCE in a fresh worktree, before the before-image is captured.
+# Idempotent; must not modify tracked files. provision_timeout_s defaults to 600
+# when absent (range 1-1800).
+provision_command: "npm ci"
+provision_timeout_s: 600
+
 # v3.4.17 — the plan's `## Global Constraints` section (Superpowers 6.2.0), copied
 # VERBATIM, one line per entry. OPTIONAL: a plan written before 6.2.0 has no such
 # section and a manifest materialized from it carries no such key — still valid.
@@ -201,7 +207,7 @@ jobs:
     # nothing keeps `write_allowed: []` instead.
     write_allowed:
       - "docs/superpowers/dogfood/sequence-editor-review-1.md"
-      - ".claude/agent-memory/spec-reviewer/**"
+      - ".claude/agent-memory/superpowers-v-spec-reviewer/**"
     read_allowed:
       - "src/features/sequences/**"
       - "docs/features/sequences.md"

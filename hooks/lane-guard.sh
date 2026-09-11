@@ -861,13 +861,21 @@ def resolve_job(agent_id, cwd, maps=None):
 # read-modify-write lost. One deduplicated line goes into the run directory so
 # afterwards the run says so, instead of reading as a clean run.
 #
-# THE THREE GATES ON RECORDING, and why each is there:
+# THE FOUR GATES ON RECORDING, and why each is there:
 #   1. a lane map was found            -- otherwise Compound V is not involved
 #   2. at least one worktree it names still EXISTS on disk -- a finished run's
 #      worktrees are removed (`git worktree remove` runs on Merge AND Discard),
 #      so a repo full of historical run dirs does not make every call an incident
 #   3. cwd is inside `.claude/worktrees/<id>` -- a plain human session in the
 #      main checkout stays exactly as silent as it is today
+#   4. the call is not the `register-lane` BOOTSTRAP itself (BOOTSTRAP_RE) -- the
+#      one command every job is required to run FIRST is, by construction, run
+#      before the job has an entry to resolve to. Recording it made the record's
+#      first line an incident that the run's own contract mandates.
+# THE RECORD NAMES THE RUNS IT WAS JUDGED AGAINST. `candidate_runs` carries every
+# lane map that was LIVE at that moment, newest first, and the line is written
+# into the newest of them. Without it a record read later cannot be told apart
+# from one written while a different run held the tree.
 # Residual false positive, stated rather than hidden: a NON-Compound-V agent
 # worktree running while a Compound V run is genuinely live. Cost of that: one
 # recorded line and one notice. There is no signal that separates the two --
@@ -903,8 +911,11 @@ def live_lane_map(path):
     return False
 
 
-def record_unresolved(map_path, agent_id, cwd, tool):
+def record_unresolved(map_path, agent_id, cwd, tool, candidate_runs=()):
     """Append one DEDUPLICATED line to <run-dir>/lane-guard-unresolved.jsonl.
+
+    `candidate_runs` is every lane map that was LIVE when this call was judged,
+    newest first; `map_path` is the newest of them and owns the record.
 
     -> True when a new line was written (the caller announces it once; every
     later call for the same identity stays quiet).
@@ -938,9 +949,14 @@ def record_unresolved(map_path, agent_id, cwd, tool):
             "tool": tool,
             "agent_id": key[0],
             "cwd": key[1],
-            "why": ("lane guard could not resolve this caller to a job; the "
-                    "write was NOT lane-checked (register-lane missing, ran "
-                    "late, or its entry was lost)"),
+            # States what was observed, and nothing about the cause. The old
+            # wording named `register-lane missing` as the reason, which reads
+            # as a finding; a lost registration and a late one look identical
+            # from here.
+            "candidate_runs": [str(p) for p in candidate_runs],
+            "why": ("isolated agent %s did not resolve to a job in this run's "
+                    "lane map at the time of this %s call; the write was "
+                    "allowed and not lane-checked" % (key[1], tool)),
         }
     except Exception as exc:
         log("RECORD FAILED (setup): %r" % (exc,))
@@ -1151,6 +1167,21 @@ def load_matcher():
 # why the git gate keeps the authority.
 # --------------------------------------------------------------------------- #
 WORKER_RE = re.compile(r"compound-v-run-[A-Za-z0-9_.-]+-worker\.sh")
+# The `register-lane` BOOTSTRAP. Every job's prompt orders this command first,
+# and it necessarily runs BEFORE the entry it creates exists -- so under the old
+# rule the very first command of a correctly-behaved job wrote the run's first
+# unresolved record.
+# ITS OWN LIMIT (the domain audit's MUST), stated where it is implemented, not
+# in a doc somewhere else: this keys on the TEXT of the
+# command being run, which is a weaker subject than a process identity. Any
+# command whose text merely CONTAINS this spelling -- an echo, a grep, a comment
+# in a heredoc -- is suppressed too. What that buys an attacker is nothing: the
+# suppression covers only the RECORD, never a lane decision. A write from an
+# unresolved identity is still allowed exactly as before (it was never
+# lane-checked), and a write from a RESOLVED job never reaches this branch at
+# all -- it is matched against its lane exactly as before, register-lane in the
+# command text or not.
+BOOTSTRAP_RE = re.compile(r"compound-v-emit-workflow\.py\b.*\bregister-lane\b")
 REDIR_WORDS = (">", ">>", ">|", "&>", "&>>", "1>", "1>>", "2>", "2>>")
 REDIR_ATTACHED = re.compile(r"^(?:[0-9]*|&)>>?\|?(?P<t>.+)$")
 CD_LIKE = ("cd", "pushd", "popd", "chdir")
@@ -1541,16 +1572,22 @@ def main():
         # An ISOLATED AGENT that matches nothing in a LIVE lane map is the
         # dangerous case, not the ordinary one: it wrote before `register-lane`,
         # or its registration was lost. Record it so the run cannot afterwards
-        # read as clean. See the block above for the three gates and the
+        # read as clean. See the block above for the four gates and the
         # residual false positive.
         if agent_worktree_root(cwd):
-            for path in maps:
-                if not live_lane_map(path):
-                    continue
-                first = record_unresolved(path, agent_id, cwd, tool)
+            live = [p for p in maps if live_lane_map(p)]
+            if live:
+                # Gate 4: the bootstrap that CREATES the entry cannot be blamed
+                # for the entry not existing yet. Log it, record nothing.
+                if tool == "Bash" and BOOTSTRAP_RE.search(command):
+                    log("ALLOW (register-lane bootstrap) cwd=%s cmd=%s"
+                        % (cwd, command[:200]))
+                    return 0
+                path = live[0]   # newest live run owns the record
+                first = record_unresolved(path, agent_id, cwd, tool, live)
                 log("ALLOW (UNRESOLVED IDENTITY under a live lane map %s) "
-                    "tool=%s agent_id=%r cwd=%s first=%s"
-                    % (path, tool, agent_id, cwd, first))
+                    "tool=%s agent_id=%r cwd=%s candidates=%d first=%s"
+                    % (path, tool, agent_id, cwd, len(live), first))
                 if first:
                     open_notice(
                         "an isolated agent (cwd %s) resolved to NO job in the "

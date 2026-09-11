@@ -213,32 +213,48 @@ delegating, the epic inherits Engine C along with everything else.
    SPEC (each job's `acceptance`), QUALITY (no regressions, no fabricated metrics), INTEGRATION
    (cross-job seams, feature-level `acceptance_criteria`). DONE is gated on all three.
 
-   **If — and only if — the manifest says `triage.flavor: scoped_plus`, a cross-model second
-   opinion runs first, and it is mandatory.** SCOPED+ means *a small edit on a sensitive path*:
-   the change is one file and twenty lines, so the SCOPED band is the honest size, but the path
-   is one where being wrong is expensive. Such a run buys back both reviews the plain SCOPED band
-   skips — the deep in-harness reviewer (declared in the manifest, and step 2's `--require-triage`
-   already refused to dispatch without it) and one independent look from a **different model
-   family**. A Claude review of Claude's code is not a second opinion.
+   **If — and only if — the manifest says `triage.flavor: scoped_plus`, a second opinion
+   runs first, and it is mandatory.** SCOPED+ means *a small edit on a sensitive path*: the
+   change is one file and twenty lines, so the SCOPED band is the honest size, but the path
+   is one where being wrong is expensive. Such a run buys back both reviews the plain SCOPED
+   band skips — the deep in-harness reviewer (declared in the manifest, and step 2's
+   `--require-triage` already refused to dispatch without it) and one look from outside
+   Claude's own family, via **the ladder** ([cross-model-review.md § The ladder](../skills/compound-v/cross-model-review.md#the-ladder)):
+   Codex when it is installed, else an advisor-assisted Opus subagent, else refuse — a SCOPED+
+   run never silently passes with no second opinion at all.
 
-   Seal the reviewed bytes, run the driver, wrap its output, then verify:
+   Seal the reviewed bytes, then run rung 1 or rung 2 of the ladder:
 
    ```
    RUN=docs/superpowers/execution/<run-id>
    git diff --no-color <baseline from state.json> > $RUN/receipts/cross-model.patch
+   # Rung 1 — Codex present:
    scripts/compound-v-codex-review.sh --repo "$PWD" \
      --plan-file "$PWD/$RUN/receipts/cross-model.patch" \
      --context-file "$PWD/<manifest spec_path>" > $RUN/receipts/.review.json
-   # wrap: the driver emits plan-review findings and nothing else — the binding fields
+   # Rung 2 — no Codex, an advisor is configured: dispatch one read-only Opus subagent via
+   # the Agent tool with the same adversarial prompt (told to consult the advisor before its
+   # verdict) instead of the command above; write its plan-review.schema.json output to the
+   # same $RUN/receipts/.review.json path.
+   # wrap: the reviewer's output is plan-review findings and nothing else — the binding fields
    # are added here, and the receipt is sealed with the SHARED digest primitive.
    python3 -B - <<'EOF'   # writes $RUN/receipts/cross-model.json
-   ... {run_id, pre_eval_id, diff_digest, reviewer_backend: "codex", reviewer_model,
-        produced_at, review: <the driver's JSON>} then digest=record_digest(obj, "digest")
+   ... {run_id, pre_eval_id, diff_digest,
+        reviewer_backend: "codex" | "claude-advisor",  # "claude-advisor" only on rung 2
+        cross_model: <false iff reviewer_backend == "claude-advisor", else true>,
+        reviewer_model, produced_at, review: <the reviewer's JSON>}
+   ... then digest=record_digest(obj, "digest")
    EOF
    python3 scripts/compound-v-validate-manifest.py $RUN/manifest.yaml --require-triage \
      --require-cross-model-receipt $RUN/receipts/cross-model.json \
      --expected-diff-digest "$(python3 scripts/compound-v-taxonomy.py --digest $RUN/receipts/cross-model.patch)"
    ```
+
+   A `reviewer_backend: "claude-advisor"` receipt is **accepted with a `SECOND_OPINION_SAME_FAMILY`
+   WARN**, not refused — rung 2 satisfies the SCOPED+ mandate, honestly. State the disclosure
+   line verbatim wherever this run's result is reported: *"Second look by the same model family
+   (Claude + advisor) — no decorrelation; not a cross-model review."* Only rung 3 (neither Codex
+   nor an advisor configured) is refused for a SCOPED+ run.
 
    The receipt's shape is [`schemas/cross-model-receipt.schema.json`](../schemas/cross-model-receipt.schema.json)
    — a flat envelope around the driver's `plan-review` output, because that schema is

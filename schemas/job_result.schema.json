@@ -235,6 +235,13 @@
             "type": "string"
           },
           "description": "OPTIONAL, `workflow-transcript` source only. Basenames of the agent-*.jsonl transcripts that were summed for this job — normally its implement, gate and record stages. It is the evidence trail: a total whose transcripts cannot be named is a number nobody can re-derive."
+        },
+        "advisor_calls": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "OPTIONAL, `workflow-transcript` source only (F7). The count of assistant content blocks {type: server_tool_use, name: advisor} across this job's transcripts, deduplicated by message id exactly like the token counts (never summed per streamed line). null when the job was not measured; a well-formed 0 means the transcripts were read and the advisor tool was never invoked."
         }
       }
     },

@@ -748,8 +748,33 @@ def scan_transcript(path):  # type: (str) -> Tuple[List[Tuple[Any, Any, Dict[str
                 usage.get("cache_read_input_tokens")),
             "cache_creation_input_tokens": _valid_int(
                 usage.get("cache_creation_input_tokens")),
+            "advisor_calls": _count_advisor_blocks(msg.get("content")),
         }))
     return entries, malformed
+
+
+_ADVISOR_TOOL_NAME = "advisor"
+
+
+def _count_advisor_blocks(content):  # type: (Any) -> int
+    """How many {type: server_tool_use, name: advisor} blocks this message's
+    content carries RIGHT NOW (F7, usage.advisor_calls).
+
+    A message's content is a list of blocks (thinking, text, tool_use, ...)
+    that grows as the message streams, so this count grows the same way
+    output_tokens does — it is folded with the same last-wins / max-of-
+    snapshots rule as output_tokens in `_pick_snapshot`, never summed per
+    line. A `server_tool_result` block (the advisor's ANSWER, not the call)
+    is a different `type` and is never matched here.
+    """
+    if not isinstance(content, list):
+        return 0
+    return sum(
+        1 for block in content
+        if isinstance(block, dict)
+        and block.get("type") == "server_tool_use"
+        and block.get("name") == _ADVISOR_TOOL_NAME
+    )
 
 
 def _manifest_run_id_and_jobs(run_dir):  # type: (str) -> Tuple[Optional[str], List[str]]
@@ -980,6 +1005,12 @@ def _pick_snapshot(snapshots):
     outputs = [vals.get("output_tokens") for _key, vals in snapshots
                if vals.get("output_tokens") is not None]
     best["output_tokens"] = max(outputs) if outputs else None
+    # advisor_calls grows the same way output_tokens does (a message's content
+    # blocks accumulate as it streams), so it takes the same max-of-snapshots
+    # fallback rather than the first snapshot's (possibly incomplete) count.
+    adv_counts = [vals.get("advisor_calls") for _key, vals in snapshots
+                  if vals.get("advisor_calls") is not None]
+    best["advisor_calls"] = max(adv_counts) if adv_counts else None
     return best
 
 
@@ -994,6 +1025,7 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
     nothing.
     """
     totals = dict((k, None) for k in _TOKEN_KEYS)  # type: Dict[str, Optional[int]]
+    adv_total = None  # type: Optional[int]
     malformed = 0
     merged = {}  # type: Dict[Any, List[Tuple[Any, Dict[str, Optional[int]]]]]
     order = []  # type: List[Any]
@@ -1017,6 +1049,12 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
             val = vals.get(name)
             if val is not None:
                 totals[name] = (totals[name] or 0) + val
+        # advisor_calls is deduplicated by message id EXACTLY like the token
+        # counts above — one chosen snapshot per id, summed once — never
+        # summed per streamed JSONL line.
+        adv = vals.get("advisor_calls")
+        if adv is not None:
+            adv_total = (adv_total or 0) + adv
 
     usage = {
         "input_tokens": totals["input_tokens"],
@@ -1030,6 +1068,10 @@ def _fold(paths, backend):  # type: (List[str], str) -> Tuple[Dict[str, Any], in
         "measured": messages > 0,
         "source": WORKFLOW_TRANSCRIPT_SOURCE,
         "transcripts": sorted(os.path.basename(p) for p in paths),
+        # null exactly when the job itself is unmeasured (messages == 0); a
+        # well-formed 0 means transcripts were read and advisor was never
+        # invoked — never a fabricated substitute for either state.
+        "advisor_calls": adv_total if messages > 0 else None,
     }
     return usage, malformed
 
@@ -1348,12 +1390,14 @@ def _tx_user(text):  # type: (str) -> str
                        "message": {"role": "user", "content": text}})
 
 
-def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0):
-    # type: (Any, int, int, int, int, Optional[str], int) -> str
+def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0, content=None):
+    # type: (Any, int, int, int, int, Optional[str], int, Optional[List[Any]]) -> str
     """One streamed assistant line, shaped like the real thing.
 
     `mid` of None omits `message.id` entirely (the NEW-3 case); `ts` of None
-    omits `timestamp` (the ordering fallback case).
+    omits `timestamp` (the ordering fallback case); `content` of None omits
+    `message.content` entirely (F7: a real record with no advisor call has no
+    such block, and `_count_advisor_blocks` reads that as 0, not a crash).
     """
     message = {
         "role": "assistant", "model": "claude-opus-5",
@@ -1368,11 +1412,23 @@ def _tx_assistant(mid, i, o, cr, cc, ts=None, block=0):
     }  # type: Dict[str, Any]
     if mid is not None:
         message["id"] = mid
+    if content is not None:
+        message["content"] = content
     record = {"type": "assistant", "apiBlockIndex": block,
               "message": message}  # type: Dict[str, Any]
     if ts is not None:
         record["timestamp"] = ts
     return json.dumps(record)
+
+
+def _advisor_block():  # type: () -> Dict[str, Any]
+    """One real {type: server_tool_use, name: advisor} block."""
+    return {"type": "server_tool_use", "name": "advisor", "input": {}}
+
+
+def _advisor_result_block():  # type: () -> Dict[str, Any]
+    """The advisor's ANSWER, not the call — a different `type`, never counted."""
+    return {"type": "server_tool_result", "name": "advisor", "content": []}
 
 
 def _write_transcript(path, lines):  # type: (str, List[str]) -> None
@@ -1461,6 +1517,8 @@ def _selftest_workflow(check):  # type: (Any) -> None
                      "  type: implement\n"
                      "- id: job-zeta\n"
                      "  type: implement\n"
+                     "- id: job-theta\n"
+                     "  type: implement\n"
                      "- id: %s\n"
                      "  type: implement\n"
                      "- id: %s\n"
@@ -1473,7 +1531,7 @@ def _selftest_workflow(check):  # type: (Any) -> None
             "exit_code": 0, "failure_class": None, "retry_after_seconds": 0,
         }
         for job in ("job-alpha", "job-beta", "job-gamma", "job-epsilon",
-                    "job-zeta"):
+                    "job-zeta", "job-theta"):
             with open(os.path.join(results, job + ".json"), "w",
                       encoding="utf-8") as fh:
                 fh.write(json.dumps(dict(base), indent=2, sort_keys=True) + "\n")
@@ -1540,6 +1598,28 @@ def _selftest_workflow(check):  # type: (Any) -> None
             _tx_user(prompt("gate-receipt", "job-zeta")),
             _tx_assistant("msg_Z1", 5, 999, 6, 7,
                           "2026-09-04T12:00:01.000Z", 0),   # OLDER
+        ])
+
+        # job-theta (F7, usage.advisor_calls): msg_T1 carries one advisor call
+        # and is written TWICE across two transcripts of the SAME job — one
+        # streamed message, not two calls, exactly the msg_B1/msg_Z1
+        # cross-transcript dedup rule above, now applied to advisor_calls
+        # instead of tokens. msg_T2 carries a second call plus the
+        # server_tool_result block that answers it, which must never count.
+        _write_transcript(os.path.join(tx, "agent-tttt1.jsonl"), [
+            _tx_user(prompt("record", "job-theta")),
+            _tx_assistant("msg_T1", 10, 20, 30, 40,
+                          "2026-09-04T20:00:00.000Z", 0,
+                          content=[_advisor_block()]),
+        ])
+        _write_transcript(os.path.join(tx, "agent-tttt2.jsonl"), [
+            _tx_user(prompt("gate-receipt", "job-theta")),
+            _tx_assistant("msg_T1", 10, 20, 30, 40,
+                          "2026-09-04T20:00:00.000Z", 0,
+                          content=[_advisor_block()]),
+            _tx_assistant("msg_T2", 5, 6, 7, 8,
+                          "2026-09-04T20:00:01.000Z", 0,
+                          content=[_advisor_block(), _advisor_result_block()]),
         ])
 
         # job-gamma: NO transcript at all -> unmeasured.
@@ -1662,11 +1742,11 @@ def _selftest_workflow(check):  # type: (Any) -> None
         ])
 
         job_ids_expected = ["job-alpha", "job-beta", "job-epsilon",
-                            "job-gamma", "job-zeta"]
+                            "job-gamma", "job-theta", "job-zeta"]
 
         rep = extract_workflow_usage(run_dir, tx)
         check("wf.run_id", rep["run_id"], "2026-09-04-selftest-run")
-        check("wf.scanned", rep["scanned"], 19)
+        check("wf.scanned", rep["scanned"], 21)
         # cccc1 (other run) + eeee1 (other checkout, same run id) + gggg1 (two
         # job ids) + hhhh1 (rejected id) + iiii1 (not a transcript) + kkkk1
         # (unresolvable relative run dir) + llll1 (prose run dir, other command)
@@ -1857,6 +1937,26 @@ def _selftest_workflow(check):  # type: (Any) -> None
         check("wf.pick.fallback_invariant_disagreement",
               _pick_snapshot([(None, vals_new), (None, vals_bad)]), None)
 
+        # F7: advisor_calls takes the SAME max-of-snapshots fallback as
+        # output_tokens (a message's content blocks only ever grow as it
+        # streams), and the ORDERED branch just carries whatever count the
+        # winning snapshot happened to have — direct unit coverage of
+        # `_count_advisor_blocks` and this rule, ahead of the end-to-end
+        # job-theta case below.
+        check("_count_advisor_blocks.none_content", _count_advisor_blocks(None), 0)
+        check("_count_advisor_blocks.no_match",
+              _count_advisor_blocks([{"type": "text", "text": "hi"}]), 0)
+        check("_count_advisor_blocks.result_not_call",
+              _count_advisor_blocks([_advisor_result_block()]), 0)
+        check("_count_advisor_blocks.two_calls",
+              _count_advisor_blocks([_advisor_block(), _advisor_block(),
+                                     _advisor_result_block()]), 2)
+        vals_adv_partial = dict(vals_new, advisor_calls=1)
+        vals_adv_full = dict(vals_old, advisor_calls=2)
+        check("wf.pick.fallback_advisor_calls_takes_max",
+              _pick_snapshot([(None, vals_adv_partial),
+                              (None, vals_adv_full)])["advisor_calls"], 2)
+
         a = rep["jobs"]["job-alpha"]
         # msg_A1 counted ONCE at its LAST snapshot (40, not 5+40), + A2 + A3.
         # These also carry findings 5 and NEW 3/4: an invalid-UTF-8 line, a
@@ -1871,6 +1971,9 @@ def _selftest_workflow(check):  # type: (Any) -> None
         check("wf.alpha.backend", a["backend"], "claude")
         check("wf.alpha.transcripts", a["transcripts"],
               ["agent-aaaa1.jsonl", "agent-aaaa2.jsonl", "agent-aaaa3.jsonl"])
+        # F7: no message in job-alpha's transcripts carries an advisor block —
+        # a measured job that never called the advisor reads 0, not null.
+        check("wf.alpha.advisor_calls", a["advisor_calls"], 0)
 
         # --- FINDING 4: msg_B1 appears in BOTH of job-beta's transcripts ------
         b = rep["jobs"]["job-beta"]
@@ -1887,6 +1990,19 @@ def _selftest_workflow(check):  # type: (Any) -> None
         check("wf.zeta.input", z["input_tokens"], 5)
         check("wf.zeta.transcripts", z["transcripts"],
               ["agent-zzzz1.jsonl", "agent-zzzz2.jsonl"])
+
+        # F7 end to end: job-theta. msg_T1's advisor call is written on TWO
+        # transcripts of this job and must count ONCE (the same cross-
+        # transcript dedup rule as msg_B1 above, now for advisor_calls); msg_T2
+        # adds a second, genuine call, and its server_tool_result sibling block
+        # must contribute nothing. Total: 2, never 3.
+        th = rep["jobs"]["job-theta"]
+        check("wf.theta.advisor_calls", th["advisor_calls"], 2)
+        check("wf.theta.measured", th["measured"], True)
+        check("wf.theta.input", th["input_tokens"], 10 + 5)
+        check("wf.theta.output", th["output_tokens"], 20 + 6)
+        check("wf.theta.transcripts", th["transcripts"],
+              ["agent-tttt1.jsonl", "agent-tttt2.jsonl"])
 
         # job-epsilon proves the relative-run-dir rule end to end.
         e = rep["jobs"]["job-epsilon"]
@@ -1938,7 +2054,7 @@ def _selftest_workflow(check):  # type: (Any) -> None
         os.symlink(bait_target, tmp_bait)
 
         written = write_workflow_usage(run_dir, rep)
-        check("wf.write.count", len(written), 4)   # gamma is untouched
+        check("wf.write.count", len(written), 5)   # gamma is untouched
         with open(bait_target, encoding="utf-8") as fh:
             check("wf.write.predictable_tmp_symlink_not_followed", fh.read(),
                   '{"bait": "untouched"}\n')
@@ -1967,6 +2083,12 @@ def _selftest_workflow(check):  # type: (Any) -> None
         with open(gamma_path, encoding="utf-8") as fh:
             gamma_doc = json.load(fh)
         check("wf.write.gamma_untouched", "usage" in gamma_doc, False)
+
+        # F7: the written job-theta.json carries the deduplicated call count.
+        theta_path = os.path.join(results, "job-theta.json")
+        with open(theta_path, encoding="utf-8") as fh:
+            theta_doc = json.load(fh)
+        check("wf.write.theta_advisor_calls", theta_doc["usage"]["advisor_calls"], 2)
 
         # NEW 1, the other half: a RESULT file that is itself a symlink is
         # refused outright, so the bytes never reach what it points at.
@@ -2024,11 +2146,13 @@ def _selftest_workflow(check):  # type: (Any) -> None
             spec.loader.exec_module(mod)
             agg = mod.aggregate(results)
             check("wf.agg.input", agg["totals"]["input_tokens"],
-                  14 + 1001 + 2 + 5)
+                  14 + 1001 + 2 + 5 + 15)
             check("wf.agg.output", agg["totals"]["output_tokens"],
-                  49 + 701 + 4 + 42)
-            check("wf.agg.measured_jobs", agg["totals"]["measured_jobs"], 4)
+                  49 + 701 + 4 + 42 + 26)
+            check("wf.agg.measured_jobs", agg["totals"]["measured_jobs"], 5)
             check("wf.agg.unmeasured_jobs", agg["totals"]["unmeasured_jobs"], 1)
+            # F7: theta's 2 advisor calls are the only ones in this run.
+            check("wf.agg.advisor_calls", agg["totals"]["advisor_calls"], 2)
 
         # --- fixed-CLI plumbing: main() returns 2 for a missing dir/run ------
         # Their diagnostics go to stderr; swallow them so the selftest's own

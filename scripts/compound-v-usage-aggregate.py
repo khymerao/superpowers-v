@@ -145,6 +145,11 @@ def aggregate(results_dir: str,
         # input/output totals are byte-identical to what they were before.
         cr_tok = _valid_int(usage.get("cache_read_input_tokens")) if isinstance(usage, dict) else None
         cc_tok = _valid_int(usage.get("cache_creation_input_tokens")) if isinstance(usage, dict) else None
+        # F7: the count of advisor tool calls (usage.advisor_calls), summed
+        # under the SAME null-safe rule as the cache metrics — a source that
+        # never reports it (every source but workflow-transcript, today)
+        # leaves it null and contributes nothing, never a fabricated 0.
+        adv_calls = _valid_int(usage.get("advisor_calls")) if isinstance(usage, dict) else None
         jobs.append({
             "id": job_id,
             "measured": measured,
@@ -152,6 +157,7 @@ def aggregate(results_dir: str,
             "output_tokens": out_tok,
             "cache_read_input_tokens": cr_tok,
             "cache_creation_input_tokens": cc_tok,
+            "advisor_calls": adv_calls,
             "source": usage.get("source") if isinstance(usage, dict) else None,
         })
 
@@ -172,6 +178,7 @@ def _assemble(jobs: List[Dict[str, Any]],
     sum_out = None     # type: Optional[int]
     sum_cr = None      # type: Optional[int]
     sum_cc = None      # type: Optional[int]
+    sum_adv = None     # type: Optional[int]
     measured_jobs = 0
     unmeasured_jobs = 0
 
@@ -191,6 +198,10 @@ def _assemble(jobs: List[Dict[str, Any]],
                 sum_cr = (sum_cr or 0) + j["cache_read_input_tokens"]
             if j.get("cache_creation_input_tokens") is not None:
                 sum_cc = (sum_cc or 0) + j["cache_creation_input_tokens"]
+            # F7: same rule again for advisor_calls — null when the source
+            # never reports it, and null contributes nothing to the sum.
+            if j.get("advisor_calls") is not None:
+                sum_adv = (sum_adv or 0) + j["advisor_calls"]
         else:
             # measured==false OR no usage key: TOKENS honestly unmeasured.
             unmeasured_jobs += 1
@@ -200,6 +211,7 @@ def _assemble(jobs: List[Dict[str, Any]],
         "output_tokens": sum_out,
         "cache_read_input_tokens": sum_cr,
         "cache_creation_input_tokens": sum_cc,
+        "advisor_calls": sum_adv,
         "measured_jobs": measured_jobs,
         "unmeasured_jobs": unmeasured_jobs,
     }
@@ -257,6 +269,12 @@ def _format_text(agg: Dict[str, Any]) -> str:
     t = agg["totals"]
     line = "measured: in=%s out=%s" % (
         _fmt_num(t["input_tokens"]), _fmt_num(t["output_tokens"]))
+    # F7: adv=N renders right after the token fields, and ONLY when at least
+    # one advisor call was actually measured (N > 0) — a run that never
+    # touched the advisor tool renders exactly the line it rendered before
+    # this field existed.
+    if t.get("advisor_calls"):
+        line += " adv=%d" % t["advisor_calls"]
     if t.get("cache_read_input_tokens") is not None \
             or t.get("cache_creation_input_tokens") is not None:
         line += " cache_read=%s cache_create=%s" % (
@@ -380,6 +398,10 @@ def _selftest() -> int:
         "input_tokens": 112, "output_tokens": 30478,
         "cache_read_input_tokens": 4406873,
         "cache_creation_input_tokens": 161008,
+        # F7: this job called the advisor twice; "load-bearing-row" above
+        # carries NO advisor_calls key at all (pre-F7 shape), proving the
+        # field is backward-compatible and null contributes nothing.
+        "advisor_calls": 2,
         "backend": "claude", "measured": True,
         "source": "workflow-transcript",
         "transcripts": ["agent-a26c40b0a6bdb887a.jsonl"],
@@ -395,14 +417,22 @@ def _selftest() -> int:
     check("wf.cache_create", wt["cache_creation_input_tokens"], 286647)
     check("wf.measured_jobs", wt["measured_jobs"], 2)
     check("wf.unmeasured_jobs", wt["unmeasured_jobs"], 1)
+    # F7: advisor_calls sums like the cache metrics — "load-bearing-row" has
+    # no such key (pre-F7 shape) and contributes nothing; only spec-review-1's
+    # 2 calls reach the total.
+    check("wf.advisor_calls", wt["advisor_calls"], 2)
     check("wf.text", _format_text(wfagg),
-          "measured: in=174 out=40680 cache_read=6174478 cache_create=286647 "
-          "| 2 measured, 1 unmeasured")
+          "measured: in=174 out=40680 adv=2 cache_read=6174478 "
+          "cache_create=286647 | 2 measured, 1 unmeasured")
     wf_job = [j for j in wfagg["jobs"] if j["id"] == "spec-review-1"][0]
     check("wf.job.source", wf_job["source"], "workflow-transcript")
+    check("wf.job.advisor_calls", wf_job["advisor_calls"], 2)
     wf_none = [j for j in wfagg["jobs"] if j["id"] == "no-transcript"][0]
     check("wf.job.no_source", wf_none["source"], None)
     check("wf.job.no_cache", wf_none["cache_read_input_tokens"], None)
+    check("wf.job.no_advisor_calls", wf_none["advisor_calls"], None)
+    lbr_job = [j for j in wfagg["jobs"] if j["id"] == "load-bearing-row"][0]
+    check("wf.job.pre_f7_shape_has_no_advisor_calls", lbr_job["advisor_calls"], None)
 
     # FIX 3: zero measured jobs -> NULL token totals + "—" text, never a real 0.
     zero_dir = os.path.join(tmp, "zero", "results")
@@ -423,6 +453,19 @@ def _selftest() -> int:
     _d = _fmt_num(None)
     check("zero.text", _format_text(zagg),
           "measured: in=%s out=%s | 0 measured, 2 unmeasured" % (_d, _d))
+
+    # F7: a genuinely measured 0 advisor calls must NOT render "adv=0" — the
+    # aggregate line renders adv=N only when N > 0 (spec, verbatim).
+    adv0_dir = os.path.join(tmp, "adv0", "results")
+    os.makedirs(adv0_dir)
+    _write_result(adv0_dir, "never-called-advisor", _base_result(usage={
+        "input_tokens": 1, "output_tokens": 1, "advisor_calls": 0,
+        "backend": "claude", "measured": True,
+        "source": "workflow-transcript",
+    }))
+    adv0agg = aggregate(adv0_dir)
+    check("adv0.advisor_calls", adv0agg["totals"]["advisor_calls"], 0)
+    check("adv0.text_has_no_adv_clause", "adv=" in _format_text(adv0agg), False)
 
     # fail-open: missing results dir -> NULL totals + note, no crash
     agg3 = aggregate(os.path.join(tmp, "does-not-exist", "results"))

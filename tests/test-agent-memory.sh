@@ -31,8 +31,12 @@ for _cand in "$PY" python3 /usr/bin/python3 python; do
   if "$_cand" -B -c 'import yaml' >/dev/null 2>&1; then PY_YAML="$_cand"; break; fi
 done
 SCOPE="$REPO/scripts/compound-v-scope-check.py"
-MEM_GLOB=".claude/agent-memory/spec-reviewer/**"
-MEM_FILE=".claude/agent-memory/spec-reviewer/MEMORY.md"
+MEM_GLOB=".claude/agent-memory/superpowers-v-spec-reviewer/**"
+MEM_FILE=".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md"
+# The bare (non-namespaced) form of the same lane — used only to assert the
+# MEMORY_LANE_UNNAMESPACED advisory below; never the lane under test elsewhere
+# in this file.
+BARE_MEM_GLOB=".claude/agent-memory/spec-reviewer/**"
 
 TMP_EARLY="$(mktemp -d "${TMPDIR:-/tmp}/cv-agent-memory-XXXXXX")"
 cleanup() { rm -rf "$TMP_EARLY"; }
@@ -142,6 +146,27 @@ check "planted: the advisory does NOT change the exit code (still 0)" \
   "$(yes_no "$PY_YAML" -B "$VALIDATOR" "$MEMONLY")"
 check "the advisory is echoed to stderr for a human" \
   "$(grep -q 'ADVISORY: ' "$TMP_EARLY/memonly.err" && echo 1 || echo 0)"
+
+# A bare (non-namespaced) memory lane must WARN MEMORY_LANE_UNNAMESPACED — even
+# when it IS paired with a real output lane, unlike the memory-only-lane case above.
+UNNAMESPACED="$TMP_EARLY/unnamespaced.yaml"
+"$PY_YAML" -B - "$EXAMPLE" "$UNNAMESPACED" <<PYEOF
+import io, sys
+src, dst = sys.argv[1], sys.argv[2]
+t = io.open(src, encoding="utf-8").read()
+t = t.replace('$MEM_GLOB', '$BARE_MEM_GLOB')
+io.open(dst, "w", encoding="utf-8").write(t)
+PYEOF
+"$PY_YAML" -B "$VALIDATOR" "$UNNAMESPACED" \
+  >"$TMP_EARLY/unnamespaced.json" 2>"$TMP_EARLY/unnamespaced.err" || true
+check "planted: the bare memory lane raises MEMORY_LANE_UNNAMESPACED" \
+  "$(grep -q 'not namespaced' "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
+check "planted: the advisory names the namespaced remedy" \
+  "$(grep -qF -- "$MEM_GLOB" "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
+check "planted: MEMORY_LANE_UNNAMESPACED does NOT change the verdict (still valid)" \
+  "$(grep -q '\"verdict\": \"valid\"' "$TMP_EARLY/unnamespaced.json" && echo 1 || echo 0)"
+check "planted: MEMORY_LANE_UNNAMESPACED does NOT change the exit code (still 0)" \
+  "$(yes_no "$PY_YAML" -B "$VALIDATOR" "$UNNAMESPACED")"
 
 # --------------------------------------------------------------------------- #
 # 5. The lane, proved against the real scope gate in a throwaway git repo.

@@ -83,6 +83,63 @@ scripts/compound-v-codex-review.sh \
 
 Or, for manual control: `/v:review-plan <plan-path>`.
 
+---
+
+## The ladder
+
+"Run the cross-model review" assumes Codex is installed. It is not always. The ladder is
+what "second opinion" resolves to when it is not — three rungs, tried in order, and the
+receipt says honestly which one actually ran:
+
+1. **Codex CLI present → as today.** `scripts/compound-v-codex-review.sh` drives a
+   read-only `codex exec` worker — a genuinely different model family reading the same
+   bytes. This is the row above; nothing here changes it.
+2. **No Codex, an advisor is configured → an advisor-assisted second look.** Dispatch
+   **one read-only Opus subagent through the Agent tool** — not a script, a Claude
+   subagent, because there is no headless Codex to shell out to. Give it the same
+   adversarial prompt the driver embeds (the "INDEPENDENT cross-model reviewer" prompt in
+   `compound-v-codex-review.sh`, with the same plan/diff and context files attached), plus
+   one added instruction: **consult the advisor tool before you write your verdict.** The
+   subagent still returns findings against `schemas/plan-review.schema.json` — same
+   `verdict`/`findings`/`blind_spots_checked` shape, so every downstream consumer (the
+   receipt wrapper, the arbitration step) needs no branch for it.
+
+   Wrap the result exactly as the SCOPED+ receipt below is wrapped, with two differences:
+   `reviewer_backend: "claude-advisor"` (not `"codex"`) and `cross_model: false`. That
+   second field is the point of this rung: **the honesty is a field a machine can read,
+   not only a sentence a human may skip.** A validator or a future job that greps receipts
+   for "did a cross-model review run" gets a correct answer without parsing prose.
+   `compound-v-validate-manifest.py` accepts a `claude-advisor` receipt and prints the
+   advisory `SECOND_OPINION_SAME_FAMILY` — a WARN, not a refusal.
+3. **Neither Codex nor an advisor configured → skip, with the notice.** State plainly that
+   no second opinion ran and why (no Codex CLI found, no `advisorModel` set) — the same
+   skip this document already described before this ladder existed.
+
+**The disclosure line — verbatim, in every rendering of rung 2** (the receipt's own prose
+summary, `/v:review-plan`'s output, `/v:dispatch` step 9's report, any dashboard that shows
+the verdict):
+
+> Second look by the same model family (Claude + advisor) — no decorrelation; not a
+> cross-model review.
+
+Say this even when the advisor resolves to a different family under the hood (e.g. Fable)
+— the subagent doing the reading, writing the findings and reaching the verdict is still
+Claude reviewing Claude's own work; the advisor is consulted mid-thought, not handed the
+pen. Rung 2 is an honest downgrade, never presented as equivalent to rung 1, and the prose
+everywhere it appears tells the project: **if you can install Codex, install it** — a
+Claude review of Claude's code shares Claude's blind spots no matter how the receipt is
+worded.
+
+**The SCOPED+ rule.** [`/v:dispatch`](../../commands/v-dispatch.md) step 9 makes the
+second opinion **mandatory** for a `triage.flavor: scoped_plus` run. The ladder is how that
+mandate survives a machine with no Codex CLI: **rung 2 satisfies the SCOPED+ requirement**
+— the WARN is the price of satisfying it this way, not a reason to treat it as unsatisfied
+— and **rung 3 still refuses.** A SCOPED+ run with neither Codex nor an advisor configured
+does not get a silent pass; it is exactly as unreviewed as it looks, and the mandatory gate
+says so.
+
+---
+
 ### The SCOPED+ variant — same driver, different input, and a receipt
 
 A SCOPED+ run has no plan document to hand over; it has a diff. [`/v:dispatch`](../../commands/v-dispatch.md)

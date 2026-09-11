@@ -12,7 +12,7 @@ Computes the set of files a job actually changed, purely from git:
     changed = (git diff --name-only --no-renames -z <baseline>)
               ∪ (git ls-files --others --exclude-standard -z)
               ∪ (git ls-files --others --ignored --exclude-standard -z -- .)
-              − (preexisting untracked/ignored snapshot, direct mode only)
+              − (preexisting untracked/ignored snapshot, both modes)
 
 Three union terms and ONE subtraction. THIS SCRIPT ORIGINATES NO EXEMPTION OF ITS
 OWN: it forgives nothing by extension and nothing by name. Everything it forgives
@@ -21,11 +21,13 @@ is part of describing the gate honestly (eighth review pass, 2026-09-03; the
 previous wording said "NO carve-outs" full stop, which read as "the gate exempts
 nothing" and is not what a direct-mode run actually does).
 
-WHAT THE ``--preexisting`` LIST CONTAINS TODAY, as written by
-``compound-v-emit-workflow.py`` at ``register-lane`` time and verified by it
-again at gate time (see ``run_dir_owned_by_name`` and the exemption-snapshot
-docstring there — if these two descriptions ever disagree, that file is the one
-that decides):
+WHAT THE ``--preexisting`` LIST CONTAINS TODAY. Classes 1-3 are written by
+``compound-v-emit-workflow.py`` at ``register-lane`` time and verified by it again
+at gate time (see ``run_dir_owned_by_name`` and the exemption-snapshot docstring
+there — if these two descriptions ever disagree, that file is the one that
+decides). Class 4 has a different author and a different guarantee: the worker
+scripts write it inside a fresh worktree after provisioning, and what makes it safe
+is WHEN it is taken, not a digest:
 
 1. **Pre-existing untracked/ignored FILES, bound to a digest.** A path recorded
    as ``<sha256>  <relpath>`` is dropped only while its bytes still hash to that
@@ -44,6 +46,18 @@ that decides):
    ``manifest.yaml`` is deliberately NOT among them: it DEFINES ``write_allowed``,
    so a by-name exemption for it would let a job widen its own lane and have both
    the gate and the integration authority agree.
+4. **A worktree job's post-provisioning snapshot** (``preexisting.txt``, plain
+   repo-relative paths, one per line). A job whose manifest carries a
+   ``provision_command`` needs its dependencies installed before the model starts,
+   and those installed files are untracked or ignored writes the job did not make.
+   The worker script — never the model — runs the command inside the fresh
+   worktree, then lists exactly what this gate's own probes 2 and 3 would list, and
+   passes that file back as ``--preexisting``. Ordering is the whole safety
+   argument: the snapshot is taken AFTER provisioning and BEFORE the model launches,
+   so it can only ever contain what provisioning created. A path a worker cannot
+   represent on one line (a filename containing a newline) is left OUT of the file
+   and is therefore never exempt — fail closed, the same rule as an unreadable file
+   in class 1.
 
 Two exemptions of a different kind — interpreter bytecode by extension, and the
 pipeline's two outcome streams by name — existed briefly in 3.4.0 development and
@@ -94,9 +108,11 @@ a link is outside the tree and outside git's view. Kernel-level write confinemen
 (the codex backend's sandbox) is the preventive layer; this scan is the
 detection layer.
 
-The optional ``--preexisting`` subtraction (direct mode) drops paths that were
-ALREADY untracked/ignored before the job started, so a normal dirty tree does not
-produce false BLOCKs for files this job never touched.
+The optional ``--preexisting`` subtraction drops paths that were ALREADY
+untracked/ignored before the job started, so a normal dirty tree does not produce
+false BLOCKs for files this job never touched. BOTH modes honour it. Direct mode
+uses it for the repo's pre-dispatch dirt; worktree mode uses it for what a
+``provision_command`` installed into the fresh worktree before the model ran.
 
 then matches each changed path against the job's ``write_allowed`` glob list.
 Any changed file that matches NO allowed glob is a violation. One or more
@@ -261,10 +277,13 @@ def changed_files(cwd, baseline, preexisting=None):
     extension and nothing by name: an ignored write is a write.
 
     ``preexisting`` (optional set/iterable of repo-relative paths) is SUBTRACTED
-    from the union: in direct mode the dispatcher snapshots untracked/ignored paths
-    that existed BEFORE the job, so files this job never created are not attributed
-    to it. (Worktree mode passes nothing — a fresh ``worktree add HEAD`` has no
-    pre-existing untracked.) Result is deduped/sorted, repo-relative.
+    from the union, in BOTH modes. In direct mode the dispatcher snapshots
+    untracked/ignored paths that existed BEFORE the job, so files this job never
+    created are not attributed to it. A fresh ``worktree add HEAD`` starts with no
+    untracked paths at all, so worktree mode used to pass nothing — but a job with a
+    ``provision_command`` has its dependencies installed into that worktree before
+    the model starts, and the worker snapshots them at exactly that moment and
+    passes them here. Result is deduped/sorted, repo-relative.
     """
     # All three probes use NUL-delimited (-z) output, split on '\0'. NUL is the
     # only byte that cannot occur in a path, so a filename containing a newline
@@ -298,12 +317,13 @@ def changed_files(cwd, baseline, preexisting=None):
     if preexisting:
         files -= set(preexisting)
     # NO carve-out ORIGINATES HERE. Every path the three probes produced reaches
-    # the matcher, minus only the direct-mode `preexisting` snapshot the CALLER
-    # passed in — whose three classes (digest-bound pre-existing files,
-    # pre-existing directories by name, and the pipeline's own run-dir files for
-    # this job, the closed list RUN_DIR_EXEMPT_BY_NAME plus the attempts family)
-    # are named in this module's docstring and defined in
-    # compound-v-emit-workflow.py. Interpreter
+    # the matcher, minus only the `preexisting` snapshot the CALLER passed in —
+    # whose four classes (digest-bound pre-existing files, pre-existing directories
+    # by name, the pipeline's own run-dir files for this job — the closed list
+    # RUN_DIR_EXEMPT_BY_NAME plus the attempts family — and a worktree job's
+    # post-provisioning snapshot) are named in this module's docstring; the first
+    # three are defined in compound-v-emit-workflow.py and the fourth is written by
+    # the worker scripts. Interpreter
     # bytecode is NOT forgiven here: a `.pyc` never merges, but it is executed in
     # place by hooks/lane-guard.sh's loader and by compound-v-integration-gate.py's
     # importer of THIS module, so dropping it traded the last detection signal for
@@ -544,9 +564,13 @@ def build_parser():
         metavar="PATH",
         help="file of repo-relative paths (one per line) that existed BEFORE the "
         "job (untracked/ignored snapshot); these are EXCLUDED from the changed/"
-        "violation set. Direct mode: the dispatcher snapshots pre-existing "
-        "untracked+ignored paths before launch and passes them here so a normal "
-        "dirty tree does not produce false BLOCKs.",
+        "violation set. Honoured in BOTH modes. Direct mode: the dispatcher "
+        "snapshots pre-existing untracked+ignored paths before launch and passes "
+        "them here so a normal dirty tree does not produce false BLOCKs. Worktree "
+        "mode: a job with a provision_command has its dependencies installed into "
+        "the fresh worktree, and the worker snapshots them AFTER provisioning and "
+        "BEFORE the model launches, so an installed node_modules/ is not charged "
+        "to the model.",
     )
     p.add_argument("--selftest", action="store_true", help="run built-in tests")
     return p
@@ -804,6 +828,77 @@ def _selftest():
         expect(
             "preexisting: new file outside write_allowed still BLOCKS",
             "docs/new_leak.md" in viol_snap,
+        )
+
+        # PROVISIONING (worktree mode) case: a job whose manifest carries a
+        # provision_command gets its dependencies installed into the fresh worktree
+        # before the model starts. Those files are ignored writes outside
+        # write_allowed, so without the snapshot the gate BLOCKS a job that did
+        # nothing wrong. With the worker's post-provisioning snapshot passed as
+        # --preexisting, they are subtracted — and worktree mode honours it exactly
+        # as direct mode does. Build a repo whose .gitignore ignores node_modules/,
+        # add a worktree, and install into it the way a provision_command would.
+        prepo = os.path.join(tmp, "prepo")
+        os.makedirs(os.path.join(prepo, "src"))
+        run(["git", "init", "-q"], cwd=prepo)
+        run(["git", "config", "user.email", "t@t.t"], cwd=prepo)
+        run(["git", "config", "user.name", "t"], cwd=prepo)
+        with open(os.path.join(prepo, ".gitignore"), "w") as f:
+            f.write("node_modules/\n")
+        with open(os.path.join(prepo, "src", "base.ts"), "w") as f:
+            f.write("base\n")
+        run(["git", "add", "-A"], cwd=prepo)
+        run(["git", "commit", "-q", "-m", "base"], cwd=prepo)
+        pwt = os.path.join(tmp, "pwt")
+        run(["git", "worktree", "add", "-q", pwt, "HEAD"], cwd=prepo)
+        os.makedirs(os.path.join(pwt, "node_modules", "x"))
+        with open(os.path.join(pwt, "node_modules", "x", "a"), "w") as f:
+            f.write("installed by provisioning\n")
+        # Ask git what the snapshot would contain, exactly as the worker does —
+        # the same two probes this gate itself unions in, so the two agree by
+        # construction rather than by a hardcoded guess about git's output form.
+        prov_snapshot = sorted(
+            set(
+                _split_nul(
+                    _git(pwt, ["ls-files", "--others", "--exclude-standard", "-z"])[1]
+                )
+            )
+            | set(
+                _split_nul(
+                    _git(
+                        pwt,
+                        [
+                            "ls-files", "--others", "--ignored",
+                            "--exclude-standard", "-z", "--", ".",
+                        ],
+                    )[1]
+                )
+            )
+        )
+        changed_noprov, viol_noprov = check(pwt, "HEAD", ["src/**"])
+        expect(
+            "provisioning: without the snapshot the installed file is a violation",
+            "node_modules/x/a" in changed_noprov and "node_modules/x/a" in viol_noprov,
+        )
+        expect(
+            "provisioning: the worker's two probes list the installed file",
+            "node_modules/x/a" in prov_snapshot,
+        )
+        changed_prov, viol_prov = check(
+            pwt, "HEAD", ["src/**"], preexisting=prov_snapshot
+        )
+        expect(
+            "provisioning: worktree mode honours --preexisting (empty changed set)",
+            changed_prov == [] and viol_prov == [],
+        )
+        # The subtraction is bounded to what provisioning actually created: a file
+        # the MODEL then writes outside write_allowed still BLOCKS.
+        with open(os.path.join(pwt, "node_modules", "x", "b"), "w") as f:
+            f.write("written by the model, after the snapshot\n")
+        _, viol_after = check(pwt, "HEAD", ["src/**"], preexisting=prov_snapshot)
+        expect(
+            "provisioning: a post-snapshot ignored write still BLOCKS",
+            "node_modules/x/b" in viol_after,
         )
 
         # IGNORED-FILE case: a worker writes a gitignored path OUTSIDE

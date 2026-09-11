@@ -2,7 +2,7 @@
 description: Run an independent cross-model (Codex) adversarial review of a Compound V plan/manifest before dispatch, then arbitrate the findings. Codex advises; the orchestrator decides.
 ---
 
-You are running a **cross-model plan review** on `{{args}}` — an independent second opinion from a different model family (Codex/GPT), per [cross-model-review.md](../skills/compound-v/cross-model-review.md).
+You are running a **second-opinion review** on `{{args}}` — a different model family (Codex/GPT) when one is available, per the ladder in [cross-model-review.md](../skills/compound-v/cross-model-review.md).
 
 > Run it on demand, or **automatically before dispatch** when the project set `review.cross_model: true` at [`/v:init`](v-init.md) Step 3c (read from `.claude/compound-v.json`). Either way the stakes check below still applies — skip small/mechanical plans.
 
@@ -12,11 +12,19 @@ You are running a **cross-model plan review** on `{{args}}` — an independent s
 
 2. **Stakes check (gating).** Confirm this plan warrants a cross-model review (security/auth/payments/migrations, large/coupled partition, architectural change, or the user asked). If it's small/mechanical, say so and recommend skipping — the Opus `partition-reviewer` + `validate-manifest.py` already cover it.
 
-3. **Dispatch the read-only Codex reviewer:**
-   ```bash
-   scripts/compound-v-codex-review.sh --plan-file "<plan>" --repo "$PWD" --effort xhigh
-   ```
-   (Add `--context-file <audit>` for any archaeology/domain/library audits that ground the review.) The model is resolved for codex / tier `deep`. Codex reads the repo read-only and returns findings JSON per `schemas/plan-review.schema.json`.
+3. **Run the ladder** — [cross-model-review.md § The ladder](../skills/compound-v/cross-model-review.md#the-ladder):
+   1. **Codex CLI present → dispatch the read-only Codex reviewer:**
+      ```bash
+      scripts/compound-v-codex-review.sh --plan-file "<plan>" --repo "$PWD" --effort xhigh
+      ```
+      (Add `--context-file <audit>` for any archaeology/domain/library audits that ground the review.) The model is resolved for codex / tier `deep`. Codex reads the repo read-only and returns findings JSON per `schemas/plan-review.schema.json`.
+   2. **No Codex, an advisor configured → an advisor-assisted second look.** Dispatch one
+      read-only Opus subagent through the Agent tool with the same adversarial prompt the
+      driver above embeds, plus one addition: consult the advisor tool before writing the
+      verdict. It returns the same `plan-review.schema.json` shape. State the disclosure
+      line verbatim: *"Second look by the same model family (Claude + advisor) — no
+      decorrelation; not a cross-model review."*
+   3. **Neither → skip**, and say plainly that no second opinion ran and why.
 
 4. **ARBITRATE — you own the decision, Codex is advisory.** For EVERY finding, do one of:
    - **ACCEPT** → the objection is real; note the fix (and apply it / fold it into the plan).

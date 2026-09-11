@@ -50,6 +50,14 @@
 #  13. A NUL IN A COMMAND PATH IS REFUSED, never handed to a stat call.
 #  14. results/ IS ANCHORED ON THE RUN. A symlinked results directory became
 #      its own trusted root and --write replaced a file outside the run.
+#
+# F7 added usage.advisor_calls, tested here too (job-four): TWO distinct
+# messages carrying {type: server_tool_use, name: advisor}, one of them
+# repeated on a second JSONL line (the same streamed message, not a second
+# call), plus a server_tool_result block that is the advisor's ANSWER, never
+# the call. job-one/two/three carry no advisor blocks at all, so their
+# advisor_calls must read 0 — measured, just never invoked — while the
+# "lonely" job in section 6 has no transcript at all and must read null.
 set -uo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -114,6 +122,8 @@ jobs:
   type: review
 - id: job-three
   type: implement
+- id: job-four
+  type: implement
 - id: $VICTIM
   type: implement
 - id: ../../escape
@@ -122,7 +132,7 @@ max_parallel: 2
 YAML
 
 # Minimal, schema-valid job_result files for --write to merge into.
-for job in job-one job-two job-three; do
+for job in job-one job-two job-three job-four; do
   cat > "$RUN/results/$job.json" <<JSON
 {
   "blocked": false,
@@ -162,6 +172,29 @@ A_FMT="$A_FMT"'"service_tier":"standard"}}}\n'
 # this file exceeds 120 columns); the caller's arguments are still %s-quoted.
 # shellcheck disable=SC2059
 a() { printf "$A_FMT" "${6:-2026-09-04T08:00:00.000Z}" "$1" "$2" "$3" "$4" "$5"; }
+# `adv <id> <in> <out> <cache_read> <cache_create> <timestamp> <n_advisor> \
+#     <include_result_block:0|1>` — an assistant line whose CONTENT carries
+# `n_advisor` {type: server_tool_use, name: advisor} blocks (the calls this
+# release counts) and, when the last arg is 1, one server_tool_result block
+# too (the advisor's ANSWER — a different `type`, never counted).
+adv() {
+  "$PY" -c 'import json, sys
+mid, i, o, cr, cc, ts, n, incl_result = sys.argv[1:9]
+content = [{"type": "server_tool_use", "name": "advisor", "input": {}}
+           for _ in range(int(n))]
+if incl_result == "1":
+    content.append({"type": "server_tool_result", "name": "advisor",
+                     "content": []})
+content.append({"type": "text", "text": "..."})
+rec = {"type": "assistant", "timestamp": ts, "apiBlockIndex": 0,
+       "message": {"id": mid, "model": "claude-opus-5", "content": content,
+                   "usage": {"input_tokens": int(i), "output_tokens": int(o),
+                             "cache_read_input_tokens": int(cr),
+                             "cache_creation_input_tokens": int(cc),
+                             "service_tier": "standard"}}}
+sys.stdout.write(json.dumps(rec) + "\n")
+' "$1" "$2" "$3" "$4" "$5" "$6" "$7" "$8"
+}
 # An assistant record with usage but NO message.id at all (round-2, NEW 3).
 a_noid() {
   printf '{"type":"assistant","timestamp":"%s","message":{"model":"claude-opus-5",' \
@@ -274,6 +307,18 @@ $EMIT record --run-dir '$OTHER' --job-id 'job-one' --repo-root '/repo'"
   a msg_13 5 999 6 7 2026-09-04T12:00:01.000Z
 } > "$TX/agent-a0014.jsonl"
 
+# job-four (F7, usage.advisor_calls): msg_20 carries one advisor call and is
+# WRITTEN TWICE — the same streamed message, not a second call, so it must
+# still count as 1. msg_21 carries a second, genuine advisor call PLUS the
+# server_tool_result block that is its answer, which must never be counted.
+# Total for the job: 2 advisor calls, regardless of the duplicate line.
+{
+  u "$EMIT record --run-dir '$RUN' --job-id 'job-four'"
+  adv msg_20 10 20 30 40 2026-09-04T13:00:00.000Z 1 0
+  adv msg_20 10 20 30 40 2026-09-04T13:00:00.000Z 1 0
+  adv msg_21 5 6 7 8 2026-09-04T13:00:01.000Z 1 1
+} > "$TX/agent-a0020.jsonl"
+
 # job-two gets a second transcript carrying two ID-LESS usage records (NEW 3)
 # and one line too deeply nested for the JSON parser (NEW 4). Both are malformed;
 # job-two's totals below must not move by a single token.
@@ -355,6 +400,8 @@ check $? "job-two line: prose-only, id-less and unparseable records all contribu
 # Ordering by the record's timestamp picks 42; ordering by filename picks 999.
 grep -qx 'job-three input=5 output=42 cache_read=6 cache_create=7 transcripts=2' "$DRY"
 check $? "job-three line: the snapshot winner is the newest by timestamp, not the last filename"
+grep -qx 'job-four input=15 output=26 cache_read=37 cache_create=48 transcripts=1' "$DRY"
+check $? "job-four line: advisor content blocks never affect the token sums"
 grep -qx 'unmeasured: (none)' "$DRY"
 check $? "unmeasured line present"
 grep -qx 'unmatched: 11' "$DRY"
@@ -379,6 +426,30 @@ for leak in 999999 888888 666666 444444 333333 222222 111111; do
     pass "unmatched transcript's tokens did NOT leak into this run ($leak)"
   fi
 done
+
+# F7: --format json exposes advisor_calls per job directly (the text report
+# has no per-job advisor field — only the aggregate renders adv=N — so json
+# is how this checks the count without also depending on that render).
+"$PY" "$EXTRACT" --backend claude --workflow-transcript "$T/projects" \
+  --run-dir "$RUN" --format json > "$T/dry.json" 2>/dev/null
+"$PY" - "$T/dry.json" <<'PY'
+import json, sys
+rep = json.load(open(sys.argv[1], encoding="utf-8"))
+jobs = rep["jobs"]
+rc = 0
+def check(ok, label):
+    global rc
+    print(("PASS " if ok else "FAIL ") + label)
+    if not ok:
+        rc = 1
+check(jobs["job-four"]["advisor_calls"] == 2,
+      "job-four: two distinct advisor calls, the duplicate line not double-counted")
+for job in ("job-one", "job-two", "job-three"):
+    check(jobs[job]["advisor_calls"] == 0,
+          "%s: transcript without advisor blocks reads 0, not null" % job)
+sys.exit(rc)
+PY
+check $? "advisor_calls per job (--format json)"
 
 # The dry run must not touch the results.
 if grep -q '"usage"' "$RUN/results/job-one.json"; then
@@ -475,7 +546,8 @@ def check(ok, label):
     if not ok:
         rc = 1
 
-for job, want_in, want_out in (("job-one", 16, 492), ("job-two", 7, 8)):
+for job, want_in, want_out, want_adv in (
+        ("job-one", 16, 492, 0), ("job-two", 7, 8, 0), ("job-four", 15, 26, 2)):
     doc = json.load(open(os.path.join(sys.argv[2], job + ".json"), encoding="utf-8"))
     errs = sorted(validator.iter_errors(doc), key=lambda e: list(e.path))
     check(not errs, "%s: written job_result conforms to job_result.schema.json" % job)
@@ -486,6 +558,7 @@ for job, want_in, want_out in (("job-one", 16, 492), ("job-two", 7, 8)):
     check(u.get("measured") is True, "%s: usage.measured is true" % job)
     check(u.get("input_tokens") == want_in, "%s: usage.input_tokens == %d" % (job, want_in))
     check(u.get("output_tokens") == want_out, "%s: usage.output_tokens == %d" % (job, want_out))
+    check(u.get("advisor_calls") == want_adv, "%s: usage.advisor_calls == %d" % (job, want_adv))
     check(u.get("source") == "workflow-transcript", "%s: usage.source names the record" % job)
     check(isinstance(u.get("transcripts"), list) and u["transcripts"],
           "%s: usage.transcripts names the evidence" % job)
@@ -506,9 +579,9 @@ check $? "schema validation block"
 # ---------------------------------------------------------------------------
 AGG="$("$PY" "$AGGREGATE" --run-dir "$RUN" --format text)"
 echo "aggregate: $AGG"
-WANT="measured: in=28 out=542 cache_read=3018 cache_create=521 | 3 measured, 0 unmeasured"
+WANT="measured: in=43 out=568 adv=2 cache_read=3055 cache_create=569 | 4 measured, 0 unmeasured"
 if [ "$AGG" = "$WANT" ]; then rc=0; else rc=1; fi
-check "$rc" "aggregate totals the transcript-measured jobs (28 = 16+7+5, 542 = 492+8+42)"
+check "$rc" "aggregate totals the transcript-measured jobs (43 = 16+7+5+15, 568 = 492+8+42+26) and shows adv=2 after the token fields"
 
 # ---------------------------------------------------------------------------
 # 5. Exit 2 on a missing transcript dir / run dir; the run is not touched.
@@ -558,6 +631,15 @@ if grep -q 'lonely input=0' "$T/empty.txt"; then
 else
   pass "an unmeasured job printed no fabricated 0"
 fi
+# F7: an unmeasured job's advisor_calls is null too — never a fabricated 0.
+"$PY" "$EXTRACT" --backend claude --workflow-transcript "$T/projects" \
+  --run-dir "$EMPTY" --format json > "$T/empty.json" 2>/dev/null
+"$PY" -c '
+import json, sys
+rep = json.load(open(sys.argv[1], encoding="utf-8"))
+sys.exit(0 if rep["jobs"]["lonely"]["advisor_calls"] is None else 1)
+' "$T/empty.json"
+check $? "an unmeasured job (no transcript) reads advisor_calls: null"
 
 # ---------------------------------------------------------------------------
 # 7. An ASCII stdout must not take the render down (PYTHONIOENCODING=ascii is

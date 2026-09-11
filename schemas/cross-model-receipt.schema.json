@@ -11,6 +11,7 @@
     "diff_digest",
     "reviewer_backend",
     "reviewer_model",
+    "cross_model",
     "produced_at",
     "review",
     "digest"
@@ -31,12 +32,16 @@
     },
     "reviewer_backend": {
       "type": "string",
-      "const": "codex",
-      "description": "MUST be codex. The point of the SCOPED+ receipt is a DIFFERENT model family from the one that wrote the code and the one that reviews it in-harness; a Claude-on-Claude second opinion is not a second opinion."
+      "enum": ["codex", "claude-advisor"],
+      "description": "codex is the genuine cross-model second opinion the SCOPED+ receipt was built for: a DIFFERENT model family from the one that wrote the code and the one that reviews it in-harness. claude-advisor is the on-demand read-only advisor (v2.12) run instead when Codex is unavailable or declined — SAME family as the implementer, so it is recorded honestly via `cross_model: false` rather than misrepresented as codex. The validator refuses a receipt whose `cross_model` value disagrees with this field."
     },
     "reviewer_model": {
       "type": "string",
-      "description": "The concrete model the driver resolved to (e.g. gpt-5.6-sol). Recorded, not constrained: the codex family map moves faster than this schema."
+      "description": "The concrete model the driver resolved to (e.g. gpt-5.6-sol, or the advisor's Claude model id). Recorded, not constrained: the codex family map moves faster than this schema."
+    },
+    "cross_model": {
+      "type": "boolean",
+      "description": "true when `reviewer_backend` is a genuinely different model family from the implementer (codex); false when it is not (claude-advisor). REQUIRED so the flag is asserted, not inferred — the validator refuses a receipt where this disagrees with `reviewer_backend` (codex+false or claude-advisor+true), and warns SECOND_OPINION_SAME_FAMILY on the honest claude-advisor+false case."
     },
     "produced_at": {
       "type": "string",

@@ -33,7 +33,14 @@
 #     --write-allowed "<glob>[:<glob>...]" \
 #     [--timeout-sec <n>] [--network true|false] \
 #     [--read-only true|false] [--output-schema <abs-path>] \
-#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>]
+#     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
+#     [--provision-command <string>] [--provision-timeout-sec <n>]
+#
+# --provision-command runs inside the fresh worktree BEFORE the model launches
+# (dependency install). On a non-zero exit nothing is launched and the job_result is
+# `status: error`. On success the worker snapshots the worktree's untracked+ignored
+# paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
+# installed dependencies are not charged to the model. Default timeout: 600 s.
 #
 # --model is OPTIONAL: when empty, `--model` is omitted from the agy invocation and
 # agy uses its configured default. --output-schema is ACCEPTED for CLI parity with
@@ -245,6 +252,38 @@ id_is_safe() {
 }
 
 # Directory of THIS script (resolves the sibling Python scope gate authority).
+# Snapshot a worktree's untracked ∪ ignored paths into a plain one-path-per-line
+# file, for the scope gate's --preexisting. This is BYTE-IDENTICAL in all four
+# worker scripts — fix it in all four, or in none.
+#
+# It runs the EXACT two `git ls-files` probes the gate itself unions in (sources 2
+# and 3 of compound-v-scope-check.py), so the subtraction agrees with the gate by
+# construction rather than by resemblance: whatever form git reports an ignored tree
+# in, both sides see the same strings.
+#
+# Both probes are NUL-delimited and read with `read -d ''`, so a path containing a
+# newline arrives intact. It cannot be WRITTEN on one line, though, and the gate's
+# --preexisting file is line-oriented — so such a path is DROPPED rather than split
+# into two half-paths. Dropping it means it is never exempt and the gate blocks it:
+# fail closed. Splitting it would put two strings that match nothing into the
+# exemption list, which is the direction that silently forgives.
+#
+# $1 = worktree   $2 = output file (outside the worktree)
+snapshot_preexisting() {
+  _sp_wt="$1"
+  _sp_out="$2"
+  {
+    git -C "$_sp_wt" ls-files --others --exclude-standard -z
+    git -C "$_sp_wt" ls-files --others --ignored --exclude-standard -z -- .
+  } | while IFS= read -r -d '' _sp_path; do
+        [ -n "$_sp_path" ] || continue
+        case "$_sp_path" in
+          *$'\n'*) continue ;;
+        esac
+        printf '%s\n' "$_sp_path"
+      done | sort -u > "$_sp_out"
+}
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # --- argument parsing --------------------------------------------------------
@@ -267,6 +306,13 @@ TEST_CONTRACT_FILE=""
 TEST_TIMEOUT_SEC=900
 TESTS_JSON="null"
 
+# --provision-command / --provision-timeout-sec (v3.6) — the job's dependency
+# install, run by THIS script inside the fresh worktree before the model launches.
+# Empty ⇒ no provisioning happens and nothing about this worker's behaviour changes.
+PROVISION_COMMAND=""
+PROVISION_TIMEOUT_SEC=600
+PREEXISTING_FILE=""
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id)        RUN_ID="$2"; shift 2 ;;
@@ -275,6 +321,8 @@ while [ $# -gt 0 ]; do
     --prompt-file)   PROMPT_FILE="$2"; shift 2 ;;
     --model)         MODEL="$2"; shift 2 ;;
     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
+    --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
+    --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
     --network)       NETWORK="$2"; shift 2 ;;
     --read-only)     READ_ONLY="$2"; shift 2 ;;
@@ -304,6 +352,15 @@ done
 case "$TIMEOUT_SEC" in
   ''|*[!0-9]*) die "--timeout-sec must be a positive integer: $TIMEOUT_SEC" ;;
 esac
+
+# --provision-timeout-sec bounds the dependency install. Pin it to a positive
+# integer for the same reason, and reject 0: a zero-second budget would kill the
+# install the instant it started and report a provision failure that is really a
+# usage fault.
+case "$PROVISION_TIMEOUT_SEC" in
+  ''|*[!0-9]*) die "--provision-timeout-sec must be a positive integer: $PROVISION_TIMEOUT_SEC" ;;
+esac
+[ "$PROVISION_TIMEOUT_SEC" -gt 0 ] || die "--provision-timeout-sec must be greater than 0"
 
 # Path-traversal guard: run_id / job_id become path segments under $TMPROOT, and
 # the stale-worktree cleanup does `rm -rf` on that path. A `../` (or any path
@@ -423,6 +480,51 @@ git -C "$REPO" worktree add "$WT" HEAD >/dev/null 2>&1 \
 ART="$WT.art"
 mkdir -p "$ART"
 
+# --- optional provisioning (v3.6) --------------------------------------------
+# A job whose manifest carries a `provision_command` needs its dependencies present
+# before the model starts — `npm ci`, `uv sync`, `bundle install`. The command runs
+# HERE: in the worker script, inside the fresh worktree, before the backend is
+# launched. That placement buys the one property the scope gate needs. A
+# `git worktree add HEAD` starts with NOTHING untracked, so every untracked or
+# ignored path in the tree the moment provisioning finishes was created by
+# provisioning — attribution by construction, not by trusting anyone's report.
+#
+# That snapshot is handed to the gate as --preexisting. Without it an installed
+# node_modules/ reads as a pile of ignored writes outside write_allowed and BLOCKS a
+# job that did nothing wrong. It does not relax the gate: the subtraction is bounded
+# to paths that existed before the model had taken a single turn, so anything the
+# model writes afterwards — into node_modules/ included — is still measured and still
+# blocks.
+#
+# ORDERING IS THE WHOLE SAFETY ARGUMENT: provision, then snapshot, then launch. A
+# snapshot taken after the launch would exempt the model's own writes.
+if [ -n "$PROVISION_COMMAND" ]; then
+  # Same supervisor, same shape as the test contract: bounded wall clock, killpg on
+  # expiry, output captured to files OUTSIDE the worktree (this worker's stdout is
+  # reserved for exactly one job_result JSON), stdin at EOF so an install that asks a
+  # question fails instead of hanging.
+  set +e
+  python3 "$SUPERVISOR" --timeout "$PROVISION_TIMEOUT_SEC" --grace 3 --cwd "$WT" \
+    --stdout "$ART/provision.out" --stderr "$ART/provision.err" \
+    --max-output-bytes 1048576 -- /bin/bash -c "$PROVISION_COMMAND" </dev/null
+  provision_rc=$?
+  set -e
+  if [ "$provision_rc" != "0" ]; then
+    # Launch NOTHING. A model run against missing dependencies fails in ways that
+    # teach nobody anything, and it would spend real model time to arrive there.
+    # Report the failure as the environment fault it is (rc 124 = the provision
+    # timeout fired) and let the caller's retry policy see a real failure_class.
+    emit_job_result \
+      "error" "false" "[]" "[]" \
+      "provision failed (rc=$provision_rc): $PROVISION_COMMAND" \
+      "" "$WT" "$provision_rc" "other" "0"
+    exit 0
+  fi
+  PREEXISTING_FILE="$ART/preexisting.txt"
+  snapshot_preexisting "$WT" "$PREEXISTING_FILE" \
+    || die "could not snapshot the post-provisioning state of $WT"
+fi
+
 # --- run the headless Antigravity worker -------------------------------------
 # VERIFIED live against agy 1.0.13 on stock macOS:
 #   cd "$WT" && agy --dangerously-skip-permissions --add-dir "$WT" \
@@ -519,8 +621,15 @@ IFS="$_OLDIFS"
 GATE_JSON=""
 gate_rc=0
 set +e
-GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
-  --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
+if [ -n "$PREEXISTING_FILE" ]; then
+  # Provisioning ran: subtract exactly what it installed, nothing else.
+  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
+    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
+else
+  GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
+fi
 gate_rc=$?
 set -e
 
