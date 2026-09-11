@@ -6,6 +6,20 @@ You are about to render the **state of a Compound V orchestrator run**. This is 
 
 The run-id (optional) is `{{args}}`.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Steps
 
 1. **Parse `{{args}}`, then locate the run.** `--live` is the only flag this command recognizes. If
@@ -86,7 +100,7 @@ These renderings are additive and **degrade-safe**: if `docs/superpowers/pre-eva
    # (the `precision` subcommand does NOT auto-read the config floor — pass it, or
    # a single sample would masquerade as a calibrated rate). Resolve the floor from
    # pre_eval.min_sample_count (its declared default when the config is absent/malformed).
-   python3 scripts/compound-v-triage-outcomes.py precision --repo . --min-sample "$FLOOR"
+   python3 "$CV/scripts/compound-v-triage-outcomes.py" precision --repo . --min-sample "$FLOOR"
    # → {"precision": …, "escalation_rate": …, "n": N, "excluded_no_terminal_actual": E}
    #   OR {"status": "insufficient", "n": N, "excluded_no_terminal_actual": E, "min_sample_count": floor}
    ```
@@ -103,7 +117,7 @@ probe fails, render an em-dash or skip the section — never invent an epic stat
     `docs/superpowers/execution/epics/*/epic-state.json`, ask the read-only probe:
 
     ```bash
-    python3 scripts/compound-v-epic-state.py --stats \
+    python3 "$CV/scripts/compound-v-epic-state.py" --stats \
       --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
     # → {"epic_id":…, "status":…, "total":…, "done":…, "pending":…, "running":…,
     #    "failed":…, "blocked":…, "remaining":…}
@@ -133,7 +147,7 @@ transcripts — the same transcripts the harness's own `/workflows`/`/tasks` vie
 what it finds **after** the state table above, never in place of it:
 
 ```bash
-python3 scripts/compound-v-transcript-watch.py --run-dir docs/superpowers/execution/<run-id> --once
+python3 "$CV/scripts/compound-v-transcript-watch.py" --run-dir docs/superpowers/execution/<run-id> --once
 ```
 
 The script discovers the run's workflow transcript directory itself (no `--wf` needed — it scans for the
@@ -156,7 +170,7 @@ static HTML snapshot after it (never once generated in this repo's history): [`/
 shows a running dispatch's live progress, and `/tasks` shows `state.json` / `epic-state.json` progress for runs
 and epics without a snapshot step.
 
-- **Resume context (banner-internal, v2.19)** → `python3 scripts/compound-v-dashboard.py resume [--max-age-hours N] [--json]`. Prints ONE line naming unfinished runs/epics, or nothing at all. It exists because `SessionStart` fires on **`compact`** and the banner is otherwise stateless: a compaction destroys the agent's *position* in a pipeline, not its knowledge of the rules. Freshness comes from the **recorded** `updated_at`/`last_progress_at`, never a file mtime — git rewrites mtimes on clone and branch-switch, which would make every historical run look seconds old on a fresh checkout. A record with no recorded timestamp stays **silent** rather than being assigned a fabricated age.
+- **Resume context (banner-internal, v2.19)** → `python3 "$CV/scripts/compound-v-dashboard.py" resume [--max-age-hours N] [--json]`. Prints ONE line naming unfinished runs/epics, or nothing at all. It exists because `SessionStart` fires on **`compact`** and the banner is otherwise stateless: a compaction destroys the agent's *position* in a pipeline, not its knowledge of the rules. Freshness comes from the **recorded** `updated_at`/`last_progress_at`, never a file mtime — git rewrites mtimes on clone and branch-switch, which would make every historical run look seconds old on a fresh checkout. A record with no recorded timestamp stays **silent** rather than being assigned a fabricated age.
 
 ## Notes
 

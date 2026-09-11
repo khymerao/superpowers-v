@@ -10,6 +10,18 @@ One thing this adapter is **not** allowed to say, because it is wrong: that the 
 
 The defining property: **enforcement is identical to Codex.** The Claude subagent runs the same `git diff` scope gate on return ([`scripts/compound-v-scope-check.py`](../../scripts/compound-v-scope-check.py)), so a Claude job that drifts outside its `write_allowed` is caught and BLOCKED exactly as a Codex job would be. The model is trusted to write code, never trusted to self-report what it changed.
 
+**Resolving the plugin root.** The `scripts/` this adapter calls ship with the plugin, not with
+the caller's repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## The mapping: `job_spec` → one in-harness agent call
@@ -125,7 +137,7 @@ When a claude job returns non-success (errored, hit `maxTurns` without finishing
 #   claude ... --output-format stream-json > "$STREAM_JSON" 2>&1
 # The classifier PARSES the JSONL, selects the api_retry event, and maps the EXACT
 # api_retry.error enum value — it does NOT substring-scan free text on the JSON path.
-python3 scripts/compound-v-classify-failure.py --backend claude \
+python3 "$CV/scripts/compound-v-classify-failure.py" --backend claude \
   --exit-code "$EXIT" --stderr-file "$STREAM_JSON"   # → {failure_class, retryable, matched, retry_after}
 ```
 

@@ -2,6 +2,17 @@
 
 > Read the contract in [`SKILL.md`](SKILL.md) first — this adapter implements that `job_spec → job_result` interface. This file is the backend-specific runbook; the wiring lives in [`scripts/compound-v-run-antigravity-worker.sh`](../../scripts/compound-v-run-antigravity-worker.sh).
 
+The worker script ships with the plugin, not with the caller's repository. Resolve the plugin root
+once per session before invoking it:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+installed plugin cache or a checkout of this repo.
+
 The Antigravity backend is a **Bash-spawned `agy --print` worker** — its own process, its own git worktree. It mirrors the Codex adapter step-for-step ([`adapter-codex.md`](adapter-codex.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
 
 Verified live against **agy 1.1.25** on stock macOS (bash 3.2.57) — version re-probed 2026-09-04 (was 1.0.13; agy self-updates). The verified facts below are pinned — do not re-derive them per run; re-probe only in `/v:init`.
@@ -153,7 +164,7 @@ On any non-zero `agy` exit the worker classifies the failure via [`scripts/compo
 ## Invoking the script
 
 ```bash
-scripts/compound-v-run-antigravity-worker.sh \
+"$CV/scripts/compound-v-run-antigravity-worker.sh" \
   --run-id   2026-06-27-some-feature \
   --job-id   task-1-build \
   --repo     /abs/path/to/repo \
@@ -184,7 +195,7 @@ way a job's `test_scope` could reach a headless Antigravity worker was as a sent
 `--prompt-file`, hoping the model noticed it.
 
 ```bash
-scripts/compound-v-run-antigravity-worker.sh \
+"$CV/scripts/compound-v-run-antigravity-worker.sh" \
   … \
   --test-contract-file /abs/run-dir/jobs/<job-id>.test-contract.json \
   --test-timeout-sec 900        # optional, default 900, per COMMAND

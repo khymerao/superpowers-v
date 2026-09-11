@@ -23,13 +23,18 @@ own prose — specs, ADRs, architecture notes, dogfood records of what actually 
 common way an audit wastes its budget and, worse, contradicts a decision nobody
 told you about.
 
+The script ships with the plugin, not with this repository. Resolve the plugin root once
+per session before calling it — `CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this
+Bash environment, so treat it as a hint, never the whole answer:
+
 ```bash
-python3 scripts/compound-v-memory.py search "<3-8 words from the spec>" --intent planning --top 8
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+python3 "$CV/scripts/compound-v-memory.py" search "<3-8 words from the spec>" --intent planning --top 8
 ```
 
 Run it two or three times with different phrasings: the feature's own words, the
-subsystem it touches, and the failure you most expect. If the plugin is installed
-rather than checked out, the script is at `${CLAUDE_PLUGIN_ROOT}/scripts/`.
+subsystem it touches, and the failure you most expect.
 
 **What to do with it, and what NOT to do.**
 

@@ -20,6 +20,21 @@ delegating, the epic inherits Engine C along with everything else.
 | a **manifest path** (`…/execution/<run-id>/manifest.yaml`) | dispatch it directly (already materialized). |
 | a **run-id** (a dir name under `docs/superpowers/execution/`) | resolve to that run's `manifest.yaml` and dispatch directly. |
 
+## Resolving the plugin root
+
+The `scripts/` and `schemas/` this command calls ship with the plugin — they are not files in
+your own repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
+`schemas/` get `$CV`.
+
 ## Steps
 
 1. **Resolve `{{args}}`.**
@@ -38,10 +53,10 @@ delegating, the epic inherits Engine C along with everything else.
 
    ```
    # legacy manifest (no fast_path block):
-   python3 scripts/compound-v-validate-manifest.py --require-triage \
+   python3 "$CV/scripts/compound-v-validate-manifest.py" --require-triage \
      docs/superpowers/execution/<run-id>/manifest.yaml
    # fast_path manifest (v2.9 pre-eval-backed):
-   python3 scripts/compound-v-validate-manifest.py --require-triage \
+   python3 "$CV/scripts/compound-v-validate-manifest.py" --require-triage \
      docs/superpowers/execution/<run-id>/manifest.yaml --mode pre-dispatch --repo-root <repo>
    ```
 
@@ -112,7 +127,7 @@ delegating, the epic inherits Engine C along with everything else.
 
 
    ```
-   python3 scripts/compound-v-emit-workflow.py --engine-probe
+   python3 "$CV/scripts/compound-v-emit-workflow.py" --engine-probe
    ```
 
    That reports the environment blockers it can decide (`CLAUDE_WORKFLOW_NAME_ONLY`,
@@ -136,7 +151,7 @@ delegating, the epic inherits Engine C along with everything else.
 5. **Emit the workflow, and commit it before it runs.**
 
    ```
-   python3 scripts/compound-v-emit-workflow.py emit \
+   python3 "$CV/scripts/compound-v-emit-workflow.py" emit \
      docs/superpowers/execution/<run-id>/manifest.yaml \
      --out docs/superpowers/execution/<run-id>/dispatch.workflow.js
    git add docs/superpowers/execution/<run-id>/dispatch.workflow.js && git commit -m "…"
@@ -176,7 +191,7 @@ delegating, the epic inherits Engine C along with everything else.
    waiting for the gate to catch a problem after the fact:
 
    ```bash
-   python3 scripts/compound-v-transcript-watch.py --run-dir docs/superpowers/execution/<run-id> --every 120
+   python3 "$CV/scripts/compound-v-transcript-watch.py" --run-dir docs/superpowers/execution/<run-id> --every 120
    ```
 
    It is advisory only — it never writes into the run directory or acts on a signal — but two of its
@@ -189,7 +204,7 @@ delegating, the epic inherits Engine C along with everything else.
 8. **Gate integration on the authority — BEFORE any job commit is integrated.**
 
    ```
-   python3 scripts/compound-v-integration-gate.py \
+   python3 "$CV/scripts/compound-v-integration-gate.py" \
      --run-dir docs/superpowers/execution/<run-id>/ --json
    ```
 
@@ -229,7 +244,7 @@ delegating, the epic inherits Engine C along with everything else.
    RUN=docs/superpowers/execution/<run-id>
    git diff --no-color <baseline from state.json> > $RUN/receipts/cross-model.patch
    # Rung 1 — Codex present:
-   scripts/compound-v-codex-review.sh --repo "$PWD" \
+   "$CV/scripts/compound-v-codex-review.sh" --repo "$PWD" \
      --plan-file "$PWD/$RUN/receipts/cross-model.patch" \
      --context-file "$PWD/<manifest spec_path>" > $RUN/receipts/.review.json
    # Rung 2 — no Codex, an advisor is configured: dispatch one read-only Opus subagent via
@@ -245,9 +260,9 @@ delegating, the epic inherits Engine C along with everything else.
         reviewer_model, produced_at, review: <the reviewer's JSON>}
    ... then digest=record_digest(obj, "digest")
    EOF
-   python3 scripts/compound-v-validate-manifest.py $RUN/manifest.yaml --require-triage \
+   python3 "$CV/scripts/compound-v-validate-manifest.py" $RUN/manifest.yaml --require-triage \
      --require-cross-model-receipt $RUN/receipts/cross-model.json \
-     --expected-diff-digest "$(python3 scripts/compound-v-taxonomy.py --digest $RUN/receipts/cross-model.patch)"
+     --expected-diff-digest "$(python3 "$CV/scripts/compound-v-taxonomy.py" --digest $RUN/receipts/cross-model.patch)"
    ```
 
    A `reviewer_backend: "claude-advisor"` receipt is **accepted with a `SECOND_OPINION_SAME_FAMILY`
@@ -281,7 +296,7 @@ delegating, the epic inherits Engine C along with everything else.
    terminal triage outcome:
 
    ```
-   python3 scripts/compound-v-triage-outcomes.py actual \
+   python3 "$CV/scripts/compound-v-triage-outcomes.py" actual \
      --pre-eval-id <manifest triage.pre_eval_id> --run-id <run-id> \
      --review-result approved            # the step-8 verdict, verbatim; never assumed
      [--demoted] [--ci-failed] [--reverted] [--escalated]   # negative outcomes, when they happened
@@ -308,7 +323,7 @@ delegating, the epic inherits Engine C along with everything else.
    own transcripts. Sum them into the run's results:
 
    ```
-   /usr/bin/python3 "${CLAUDE_PLUGIN_ROOT}/scripts/compound-v-usage-extract.py" --backend claude \
+   /usr/bin/python3 "$CV/scripts/compound-v-usage-extract.py" --backend claude \
      --workflow-transcript "$HOME/.claude/projects/<cwd-slug>/" \
      --run-dir docs/superpowers/execution/<run-id> --write
    ```

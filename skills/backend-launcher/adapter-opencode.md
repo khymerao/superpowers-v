@@ -2,6 +2,17 @@
 
 > Read the contract in [`SKILL.md`](SKILL.md) first — this adapter implements that `job_spec → job_result` interface. This file is the backend-specific runbook; the wiring lives in [`scripts/compound-v-run-opencode-worker.sh`](../../scripts/compound-v-run-opencode-worker.sh) (**built, but auth-pending / coverage-unverified** — see "Worker script" below).
 
+The worker script ships with the plugin, not with the caller's repository. Resolve the plugin root
+once per session before invoking it:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+installed plugin cache or a checkout of this repo.
+
 The opencode backend is a **Bash-spawned `opencode run` worker** — its own process, its own git worktree. It mirrors the Antigravity / Cursor adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md), [`adapter-cursor.md`](adapter-cursor.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. UNLIKE every other backend, opencode is **provider-agnostic / multi-provider** — its resolved `model` is always a `provider/model` string (e.g. `anthropic/claude-opus-4-6`), never a bare model name.
 
 Verified live against **opencode-ai 1.17.18** (npm, installed via `npm install -g opencode-ai`) on stock macOS. **This package ships new dev/beta builds multiple times per day** (`npm view opencode-ai --json` showed dist-tags timestamped within the hour of the original research probe) — re-probe the flag set at `/v:init` time; do not assume it is stable across even a few weeks.
@@ -164,7 +175,7 @@ Following the exact shape of [`scripts/compound-v-run-codex-worker.sh`](../../sc
 ## Invoking the script
 
 ```bash
-scripts/compound-v-run-opencode-worker.sh \
+"$CV/scripts/compound-v-run-opencode-worker.sh" \
   --run-id 2026-07-13-some-feature \
   --job-id task-1-build \
   --repo /abs/path/to/repo \
@@ -189,7 +200,7 @@ way a job's `test_scope` could reach a headless opencode worker was as a sentenc
 `--prompt-file`, hoping the model noticed it.
 
 ```bash
-scripts/compound-v-run-opencode-worker.sh \
+"$CV/scripts/compound-v-run-opencode-worker.sh" \
   … \
   --test-contract-file /abs/run-dir/jobs/<job-id>.test-contract.json \
   --test-timeout-sec 900        # optional, default 900, per COMMAND

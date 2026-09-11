@@ -530,6 +530,62 @@ def check(cwd, baseline, allowed, preexisting=None):
     return changed, violations
 
 
+# A single stray file under a gitignored directory is not a pattern worth
+# guessing about; a real build/codegen run typically drops several. Kept small
+# and named so the "concentrated" rule stays boring and inspectable, per the
+# constraint that this is a heuristic, not a classifier.
+MIN_HINT_VIOLATIONS = 3
+
+
+def gitignore_concentration_hint(cwd, violations):
+    """Diagnosis-only prose for a BLOCKED verdict: never changes it.
+
+    A real incident (v3.6 dogfood) cost a downstream user real time: a job ran
+    ``yarn build`` as its "typecheck", ``tsc`` emitted into ``dist/``, and the
+    gate correctly BLOCKED every emitted file — "an ignored write is a write"
+    has no exceptions. But the violation list alone made the user reconstruct,
+    path by path, that every one of them sat under one gitignored directory.
+    This function names that shape when (and only when) it actually holds, so
+    the same correct refusal is easier to diagnose. It never forgives, exempts,
+    or removes a violation — see the module docstring's "nothing is forgiven by
+    extension and nothing by name."
+
+    The "concentrated" rule, deliberately boring (no extensions, no filenames):
+      1. there are at least ``MIN_HINT_VIOLATIONS`` violations (a lone file is
+         not a pattern),
+      2. every violation sits under a directory (contains at least one ``/``),
+      3. every violation shares the SAME top-level directory, and
+      4. that directory is itself gitignored (``git check-ignore``, not a
+         guess from the name or extension).
+
+    Returns a hint string, or ``None`` when the shape does not match — the
+    caller appends it to the existing BLOCKED message; it is never a
+    substitute for the violation list itself.
+    """
+    if len(violations) < MIN_HINT_VIOLATIONS:
+        return None
+    top_dirs = set()
+    for v in violations:
+        if "/" not in v:
+            # Not "under" any directory — can't be part of a directory-shaped
+            # concentration, so the whole heuristic declines rather than guess.
+            return None
+        top_dirs.add(v.split("/", 1)[0])
+    if len(top_dirs) != 1:
+        return None
+    top_dir = next(iter(top_dirs))
+    rc, _out, _err = _git(cwd, ["check-ignore", "-q", "--", top_dir + "/"])
+    if rc != 0:
+        # Not gitignored (or git couldn't tell) — say nothing rather than guess.
+        return None
+    return (
+        "HINT (heuristic, not part of the verdict): all %d violation(s) are "
+        "under '%s/', which this repository gitignores — did this job run a "
+        "build or a codegen step? These paths are still BLOCKED regardless: "
+        "an ignored write is a write, with no exceptions." % (len(violations), top_dir)
+    )
+
+
 def build_parser():
     p = argparse.ArgumentParser(
         prog="compound-v-scope-check.py",
@@ -642,6 +698,9 @@ def main(argv):
         )
         for v in violations:
             print("  - %s" % v, file=sys.stderr)
+        hint = gitignore_concentration_hint(cwd, violations)
+        if hint:
+            print(hint, file=sys.stderr)
         return 1
     return 0
 
@@ -928,6 +987,111 @@ def _selftest():
         expect(
             "ignored: dist/leak.js BLOCKS (violation outside write_allowed)",
             "dist/leak.js" in violations,
+        )
+
+        # GITIGNORE-CONCENTRATION HINT (this task): the same BLOCKED verdict as
+        # above, but with the diagnosis prose that names the likely cause when
+        # violations are concentrated under one gitignored directory. Two more
+        # files under dist/ so the shape genuinely matches "a build ran"
+        # (MIN_HINT_VIOLATIONS is 3 — a single leaked file proves nothing).
+        os.makedirs(os.path.join(irepo, "dist", "nested"))
+        with open(os.path.join(irepo, "dist", "leak2.js"), "w") as f:
+            f.write("leaked2\n")
+        with open(os.path.join(irepo, "dist", "nested", "leak3.js"), "w") as f:
+            f.write("leaked3\n")
+        changed, violations = check(irepo, "HEAD", ["src/**"])
+        expect(
+            "hint setup: all three dist/ leaks are BLOCKED (verdict unchanged)",
+            {"dist/leak.js", "dist/leak2.js", "dist/nested/leak3.js"}
+            <= set(violations),
+        )
+        hint = gitignore_concentration_hint(irepo, violations)
+        expect(
+            "hint: concentrated + gitignored violations get a build/codegen hint",
+            hint is not None
+            and "dist/" in hint
+            and "gitignore" in hint
+            and "3" in hint
+            and "build or a codegen step" in hint,
+        )
+        expect(
+            "hint: never claims the paths ARE artifacts, only that they look like it",
+            hint is not None and "did this job run" in hint,
+        )
+        expect(
+            "hint: still states the verdict is unchanged (no exemption offered)",
+            hint is not None and "still BLOCKED" in hint and "no exceptions" in hint,
+        )
+
+        # PLANTED-FAILURE PROOF for the CLI wiring: run the real script (not just
+        # the helper) against the same BLOCKED case and check the hint reaches
+        # stderr alongside the unchanged BLOCKED list — this is what a downstream
+        # user actually sees.
+        cli = subprocess.run(
+            [sys.executable, "-B", os.path.abspath(__file__),
+             "--worktree", irepo, "--allow", "src/**"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+        )
+        expect("hint: CLI exit code still 1 (BLOCKED, unchanged)", cli.returncode == 1)
+        try:
+            cli_verdict = json.loads(cli.stdout)
+        except ValueError:
+            cli_verdict = {}
+        expect(
+            "hint: CLI JSON verdict/violations unchanged by the added prose",
+            cli_verdict.get("verdict") == "blocked"
+            and {"dist/leak.js", "dist/leak2.js", "dist/nested/leak3.js"}
+            <= set(cli_verdict.get("violations") or []),
+        )
+        expect(
+            "hint: CLI stderr carries both the BLOCKED list and the hint text",
+            "BLOCKED: " in cli.stderr and "gitignore" in cli.stderr,
+        )
+
+        # Below-threshold: two violations under the same gitignored dir is not
+        # (yet) a pattern — no hint, even though both conditions otherwise hold.
+        expect(
+            "hint: below MIN_HINT_VIOLATIONS stays silent",
+            gitignore_concentration_hint(irepo, ["dist/leak.js", "dist/leak2.js"])
+            is None,
+        )
+
+        # Not concentrated: violations split across two top-level directories,
+        # even though dist/ itself is gitignored — no single cause to name.
+        expect(
+            "hint: violations spanning two top-level dirs stay silent",
+            gitignore_concentration_hint(
+                irepo,
+                ["dist/leak.js", "dist/leak2.js", "src/leak3.ts"],
+            )
+            is None,
+        )
+
+        # Concentrated but NOT gitignored: three files under a real, tracked
+        # directory outside write_allowed. This is an ordinary scope violation,
+        # not a build artifact — the heuristic must not guess one.
+        os.makedirs(os.path.join(irepo, "loose"), exist_ok=True)
+        for _nm in ("a.txt", "b.txt", "c.txt"):
+            with open(os.path.join(irepo, "loose", _nm), "w") as f:
+                f.write("x\n")
+        _, loose_violations = check(irepo, "HEAD", ["src/**"])
+        expect(
+            "hint setup: loose/ files BLOCK too (not gitignored)",
+            {"loose/a.txt", "loose/b.txt", "loose/c.txt"} <= set(loose_violations),
+        )
+        expect(
+            "hint: concentrated-but-not-gitignored stays silent",
+            gitignore_concentration_hint(
+                irepo, ["loose/a.txt", "loose/b.txt", "loose/c.txt"]
+            )
+            is None,
+        )
+
+        # Top-level files with no directory at all can't be "concentrated under
+        # a directory" — declines rather than mis-describing a bare filename.
+        expect(
+            "hint: bare top-level filenames (no '/') stay silent",
+            gitignore_concentration_hint(irepo, ["a.pyc", "b.pyc", "c.pyc"]) is None,
         )
 
         # NO-CARVE-OUT case (fourth review pass, 2026-09-02). Two exemptions were

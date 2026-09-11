@@ -236,7 +236,11 @@ IMPLEMENT_SHELL = [
     "Bash(chmod:*)", "Bash(cd:*)", "Bash(env:*)", "Bash(which:*)", "Bash(date:*)",
 ]
 
-STAGE_PHASES = ["Implement", "Gate", "Record", "Finalize"]
+# "Continuity" runs once, before wave 0's Implement: it is the check that lets a
+# relaunch skip a job state.json already records as merged.integrated, instead
+# of re-spawning Implement and Gate on work that already landed (see
+# `alreadyIntegratedIds` in JS_TEMPLATE and `cmd_integrated_jobs`).
+STAGE_PHASES = ["Continuity", "Implement", "Gate", "Record", "Finalize"]
 
 # Reserve, in tokens, assumed per queued agent when guarding fan-out against the
 # native `budget` ceiling. Deliberately a round, declared constant rather than a
@@ -969,6 +973,78 @@ def _js_parses(script):
     try:
         r = subprocess.run([node, "--check", name], capture_output=True, text=True)
         return r.returncode == 0
+    finally:
+        os.unlink(name)
+
+
+def _run_emitted_wave_loop(script, integrated_ids, timeout=30):
+    """Actually EXECUTE an emitted script's wave loop, with fake runtime globals
+    standing in for the ones Engine C injects (`agent`, `pipeline`, `budget`,
+    `phase`, `log`, `args`) — the same async-function-body wrapping `_js_parses`
+    uses, so the parse mirrors the real runtime. Every other check in this file
+    tests the JS by STRING PRESENCE in the generated text; this one instead
+    proves the control-flow claim itself — that a job the fake Continuity
+    answer names never reaches Implement or Gate — by running it.
+
+    `agent()` is a spy: it answers `phase: 'Continuity'` with `integrated_ids`
+    and every other phase with a minimal valid stub, and records every call's
+    `(phase, label)`. `pipeline` mirrors the documented contract: stage 1 takes
+    the item, every later stage takes `(prevOutput, item)`.
+
+    Returns `{"result": <the script's returned `summary`>, "calls": [...]}`, or
+    `{"error": ...}` on a node-side failure, or None when node is unavailable
+    (skipped, not failed — the twin of `_js_parses`'s own convention).
+    """
+    import shutil, subprocess, tempfile
+    node = shutil.which("node")
+    if not node:
+        return None
+    fakes = (
+        "const calls = [];\n"
+        "const INTEGRATED_IDS = " + json.dumps(list(integrated_ids)) + ";\n"
+        "async function agent(prompt, opts) {\n"
+        "  const ph = opts && opts.phase;\n"
+        "  calls.push({ phase: ph, label: opts && opts.label });\n"
+        "  if (ph === 'Continuity') return { integrated: INTEGRATED_IDS };\n"
+        "  if (ph === 'Implement') return { status: 'ok', worktree: '', summary: 's' };\n"
+        "  if (ph === 'Gate') return { job_id: 'x', verdict: 'pass', source: 't' };\n"
+        "  if (ph === 'Record') return { job_id: 'x', recorded: true, status: 'success' };\n"
+        "  if (ph === 'Finalize') return { wave: 1, integrated: true, merged: [] };\n"
+        "  return null;\n"
+        "}\n"
+        "async function pipeline(items, ...stages) {\n"
+        "  const out = [];\n"
+        "  for (const item of items) {\n"
+        "    let val = await stages[0](item);\n"
+        "    for (let i = 1; i < stages.length; i++) val = await stages[i](val, item);\n"
+        "    out.push(val);\n"
+        "  }\n"
+        "  return out;\n"
+        "}\n"
+        "const budget = { total: null, remaining: function () { return Infinity; } };\n"
+        "function phase(t) {}\n"
+        "function log(m) {}\n"
+        "const args = { now: '2026-01-01T00:00:00Z' };\n"
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".mjs", delete=False,
+                                     encoding="utf-8") as fh:
+        fh.write(fakes)
+        fh.write("(async function () {\n")
+        fh.write(script.replace("export const meta", "const meta", 1))
+        fh.write("\n})().then(function (result) {\n")
+        fh.write("  process.stdout.write(JSON.stringify({ result: result, calls: calls }));\n")
+        fh.write("}).catch(function (e) {\n")
+        fh.write("  process.stdout.write(JSON.stringify({ error: String((e && e.stack) || e) }));\n")
+        fh.write("});\n")
+        name = fh.name
+    try:
+        r = subprocess.run([node, name], capture_output=True, text=True, timeout=timeout)
+        if r.returncode != 0:
+            return {"error": (r.stderr or r.stdout)[:2000]}
+        try:
+            return json.loads(r.stdout.strip())
+        except ValueError:
+            return {"error": "unparseable node output: %r" % r.stdout[:500]}
     finally:
         os.unlink(name)
 
@@ -2411,6 +2487,20 @@ RECORD_SCHEMA = {
     },
 }
 
+INTEGRATED_JOBS_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["integrated"],
+    "properties": {
+        # Job ids state.json already records `merged.integrated: true` for, read
+        # ONCE before wave 0 (see `alreadyIntegratedIds` below and
+        # `cmd_integrated_jobs`). A transport ack, not a verdict: it never
+        # decides at-most-once by itself, and the finalizer's git-derived check
+        # stays the last line of defence.
+        "integrated": {"type": "array", "items": {"type": "string"}},
+    },
+}
+
 
 def _implement_prompt(job, plan):
     """The implementer's prompt. Ends with the enforcement-field lock."""
@@ -2695,6 +2785,7 @@ def emit_script(plan):
         "__GATE_SCHEMA__": _js_json(GATE_SCHEMA),
         "__RECORD_SCHEMA__": _js_json(RECORD_SCHEMA),
         "__FINALIZE_SCHEMA__": _js_json(FINALIZE_SCHEMA),
+        "__INTEGRATED_JOBS_SCHEMA__": _js_json(INTEGRATED_JOBS_SCHEMA),
     }
     pattern = re.compile("|".join(
         re.escape(k) for k in sorted(substitutions, key=len, reverse=True)))
@@ -2728,6 +2819,7 @@ const IMPLEMENT_SCHEMA = __IMPLEMENT_SCHEMA__;
 const GATE_SCHEMA = __GATE_SCHEMA__;
 const RECORD_SCHEMA = __RECORD_SCHEMA__;
 const FINALIZE_SCHEMA = __FINALIZE_SCHEMA__;
+const INTEGRATED_JOBS_SCHEMA = __INTEGRATED_JOBS_SCHEMA__;
 
 // Timestamps must be passed in; the runtime forbids reading a clock.
 const NOW = (args && args.now) ? String(args.now) : null;
@@ -3105,7 +3197,12 @@ async function gateStage(prev, job) {
 // Idempotence alone is not enough: a relaunch re-runs every agent that started
 // after a failed one, INCLUDING completed ones, so a finished job can implement,
 // gate and record a second time. The at-most-once property is keyed to an
-// immutable commit hash in Python, not to this stage running once.
+// immutable commit hash in Python, not to this stage running once — that stays
+// true here, as the last line of defence. But a job the wave loop already knows
+// is `merged.integrated` (see `alreadyIntegratedIds` below) is filtered out of
+// `wave` before `pipeline(...)` runs at all, so this stage — like Implement and
+// Gate — is not even reached for it on a relaunch; only a job this run has not
+// yet proven merged still pays for a second implement/gate/record.
 // ---------------------------------------------------------------------------
 async function recordStage(verdict, job) {
   try {
@@ -3245,9 +3342,79 @@ async function finalizeWave(waveIndex, wave) {
 function waveHadFailure(waveSummary, fin) {
   if (!fin || fin.integrated !== true) return true;
   for (let i = 0; i < waveSummary.jobs.length; i++) {
-    if (waveSummary.jobs[i].status !== 'success') return true;
+    // 'skipped-integrated' is not a pipeline outcome — nothing ran, because
+    // state.json already proved this job merged on a prior attempt — so it must
+    // not read as the FAILURE that any other non-'success' status is. Treating
+    // it as one would halt every relaunch on the very jobs the skip exists to
+    // let through.
+    if (waveSummary.jobs[i].status !== 'success'
+        && waveSummary.jobs[i].status !== 'skipped-integrated') return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-wave — which jobs state.json ALREADY records as `merged.integrated`,
+// read ONCE before wave 0, not per wave. A relaunch (native crash-resume, or
+// `/v:resume`'s documented `resume-prepare` then relaunch-by-`scriptPath`: see
+// its docstring, which computes the SAME set as this call's `integrated`, just
+// from the orchestrator's side) re-executes this script from wave 0 with the
+// SAME embedded `CFG.waves` — so without this read, a merged job is handed to
+// `pipeline(...)` again: a full Implement spawn, then a Gate spawn whose `git
+// diff` runs against a baseline every commit since has moved past, so it can
+// only ever refuse (the merge-time twin of finding 146). Reading it via
+// `cmd_integrated_jobs` (the same `_load_state` the finalizer's own
+// "ALREADY MERGED? ASK GIT, NOT state.json" check reads) is not a second
+// source of truth, and it does not decide at-most-once itself — the finalizer
+// below, from git, stays the last line of defence; this only skips the two
+// spawns that check could never have made worthwhile.
+//
+// Once is enough for the whole run: integration is monotonic (nothing
+// un-merges a job), and a job can only ever be added to this set by a wave
+// BEFORE the one asking, never a later one. If this call itself fails (a null
+// or malformed ack), it fails OPEN to "nothing known integrated" — the
+// pre-existing behaviour of re-running Implement/Gate — rather than guessing;
+// that is a wasted spawn, never a wrong merge.
+//
+// One honest limit: if the runtime's own crash-resume ever replays a prior
+// `agent()` call's result BY POSITION instead of re-invoking it, this call
+// would replay whatever it answered on the attempt that crashed. That is no
+// worse than today: wave 0's Implement and Gate calls are exactly as
+// positionally replayed, and this call carries no side effect either way.
+// ---------------------------------------------------------------------------
+async function alreadyIntegratedIds() {
+  const cmd = CFG.python + ' -B ' + CFG.emitter + ' integrated-jobs' +
+    ' --run-dir ' + q(CFG.run_dir);
+  const prompt =
+    'Run EXACTLY this one command and return its JSON output verbatim as your ' +
+    'structured result. Do not summarise it, do not re-run it, do not run ' +
+    'anything else.\n\n```bash\n' + cmd + '\n```\n';
+  const ires = await withRetry('continuity', 'run', function () {
+    return agent(prompt, {
+      label: 'already-integrated jobs',
+      phase: 'Continuity',
+      schema: INTEGRATED_JOBS_SCHEMA,
+      // Transport, not judgment: one clamped command, verbatim JSON back.
+      ...(CFG.transport_model ? { model: CFG.transport_model } : {}),
+      disallowedTools: CFG.narrow_disallowed,
+      bashCommandClamp: [
+        'Bash(' + CFG.python + ' -B ' + CFG.emitter + ' integrated-jobs:*)'
+      ]
+    });
+  });
+  if (ires.retries.length) {
+    log('already-integrated check retried: ' + JSON.stringify(ires.retries));
+  }
+  const doc = ires.value;
+  if (!doc || !Array.isArray(doc.integrated)) {
+    // LOUD, not silent: this is the one path where the fix this stage exists
+    // for does not apply, and a relaunch will pay for it again.
+    log('already-integrated check produced no usable result — every job in ' +
+        'this run will be treated as NOT yet integrated (Implement/Gate will ' +
+        're-run for jobs that may already be merged).');
+    return [];
+  }
+  return doc.integrated;
 }
 
 // ---------------------------------------------------------------------------
@@ -3263,23 +3430,56 @@ const summary = {
   halted: false, halt_reason: null
 };
 
+const alreadyIntegrated = await alreadyIntegratedIds();
+if (alreadyIntegrated.length) {
+  log('relaunch: ' + alreadyIntegrated.length + ' job(s) already integrated — ' +
+      alreadyIntegrated.join(', ') + ' — will be skipped before Implement.');
+}
+
 for (let w = 0; w < CFG.waves.length; w++) {
-  const wave = CFG.waves[w];
+  const allJobs = CFG.waves[w];
   const title = 'Wave ' + (w + 1);
   phase(title);
 
-  if (!budgetAllows(wave.length)) {
+  if (!budgetAllows(allJobs.length)) {
     log(title + ': stopping before the budget ceiling rather than letting agent() throw. ' +
         'Remaining waves are unrun; /v:resume re-dispatches them.');
     summary.stopped_for_budget = true;
     break;
   }
 
-  log(title + ': ' + wave.length + ' job(s) — ' + wave.map(function (j) { return j.id; }).join(', '));
+  // Filtered BEFORE `pipeline(...)`, not inside implementStage: a job already
+  // proven merged has nothing left for Implement OR Gate to do, and filtering
+  // here is what makes both spawns not happen at all, rather than happening
+  // and being discarded.
+  const wave = allJobs.filter(function (j) { return alreadyIntegrated.indexOf(j.id) === -1; });
+  const skipped = allJobs.filter(function (j) { return alreadyIntegrated.indexOf(j.id) !== -1; });
 
-  const acks = await pipeline(wave, implementStage, gateStage, recordStage);
+  log(title + ': ' + wave.length + ' job(s) — ' + wave.map(function (j) { return j.id; }).join(', ') +
+      (skipped.length ? '; ' + skipped.length + ' already integrated, skipped: ' +
+       skipped.map(function (j) { return j.id; }).join(', ') : ''));
+
+  const acks = wave.length
+    ? await pipeline(wave, implementStage, gateStage, recordStage)
+    : [];
 
   const waveSummary = { wave: w + 1, jobs: [] };
+  // Skipped jobs are reported FIRST and by name — /v:status and a human reading
+  // the transcript must see WHY a job in this wave shows no Implement or Gate
+  // activity on this relaunch, not read it as silently missing.
+  for (let i = 0; i < skipped.length; i++) {
+    waveSummary.jobs.push({
+      id: skipped[i].id,
+      // Not recorded BY THIS RELAUNCH — nothing here wrote results/receipts/
+      // state.json this run. It was recorded by whichever earlier attempt
+      // actually merged it, and claiming this run recorded it would be the
+      // fabricated-evidence pattern this project refuses everywhere else.
+      recorded: false,
+      status: 'skipped-integrated',
+      reason: 'state.json already records merged.integrated for this job; ' +
+              'Implement and Gate were not re-run on this relaunch'
+    });
+  }
   for (let i = 0; i < wave.length; i++) {
     const ack = acks[i];
     waveSummary.jobs.push({
@@ -3293,7 +3493,11 @@ for (let w = 0; w < CFG.waves.length; w++) {
     });
   }
 
-  const fin = await finalizeWave(w, wave);
+  // The FULL wave — skipped ids included — goes to the finalizer unchanged
+  // from before this fix: its own git-derived "ALREADY MERGED?" check (below)
+  // already handles a job proven merged, and that at-most-once check is the
+  // one this file does not touch.
+  const fin = await finalizeWave(w, allJobs);
   waveSummary.finalize = fin;
   summary.waves.push(waveSummary);
   log(title + ' done: ' + JSON.stringify(waveSummary.jobs));
@@ -7177,8 +7381,9 @@ def selftest():
                routed["transport_model"] == "sonnet",
                str(routed["transport_model"]))
         tscript_r = emit_script(routed)
-        _check("all three transport stages read CFG.transport_model",
-               tscript_r.count("CFG.transport_model ? { model: CFG.transport_model }") == 3,
+        _check("all four transport stages read CFG.transport_model (Gate, Record, "
+               "Finalize, and Continuity's own integrated-jobs read)",
+               tscript_r.count("CFG.transport_model ? { model: CFG.transport_model }") == 4,
                str(tscript_r.count("CFG.transport_model")))
         _check("transport_model is carried into CFG",
                '"transport_model"' in tscript_r.split("const IMPLEMENT_SCHEMA", 1)[0])
@@ -7802,6 +8007,77 @@ def selftest():
                "waveHadFailure" in script_2 and "summary.halted = true" in script_2)
         _check("Finalize is a declared phase, so the runtime can render it",
                "Finalize" in STAGE_PHASES and "phase: 'Finalize'" in script_2)
+
+        # --- finding 146's twin: an INTEGRATED job must not be re-run on a relaunch
+        _check("Continuity is a declared phase, so the runtime can render it",
+               "Continuity" in STAGE_PHASES and "phase: 'Continuity'" in script_2)
+        _check("the emitted script reads which jobs state.json already records as "
+               "merged.integrated, and skips them BEFORE Implement",
+               "alreadyIntegratedIds" in script_2
+               and "'skipped-integrated'" in script_2
+               and " integrated-jobs'" in script_2)
+        _check("the skip is applied to `wave` BEFORE it reaches the pipeline, never "
+               "inside implementStage (which would still cost the spawn)",
+               script_2.index("alreadyIntegrated.indexOf(j.id) === -1")
+               < script_2.index("pipeline(wave, implementStage, gateStage, recordStage)"))
+        _check("a skipped job cannot trip waveHadFailure — it is not a pipeline outcome",
+               "waveSummary.jobs[i].status !== 'skipped-integrated'" in script_2)
+        _check("a skipped job's ack never claims THIS relaunch recorded it "
+               "(fabricated-evidence guard: it was an earlier attempt that merged it)",
+               "recorded: false,\n      status: 'skipped-integrated'," in script_2)
+        _check("the finalizer still gets the FULL wave (skipped ids included) — its "
+               "own git-derived at-most-once check is untouched by this fix",
+               "finalizeWave(w, allJobs)" in script_2)
+        _check("cmd_integrated_jobs is registered as a real subcommand, reachable "
+               "the same way gate-receipt/record/finalize-wave/resume-prepare are",
+               SUBCOMMANDS.get("integrated-jobs") is cmd_integrated_jobs)
+
+        # ACTUALLY RUN the wave loop, with fake runtime globals standing in for
+        # the ones Engine C injects. Every other check above tests the emitted
+        # JS by string presence; this one runs it, so it proves the CONTROL FLOW
+        # claim — not just that the right tokens appear somewhere in the file.
+        _ci_plan = _plan_for(_tiny_manifest(
+            # `worktree`, not `direct`: two DIRECT jobs in one wave are both
+            # main-checkout writers and `_serialize_unattributable_waves` splits
+            # them into separate waves (one before-image cannot attribute two
+            # concurrent writers) — which would defeat this test's whole point
+            # of putting an integrated and a non-integrated job in the SAME wave.
+            [{"id": "j1", "isolation": "worktree", "write_allowed": ["a/**"]},
+             {"id": "j2", "isolation": "worktree", "write_allowed": ["b/**"]}],
+            max_parallel=2), tmp)
+        _ci_script = emit_script(_ci_plan)
+        # j1 is the fake Continuity answer's ONLY integrated id; j2 is not.
+        _ci_out = _run_emitted_wave_loop(_ci_script, ["j1"])
+        if _ci_out is None:
+            _check("skipped without node: real execution proving an integrated "
+                   "job is not implemented or gated on a relaunch", True)
+        else:
+            _check("the emitted script actually runs under fake runtime globals "
+                   "(no node-side error)",
+                   "error" not in _ci_out, str(_ci_out.get("error"))[:500])
+            _ci_calls = _ci_out.get("calls") or []
+            _ci_result = _ci_out.get("result") or {}
+            _j1_calls = [c.get("label") for c in _ci_calls
+                        if c.get("label") in ("implement j1", "gate j1", "record j1")]
+            _j2_calls = [c.get("label") for c in _ci_calls
+                        if c.get("label") in ("implement j2", "gate j2", "record j2")]
+            _check("REAL EXECUTION: a job state.json already records as "
+                   "merged.integrated is not implemented or gated on a relaunch",
+                   _j1_calls == [], str(_ci_calls))
+            _check("REAL EXECUTION: a job NOT recorded integrated is still "
+                   "implemented, gated and recorded, exactly as before this fix",
+                   sorted(_j2_calls) == ["gate j2", "implement j2", "record j2"],
+                   str(_ci_calls))
+            _ci_jobs = {j.get("id"): j for j in
+                       ((_ci_result.get("waves") or [{}])[0].get("jobs") or [])}
+            _check("the skipped job's ack says so explicitly — /v:status and a "
+                   "human reading the transcript see WHY, not a silent gap",
+                   _ci_jobs.get("j1", {}).get("status") == "skipped-integrated"
+                   and _ci_jobs.get("j2", {}).get("status") == "success",
+                   str(_ci_jobs))
+            _check("REAL EXECUTION: a skipped job does not make its wave fail",
+                   _ci_result.get("halted") is False, str(_ci_result))
+
         # Record must not be able to write into the checkout at all. Asserted on
         # the compiled name table rather than on behaviour, because "it did not
         # merge THIS time" is not the property; "it cannot" is.
@@ -8461,6 +8737,23 @@ def selftest():
                        for n in os.listdir(os.path.join(pin_dir, "receipts"))))
         _check("resume-prepare leaves the run pre-dispatch, not BLOCKED",
                _rp_after.get("phase") == "PARTITION_VERIFIED")
+
+        # `integrated-jobs` (what the emitted script's wave loop calls, via one
+        # clamped transport agent) must report EXACTLY the set resume-prepare's
+        # `kept` computed above from the SAME state.json — p2 only, p1 excluded
+        # because resume-prepare just reset it to pending. Not a second source
+        # of truth: both read `_load_state(run_dir)["jobs"][id]["merged"]`.
+        _ij_buf, _ij_saved = io.StringIO(), sys.stdout
+        sys.stdout = _ij_buf
+        try:
+            _ij_rc = cmd_integrated_jobs(["--run-dir", pin_dir])
+        finally:
+            sys.stdout = _ij_saved
+        _ij_out = json.loads(_ij_buf.getvalue())
+        _check("integrated-jobs reports exactly resume-prepare's `kept` set — p2, "
+               "not the just-unpinned p1",
+               _ij_rc == 0 and _ij_out.get("integrated") == ["p2"],
+               str(_ij_out))
         # a codex job with an environmental failure and a live worktree is left for `codex exec resume`
         _rp3 = _load_state(pin_dir)
         _rp3["jobs"]["p3"] = {"status": "failed", "baseline": "c" * 40, "worktree": fin_repo,
@@ -9304,8 +9597,8 @@ def selftest():
         _sent_names = sorted(set(re.findall(r"__[A-Z0-9_]+__", JS_TEMPLATE)))
         _check("every template sentinel is known to emit_script's substitution map",
                _sent_names == ["__CFG__", "__FINALIZE_SCHEMA__", "__GATE_SCHEMA__",
-                               "__IMPLEMENT_SCHEMA__", "__META__",
-                               "__RECORD_SCHEMA__"],
+                               "__IMPLEMENT_SCHEMA__", "__INTEGRATED_JOBS_SCHEMA__",
+                               "__META__", "__RECORD_SCHEMA__"],
                str(_sent_names))
         _sent_man = _tiny_manifest([
             {"id": "impl", "tier": "standard", "write_allowed": ["src/**"],
@@ -9755,7 +10048,13 @@ def cmd_resume_prepare(argv):
     lane-map worktree entries, and move `receipts/<id>.gate.json` aside as
     `receipts/<id>.gate.superseded-<realised-or-ts>.json` so the integration
     authority never reads the crashed attempt's verdict as this attempt's.
-    Integrated jobs are untouched. The phase returns to PARTITION_VERIFIED.
+    Integrated jobs are untouched HERE — `out["kept"]` below is exactly
+    `cmd_integrated_jobs`'s `integrated` list, read from the same state — and
+    the emitted script's own wave loop (`alreadyIntegratedIds` in JS_TEMPLATE)
+    is what keeps them untouched on the relaunch this command prepares: without
+    that second half, the relaunch re-ran Implement and Gate on every job kept
+    here, and the Gate could only ever refuse (finding 146's twin for a job that
+    already merged). The phase returns to PARTITION_VERIFIED.
     """
     ap = argparse.ArgumentParser(prog="compound-v-emit-workflow.py resume-prepare")
     ap.add_argument("--run-dir", required=True)
@@ -9818,6 +10117,42 @@ def cmd_resume_prepare(argv):
     return 0
 
 
+def cmd_integrated_jobs(argv):
+    """`integrated-jobs --run-dir R`: job ids state.json already records as
+    `merged.integrated: true` — read via `_load_state`, the SAME helper
+    `cmd_finalize_wave`'s own "ALREADY MERGED? ASK GIT, NOT state.json" check
+    reads (`state_job.get("merged")`) and `cmd_resume_prepare`'s `kept` list is
+    built from. This is not a second source of truth; it is the one existing
+    source, read for a different caller.
+
+    The emitted script's wave loop (`alreadyIntegratedIds` in JS_TEMPLATE) runs
+    this, via one clamped transport agent, ONCE before wave 0 — a relaunch
+    (native crash-resume, or `/v:resume`'s `resume-prepare` then relaunch-by-
+    `scriptPath`) re-executes the whole script with the SAME embedded job list,
+    and a job already integrated has nothing left to do: re-running Implement
+    and Gate on it can only produce a false verdict (the Gate's `git diff`
+    against that job's pinned baseline sees every commit landed since — the
+    merge-time twin of finding 146), for the cost of two full agent spawns.
+
+    READ-ONLY, and it never itself decides at-most-once: a caller that skips a
+    job on this answer is trusting an EARLIER attempt's proof, and the
+    finalizer's own git-derived check stays the authority that actually
+    prevents a double merge.
+    """
+    ap = argparse.ArgumentParser(prog="compound-v-emit-workflow.py integrated-jobs")
+    ap.add_argument("--run-dir", required=True)
+    args = ap.parse_args(argv)
+    run_dir = os.path.abspath(args.run_dir)
+    state = _load_state(run_dir)
+    integrated = sorted(
+        job_id for job_id, entry in (state.get("jobs") or {}).items()
+        if isinstance(entry, dict) and isinstance(entry.get("merged"), dict)
+        and entry["merged"].get("integrated")
+    )
+    print(json.dumps({"integrated": integrated}, indent=2, sort_keys=True))
+    return 0
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
@@ -9828,6 +10163,7 @@ SUBCOMMANDS = {
     "finalize-wave": cmd_finalize_wave,
     "register-lane": cmd_register_lane,
     "resume-prepare": cmd_resume_prepare,
+    "integrated-jobs": cmd_integrated_jobs,
 }
 
 
@@ -9836,7 +10172,8 @@ def main(argv=None):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
         print("usage: compound-v-emit-workflow.py "
-              "{emit,gate-receipt,record,finalize-wave,register-lane,resume-prepare} ... "
+              "{emit,gate-receipt,record,finalize-wave,register-lane,resume-prepare,"
+              "integrated-jobs} ... "
               "| --selftest")
         return 0
     if argv[0] == "--selftest":

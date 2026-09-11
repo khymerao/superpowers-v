@@ -6,6 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.6.1] - 2026-09-12
+
+### Fixed — the first FULL run of Compound V in someone else's repository, and what it cost them
+
+@khymerao ran the full pipeline in a TypeScript monorepo — roughly 196 integrations, 4927 APIs — and
+reported what broke. The pipeline itself did its job: the manifest validator and `partition-reviewer`
+each caught a real defect they had introduced, and the three pre-flights each found something the
+other two could not. Everything below is our machinery around it.
+
+**Every command in this plugin was broken for everyone who is not us.** The commands told the model
+to run `python3 scripts/compound-v-validate-manifest.py …`, a path relative to the USER'S repository,
+where it does not exist — the scripts ship inside the plugin cache. The reporter's repo happens to
+have its own unrelated `scripts/` directory, so the failure was a bare "No such file or directory"
+pointing nowhere near the cause. **161 call sites across 36 files** now resolve the plugin root first.
+`CLAUDE_PLUGIN_ROOT` is set for hooks and is **not** a Bash variable, so it is a hint the snippet
+falls back from; the one line in the repository that already used it bare was broken too, just
+differently. We could not see any of this from inside our own checkout, where `scripts/` exists —
+which is the whole lesson.
+
+**`/v:resume` was unusable whenever a commit landed between the halt and the resume** — the normal
+case, because fixing the cause of a halt usually IS a commit. An already-merged wave-1 job was
+re-Implemented and re-Gated on the relaunch; the Gate diffed against that job's now-historic pinned
+baseline, saw every commit since, and returned `blocked` with violations that were other commits'
+files. `waveHadFailure` then halted the run, and wave 2 never got its second chance. `state.json`
+ended self-contradictory: `status: blocked` beside `merged.integrated: true` on the same job.
+
+`resume-prepare` deliberately kept an integrated job's pin, with the docstring "Integrated jobs are
+untouched" — and the emitted script's own comment, twenty lines away, already said they are not: a
+relaunch re-runs every agent that started after a failed one, completed ones included. At-most-once
+protected the merge. Nothing protected the Gate. This is the merge-time twin of finding 146.
+
+The wave loop now filters a job the run's own `state.json` records as integrated **before**
+`pipeline()` runs, so neither Implement nor Gate is spawned — the reporter's own first suggestion,
+which also removes two pointless agent spawns per already-merged job. The skip is reported by name in
+the wave summary rather than leaving a silent gap, it is explicitly not a wave failure, and the
+finalizer still receives the full original wave, so the git-derived at-most-once check remains the
+authority that actually prevents a double merge.
+
+**Two error messages that were correct and unhelpful.** Neither verdict changed; both refusals were
+right. A scope-gate block whose violations all sit under one gitignored directory now says so and
+asks whether the job ran a build — the reporter's job ran `yarn build` as its typecheck, `tsc` emitted
+into `dist/`, and the gate was right to block every file. The hint is stderr-only prose beside the
+existing violation list; the JSON verdict, its violations and the exit code are untouched, and nothing
+is forgiven by extension or by name. Separately, a `--require-triage` failure caused by the ABSENCE of
+`.claude/compound-v-impact-taxonomy.yaml` now names `/v:onboard`, whose default pipeline drafts it. A
+digest that disagrees with a file that exists is a different and more serious case and keeps its own
+message.
+
+### Confirmed, not fixed — MCP tools do not reach an agent inside a native Workflow
+
+The reporter observed that Context7 is reachable in a session and in an ordinary subagent, but not
+inside a Workflow agent. We checked it against our own history: of the **thirteen** `doc-validator`
+agents ever spawned inside a Workflow in this repository, **none** ever called a Context7 tool, and
+one transcript shows the tool search returning no match while an ordinary subagent's manifest lists
+the same tool by name. Nothing in this plugin removes it — our `disallowedTools` never touch MCP.
+
+`phase-1c-documentation-validation.md` has asserted this for some time; it had never been verified,
+and now it has been. **Not fixed here**: dispatching 1C outside the pre-flight Workflow would trade
+away the batched three-way structured result, which is a design decision and not a patch. Filed
+separately with the transcript evidence.
+
+### Contributed
+
+@khymerao again — the report separated what belonged to this plugin from what belonged to the base
+plugin, the harness and their own repository, which is why all four items were actionable.
+
+
 ## [3.6.0] - 2026-09-11
 
 ### Fixed — six machinery defects a downstream user found, built as the widest dispatch this repository has run

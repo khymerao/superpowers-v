@@ -12,6 +12,20 @@ the circuit breaker — consumes a record that only Phase T produces.
 
 The argument is `{{args}}`.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## You are not the only producer any more (v3.4)
 
 `hooks/triage-prompt-nudge.sh` fires on `UserPromptSubmit` and runs **the same subcommand Phase T
@@ -104,7 +118,7 @@ The whole of Phase T is a subcommand of the engine. Put the request text in
 quoting, and argv is visible to every process on the machine) and run this from the repo root:
 
 ```bash
-V_TRIAGE_REQUEST='<the request text>' python3 scripts/compound-v-preeval.py triage \
+V_TRIAGE_REQUEST='<the request text>' python3 "$CV/scripts/compound-v-preeval.py" triage \
   --request-env V_TRIAGE_REQUEST --repo . \
   --session-id "${CLAUDE_CODE_SESSION_ID:-}" --base-commit "$(git rev-parse HEAD)" --json
 ```
@@ -136,7 +150,7 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default 
   `t3_prompt` to a file and run:
 
   ```bash
-  python3 scripts/compound-v-classify-request.py --classify-headless \
+  python3 "$CV/scripts/compound-v-classify-request.py" --classify-headless \
     --prompt-file "$PROMPT_FILE" --cwd . --timeout 15
   ```
 
@@ -158,7 +172,7 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default 
   `--parse` its reply into the enum:
 
   ```bash
-  python3 scripts/compound-v-classify-request.py --parse --reply '<the Task reply>'
+  python3 "$CV/scripts/compound-v-classify-request.py" --parse --reply '<the Task reply>'
   ```
 
 **On the session id.** `CLAUDE_CODE_SESSION_ID` is the harness session id as a Bash call in this
@@ -232,5 +246,5 @@ Phase T is no longer prose, so its proofs are no longer here: the scoring, the b
 declared-path vocabulary and predicates 1-6 are covered by the engine's own suite, which CI runs.
 
 ```bash
-python3 scripts/compound-v-preeval.py --selftest
+python3 "$CV/scripts/compound-v-preeval.py" --selftest
 ```

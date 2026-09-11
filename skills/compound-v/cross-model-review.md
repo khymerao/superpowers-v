@@ -12,6 +12,19 @@ arbitrates**. One model does not silently overrule another — a possibly-weaker
 must not gain false authority. The orchestrator weighs each finding with context the
 reviewer lacks.
 
+**Resolving the plugin root.** The `scripts/` and `schemas/` invoked below ship with the
+plugin, not with the caller's repository. Resolve the plugin root once per session before
+calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## When to run it — the tier decides IF, the stakes decide HOW DEEP
@@ -22,7 +35,7 @@ small to hand to a second model family — there is no plan for it to read. Ask 
 rather than remembering the rule:
 
 ```bash
-python3 scripts/compound-v-preeval.py --cross-model-review "$TIER" --flavor "$FLAVOR"   # FLAVOR = manifest triage.flavor, empty when none
+python3 "$CV/scripts/compound-v-preeval.py" --cross-model-review "$TIER" --flavor "$FLAVOR"   # FLAVOR = manifest triage.flavor, empty when none
 ```
 
 | Triage tier | Second opinion | Why |
@@ -69,7 +82,7 @@ After `partition-reviewer` returns **PASS** and `validate-manifest.py` is clean,
 the read-only cross-model review:
 
 ```bash
-scripts/compound-v-codex-review.sh \
+"$CV/scripts/compound-v-codex-review.sh" \
   --plan-file docs/superpowers/plans/<plan>.md \
   --repo "$PWD" \
   --effort xhigh \

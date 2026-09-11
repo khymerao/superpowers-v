@@ -15,6 +15,20 @@ shipped surface. Do not claim otherwise.
 Run the steps **in order**. Do not batch installs — detect everything first, then walk
 the user through missing pieces **one at a time**, confirming after each.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## Step 1 — Detect capabilities
@@ -76,7 +90,7 @@ discovery script (only when `agy` is present), which merges a real deep/standard
 proposal into `.claude/compound-v.json`:
 
 ```bash
-agy models </dev/null | python3 scripts/compound-v-discover-models.py \
+agy models </dev/null | python3 "$CV/scripts/compound-v-discover-models.py" \
   --backend antigravity --write-config .claude/compound-v.json
 ```
 
@@ -247,7 +261,7 @@ than attempting the command).
 At or above the floor, run it headless, as text, with no stdin:
 
 ```bash
-python3 scripts/compound-v-run-with-timeout.py --timeout 180 -- claude -p '/skill-doctor' --output-format text < /dev/null
+python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 180 -- claude -p '/skill-doctor' --output-format text < /dev/null
 ```
 
 **What to parse.** From the printed report, print in full the rows whose first column begins with
@@ -331,8 +345,8 @@ other harnesses)** — which recall lane this project should use:
 **If the user picks semantic**, bootstrap it now — this is the **one consented install step**
 (never done from a hook):
   ```bash
-  python3 scripts/compound-v-memory.py bootstrap
-  python3 scripts/compound-v-memory.py refresh --with-embeddings
+  python3 "$CV/scripts/compound-v-memory.py" bootstrap
+  python3 "$CV/scripts/compound-v-memory.py" refresh --with-embeddings
   ```
   Confirm the `bootstrap OK` line before counting it enabled. If bootstrap fails (offline /
   no wheels), say so and fall back to FTS5-only — recall still works.

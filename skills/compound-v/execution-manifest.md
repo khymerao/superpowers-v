@@ -8,6 +8,18 @@ docs/superpowers/execution/<run-id>/manifest.yaml
 
 Worked example: [`examples/manifest.example.yaml`](../../examples/manifest.example.yaml) (mirrors PRD §5.1). The deterministic validator is [`scripts/compound-v-validate-manifest.py`](../../scripts/compound-v-validate-manifest.py) (built downstream) — it is the authority behind the rules below; this doc is the human-readable spec.
 
+**Resolving the plugin root.** The `scripts/` referenced below ship with the plugin, not with the
+target repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## Top-level fields
@@ -93,7 +105,7 @@ quietly deciding the job's verdict.
 `?` matches one non-`/` character; `[` and `]` are literal (no character classes — `app/[locale]/**` is a real
 directory); matching is anchored to the full repo-relative path. This is the scope gate's own matcher
 (`scripts/compound-v-scope-check.py` `matches`), and V-memory's `recall-check` uses the same matcher — see
-[`memory.md`](memory.md); the proof is the `parity …` rows of `python3 scripts/compound-v-memory.py --selftest`.
+[`memory.md`](memory.md); the proof is the `parity …` rows of `python3 "$CV/scripts/compound-v-memory.py" --selftest`.
 
 ### Tier vocabulary (stable — never changes when models churn)
 

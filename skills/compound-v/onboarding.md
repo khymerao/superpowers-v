@@ -41,9 +41,21 @@ rules contradict, the fix is *removal*, not reliance on a winner.
 ## The 9-step pipeline
 
 Run in this exact order. Steps 2 (pack), 4 (verify), 5/9 (staleness), and the DESIGN.md branch of
-step 4 call **`python3 scripts/compound-v-onboard.py <subcommand>`** for their deterministic gates.
+step 4 call **`python3 "$CV/scripts/compound-v-onboard.py" <subcommand>`** for their deterministic gates.
 Step 9 indexing calls **`/v:memory-refresh`**. Do not reimplement those contracts here — they are
 locked in the plan's "Shared Interfaces."
+
+**Resolving the plugin root.** `compound-v-onboard.py` and its siblings ship with the plugin, not
+with the target repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
 
 ```
 1. DETECT   →  2. PACK   →  3. EXTRACT  →  4. VERIFY  →  5. DIAGNOSE
@@ -53,7 +65,7 @@ locked in the plan's "Shared Interfaces."
 ### 1. DETECT
 Inventory the ground truth, write nothing:
 - **Existing instruction files** (treat per the cardinal rule above), stack, git remote origin.
-- **UI presence** via `python3 scripts/compound-v-onboard.py detect-ui --repo .` → `ui` / `no-ui`.
+- **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo .` → `ui` / `no-ui`.
   This is the only thing that decides whether the DESIGN.md branch runs (step 9 / §DESIGN below).
 - **Style configs**: eslint / prettier / ruff / editorconfig / tsconfig / lockfiles — the
   deterministic evidence `CONVENTIONS.md` is later derived from.
@@ -64,7 +76,7 @@ Inventory the ground truth, write nothing:
   generic or recommend package-level placement — respect the practical ~32 KiB cross-tool chain budget.
 
 ### 2. PACK
-Run `python3 scripts/compound-v-onboard.py pack --repo . --json`. It produces a **pack-manifest**
+Run `python3 "$CV/scripts/compound-v-onboard.py" pack --repo . --json`. It produces a **pack-manifest**
 (included / excluded-with-reason / token budget / truncation markers / repo shape) and an
 **advisory secret scan** result.
 
@@ -90,7 +102,7 @@ A claim is **load-bearing** when it concerns **security, fail-closed behavior, o
 the claims where being confidently wrong is dangerous.
 
 ### 4. VERIFY — the two-tier citation gate
-Hand the claims file to `python3 scripts/compound-v-onboard.py verify-citations --claims FILE
+Hand the claims file to `python3 "$CV/scripts/compound-v-onboard.py" verify-citations --claims FILE
 [--tier2 FILE] --repo . --json`.
 
 - **Tier 1 — path + range + CONTAINMENT, 100% of claims, blocking.** Every cited path must resolve
@@ -127,21 +139,21 @@ the gate. Surface, as advisory recommendations:
   gate, applied only on confirmation;
 - foreign-tool rules as **advisory notes only** (read-only in v1, never auto-reconciled);
 - managed-layer conflicts as **informational only** (per the cardinal rule);
-- **MCP / external-tool recommendations** from `python3 scripts/compound-v-onboard.py recommend-mcp --repo . [--mcp-config .mcp.json]`: signal→tool with a **CLI-over-MCP** bias (a `github.com` remote → the `gh` CLI, **never** a GitHub MCP), each recommendation carrying pre-filled **least-privilege** flags and its signal **evidence**. Surface any **lethal-trifecta** warning (private-data + untrusted-content + external-write) loudly, **with its specific remedy** — warn-only, the patient decides. Present-only here; the `.mcp.json` write happens at WRITE (§7), behind the gate.
-- **Third-party skills via `npx autoskills`** from `python3 scripts/compound-v-onboard.py recommend-autoskills --repo .`: when a project manifest is detected (`applicable: true`, evidence = the marker file), recommend [`npx autoskills`](https://www.autoskills.sh/) — and, **behind a human confirm** (external code), run the **preview** `npx autoskills --dry-run` **through `scripts/compound-v-run-with-timeout.py` with `stdin </dev/null`** (the external-launch invariant) to show *which* skills it would install. Surface the **auto-trigger-degradation caution** (installing many overlapping skills hurts triggering across the user's whole set — see §Skills stance). **Never** run the install form; if the user declines, just recommend they run `npx autoskills` themselves. Present-only — onboarding installs nothing.
-- **Impact-taxonomy DRAFT + churn cache** from `python3 scripts/compound-v-onboard.py draft-taxonomy --repo . --with-churn` (v2.9). This proposes the two static-evidence inputs the Pre-Evaluation stage reads — it does **not** decide anything and it **never auto-applies**:
+- **MCP / external-tool recommendations** from `python3 "$CV/scripts/compound-v-onboard.py" recommend-mcp --repo . [--mcp-config .mcp.json]`: signal→tool with a **CLI-over-MCP** bias (a `github.com` remote → the `gh` CLI, **never** a GitHub MCP), each recommendation carrying pre-filled **least-privilege** flags and its signal **evidence**. Surface any **lethal-trifecta** warning (private-data + untrusted-content + external-write) loudly, **with its specific remedy** — warn-only, the patient decides. Present-only here; the `.mcp.json` write happens at WRITE (§7), behind the gate.
+- **Third-party skills via `npx autoskills`** from `python3 "$CV/scripts/compound-v-onboard.py" recommend-autoskills --repo .`: when a project manifest is detected (`applicable: true`, evidence = the marker file), recommend [`npx autoskills`](https://www.autoskills.sh/) — and, **behind a human confirm** (external code), run the **preview** `npx autoskills --dry-run` **through `scripts/compound-v-run-with-timeout.py` with `stdin </dev/null`** (the external-launch invariant) to show *which* skills it would install. Surface the **auto-trigger-degradation caution** (installing many overlapping skills hurts triggering across the user's whole set — see §Skills stance). **Never** run the install form; if the user declines, just recommend they run `npx autoskills` themselves. Present-only — onboarding installs nothing.
+- **Impact-taxonomy DRAFT + churn cache** from `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy --repo . --with-churn` (v2.9). This proposes the two static-evidence inputs the Pre-Evaluation stage reads — it does **not** decide anything and it **never auto-applies**:
   - a first-cut **impact-taxonomy** built from the repo's directory/module structure + detected stack — **`path_patterns` from the repo's REAL dirs** (cosmetic surfaces low, front-end logic medium, migrations/auth/payments/`.github`/`*.sql`/`*.tf` high), the **content-pattern surfaces OFFERED per-repo** (the **four core** kinds — `legal_copy` · `i18n_placeholder` · `feature_flag` · `config_literal` — always offered; **`shared_token` + `a11y` offered only when a UI is detected**, each with a reason you can override at the GATE), and a **starter `sensitive_path_list`** (always carrying the secret-file surfaces `*.pem`/`*.key`/`*.env` so the required list is never empty — fail-closed — unioned with the repo's real high-blast surfaces). The subcommand **self-validates** the draft against `scripts/compound-v-validate-taxonomy.py` (B1) and emits **block-style YAML only** (never inline flow `{}` — the no-PyYAML fallback drops flow mappings). Its real home is `.claude/compound-v-impact-taxonomy.yaml`, written only at WRITE behind the GATE.
   - a normalized **churn cache** (`docs/superpowers/memory/churn-cache.json`), built from the **same drafted taxonomy's `churn:` block** (single-sourced excludes) via `scripts/compound-v-churn.py` — the escalation-only static signal the scorer's override reads. `draft-taxonomy --with-churn` returns a **proposal summary** (path count, hot paths, `formula_id`, `head_sha`); it writes nothing here.
 
   Both are **present-then-confirm** (the `recommend-mcp` precedent): the draft/summary is shown at the GATE, the real files are written at WRITE, committed at COMMIT, indexed at INDEX — **never auto-applied**. A human keeps/edits the taxonomy at the GATE; onboarding proposes, the maintainer decides.
 
-- **Path-scoped rule AREAS** from `python3 scripts/compound-v-onboard.py rules-plan --repo . [--json]`
+- **Path-scoped rule AREAS** from `python3 "$CV/scripts/compound-v-onboard.py" rules-plan --repo . [--json]`
   (3.5.0). It reads `.onboard-manifest.json` and `CONVENTIONS.md` and groups the cited evidence by
   top-level directory (`hooks/`, `scripts/`, `tests/`, `skills/`, `commands/`, …), naming the
   `CONVENTIONS.md` section headings that cite files in each. It is a **helper for the drafting step,
   not an author**: it proposes areas, writes nothing, and never invents a rule. See §Path-scoped rules.
 
-Also flag drift from `python3 scripts/compound-v-onboard.py staleness --repo .` on a refresh run
+Also flag drift from `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .` on a refresh run
 (see §Refresh).
 
 ### 6. HUMAN GATE — per-artifact + per-section, `@import` EXPANDED
@@ -171,7 +183,7 @@ question at this gate is "is each line true, and does the scope match what it cl
 ### 7. WRITE — only approved artifacts, narrow surface
 
 **Output secret gate (BLOCKING) — run it first.** Before writing or committing anything, run
-`python3 scripts/compound-v-onboard.py scan-output --files <each approved generated doc> --repo .` over
+`python3 "$CV/scripts/compound-v-onboard.py" scan-output --files <each approved generated doc> --repo .` over
 the approved files (`docs/superpowers/architecture/*`, `CONVENTIONS.md`, `AGENTS.md`, the `CLAUDE.md`
 bridge, any `DESIGN.md`). A non-empty hit (`clean: false`, exit 2) is a **hard refusal**: a credential
 reached a generated doc (typically dragged in via a citation snippet) — strip it and regenerate that
@@ -187,14 +199,14 @@ never clobbering an existing server; CLI recommendations like `gh` are surfaced 
 existing-file changes through detect-and-bridge (§below); never silently overwrite.
 
 **Path-scoped rules (7b) — `rules-lint` is BLOCKING.** After writing any approved `.claude/rules/*.md`,
-run `python3 scripts/compound-v-onboard.py rules-lint --repo .`. A non-zero exit is a **hard refusal**:
+run `python3 "$CV/scripts/compound-v-onboard.py" rules-lint --repo .`. A non-zero exit is a **hard refusal**:
 those files do not reach COMMIT until it is clean. See §Path-scoped rules for what it checks and why.
 
 **Only when the user approved the taxonomy/churn diff (v2.9):** write the impact-taxonomy to
-`.claude/compound-v-impact-taxonomy.yaml` — `python3 scripts/compound-v-onboard.py draft-taxonomy
+`.claude/compound-v-impact-taxonomy.yaml` — `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy
 --repo . --emit-yaml > .claude/compound-v-impact-taxonomy.yaml` (block-style, self-validated) — and,
 if it already exists, apply the maintainer's kept/edited version rather than clobbering it. Then build
-the churn cache from that now-written taxonomy: `python3 scripts/compound-v-churn.py --repo .` (a full,
+the churn cache from that now-written taxonomy: `python3 "$CV/scripts/compound-v-churn.py" --repo .` (a full,
 reproducible rebuild → `docs/superpowers/memory/churn-cache.json`). Both stay **out of the DESIGN/arch
 write set** — they are the Pre-Evaluation stage's static inputs, not generated prose.
 
@@ -213,7 +225,7 @@ means the fast-path gate has no static evidence to read.
 
 ### 9. INDEX — write the manifest, then auto `/v:memory-refresh`
 Write/update `docs/superpowers/architecture/.onboard-manifest.json` (each doc's cited files + their
-content hashes) via `python3 scripts/compound-v-onboard.py staleness --repo . --write`, then **auto-run
+content hashes) via `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo . --write`, then **auto-run
 [`/v:memory-refresh`](../../commands/v-memory-refresh.md)** so the new docs (and root
 `AGENTS.md`/`CLAUDE.md`/`CONVENTIONS.md`/`DESIGN.md`) become recallable. The manifest stays `.json`
 (out of the index by design); everything else is now committed and indexable. The committed
@@ -260,7 +272,7 @@ explore → ask → propose → write.
   a backend / CLI / library repo it is **skipped** (verify this negative path on a non-UI dogfood).
   YAML design tokens + prose rationale, extracted from real sources (`tailwind.config`, CSS variables,
   token files) with the **source tokens cited**. Run the lint gate via
-  `python3 scripts/compound-v-onboard.py design-lint --file DESIGN.md` (pinned `@google/design.md`;
+  `python3 "$CV/scripts/compound-v-onboard.py" design-lint --file DESIGN.md` (pinned `@google/design.md`;
   tolerate alpha rule-ID churn) — `ok=false` blocks.
 
   **WCAG wording is load-bearing.** The linter only checks the authored file's internal consistency
@@ -283,7 +295,7 @@ path-scoped one reloads the next time it matches a file. Source: Claude Code's m
 This is the mechanism that lets `CONVENTIONS.md` stay short: a constraint that applies to one
 directory belongs in a rule scoped to it, not in a file every session loads in full.
 
-**Draft them; never generate them.** Run `python3 scripts/compound-v-onboard.py rules-plan --repo .`
+**Draft them; never generate them.** Run `python3 "$CV/scripts/compound-v-onboard.py" rules-plan --repo .`
 at DIAGNOSE for the candidate areas — cited directories grouped by top-level dir, each with the
 `CONVENTIONS.md` section headings that cite files in it. `rules-plan` writes nothing and proposes no
 rule text. Then, one file per area, in the shape `rules-lint` enforces:
@@ -334,7 +346,7 @@ rule text. Then, one file per area, in the shape `rules-lint` enforces:
   ones, because 1,001 plain globs hit the same wall with no brace in sight. A `[` that cannot be read
   as a bracket expression kills that one pattern the same way; escape a literal one as `\[`.
 
-**`rules-lint` is the gate**: `python3 scripts/compound-v-onboard.py rules-lint --repo . [--json]`,
+**`rules-lint` is the gate**: `python3 "$CV/scripts/compound-v-onboard.py" rules-lint --repo . [--json]`,
 exit 0 clean / 1 with the list of problems. Per file it checks the strict frontmatter subset and its
 parity; `paths` being a non-empty list of strings; the expansion and byte budgets and bracket
 validity; the ≤ 200-line ceiling; the body grammar above; and that **every citation resolves inside
@@ -383,7 +395,7 @@ files (`.cursor/rules`, `.windsurfrules`, …) stay read-only evidence — the c
   whose **cited files** changed, runs the **same human gate**, commits, then auto-runs
   `/v:memory-refresh`.
 - **Staleness is deterministic** ("cited-evidence staleness," not full doc freshness):
-  `python3 scripts/compound-v-onboard.py staleness --repo .` reports drift from
+  `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .` reports drift from
   `.onboard-manifest.json` — a cited file whose hash changed (`cited-changed`), a cited file deleted
   (`cited-deleted`), or — via a cheap heuristic — a **new uncited file** appearing in a cited doc's
   path-space (`uncited-new-file`), which catches architecture that migrated into a file the doc never

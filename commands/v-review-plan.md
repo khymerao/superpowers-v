@@ -6,6 +6,20 @@ You are running a **second-opinion review** on `{{args}}` — a different model 
 
 > Run it on demand, or **automatically before dispatch** when the project set `review.cross_model: true` at [`/v:init`](v-init.md) Step 3c (read from `.claude/compound-v.json`). Either way the stakes check below still applies — skip small/mechanical plans.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Steps
 
 1. **Resolve the plan path.** Use `{{args}}`; if empty, list `docs/superpowers/plans/*.md` and ask which to review.
@@ -15,7 +29,7 @@ You are running a **second-opinion review** on `{{args}}` — a different model 
 3. **Run the ladder** — [cross-model-review.md § The ladder](../skills/compound-v/cross-model-review.md#the-ladder):
    1. **Codex CLI present → dispatch the read-only Codex reviewer:**
       ```bash
-      scripts/compound-v-codex-review.sh --plan-file "<plan>" --repo "$PWD" --effort xhigh
+      "$CV/scripts/compound-v-codex-review.sh" --plan-file "<plan>" --repo "$PWD" --effort xhigh
       ```
       (Add `--context-file <audit>` for any archaeology/domain/library audits that ground the review.) The model is resolved for codex / tier `deep`. Codex reads the repo read-only and returns findings JSON per `schemas/plan-review.schema.json`.
    2. **No Codex, an advisor configured → an advisor-assisted second look.** Dispatch one

@@ -19,12 +19,24 @@ The passes are ordered because the failures are different. Spec drift adds the *
 
 Per-task you typically run as the SPEC pass (after each implementer reports DONE, before the code-quality reviewer). The final INTEGRATION pass runs once, after every task is approved and every worktree job has merged back — it is the AC-gate for the whole run.
 
+**Resolving the plugin root.** The `scripts/` this agent calls ship with the plugin, not with
+the caller's repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Step 0 — ask what this project already knows (V-memory)
 
 **Before reviewing, ask the recall layer**, at review intent:
 
 ```bash
-python3 scripts/compound-v-memory.py search "<the feature, in 3-8 words>" --intent review --top 8
+python3 "$CV/scripts/compound-v-memory.py" search "<the feature, in 3-8 words>" --intent review --top 8
 ```
 
 This repository records what actually broke — dogfood records, ADRs, architecture
@@ -34,7 +46,7 @@ the failure this exact shape produced last time.
 **And the conservative bridge**, over the diff you are reviewing:
 
 ```bash
-python3 scripts/compound-v-memory.py recall-check --files <globs from the diff>
+python3 "$CV/scripts/compound-v-memory.py" recall-check --files <globs from the diff>
 ```
 
 If the same file pattern carries repeated prior `blocked` / `error` / `timeout` or
@@ -229,7 +241,7 @@ Read the evidence from the job result ([`job_result.schema.json`](../schemas/job
 | `tests.scope` | the resolved `full` \| `impacted` \| `floor_only` — it must match what the tier owes above. The resolved *slice* additionally carries the output-only label `impacted+referencing` when an unmapped path at SCOPED/DIRECT was answered by the referencing heuristic; read it as `impacted` plus the ≤5 suites, and check the resolver's notes for which files they were. No manifest may **declare** that label — `test_scope` stays the three-value enum. |
 | `tests.selected_count` | how many **commands** ran. Not test cases: no bundled worker parses a runner's output, so a case count would be fabricated. Never read this as a case count, and never ask for one. |
 
-To probe `hooks/triage-prompt-nudge.sh` (the UserPromptSubmit hook — the Stop hook needs `.claude/compound-v.json`, which a sandbox never has) on a checkout with a live run, without touching that run's own working tree, build one with `scripts/compound-v-sandbox-checkout.sh <dest> --empty-pre-eval`.
+To probe `hooks/triage-prompt-nudge.sh` (the UserPromptSubmit hook — the Stop hook needs `.claude/compound-v.json`, which a sandbox never has) on a checkout with a live run, without touching that run's own working tree, build one with `"$CV/scripts/compound-v-sandbox-checkout.sh" <dest> --empty-pre-eval`.
 
 **A job reporting no test command at all is a FAIL** → **ISSUE: NO_TEST_EVIDENCE**. That is a job claiming `status: "success"` with the `tests` object absent, or with `tests.command` empty or whitespace. Silence is not success — an absent record is exactly what a worker that skipped the step looks like, and it is indistinguishable from one that ran nothing on purpose. (`tests` is legitimately absent on a job that never reached the test step — `blocked`, `timeout`, `error` — and such a job fails this gate on its own terms.)
 

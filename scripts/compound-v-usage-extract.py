@@ -362,6 +362,12 @@ def extract_usage(backend: str, events_log: Optional[str]) -> Dict[str, Any]:
 _EMITTER_SUBCOMMANDS = frozenset((
     "emit", "gate-receipt", "record", "finalize-wave", "register-lane",
     "resume-prepare",
+    # 3.6.1: the pre-wave read that lets a relaunch skip a job state.json
+    # already records as merged.integrated. It is a transport stage like Gate
+    # and Record, so its agent's tokens are attributable the same way — and the
+    # drift guard below is what caught this set going stale the moment the
+    # emitter gained the subcommand.
+    "integrated-jobs",
 ))
 # EVERY occurrence, not the first: `a.py finalize-wave --run-dir R --jobs j;
 # a.py record --run-dir R --job-id j` used to parse as ONE command whose tail

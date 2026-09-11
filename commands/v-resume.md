@@ -8,6 +8,20 @@ Resume belongs to the **verification layer**, not to any engine. It deliberately
 
 > **This contract must read a PRE-CUTOVER `state.json`, and that is a hard requirement, not a courtesy.** The 3.0 run that ships Engine C is itself dispatched on the pre-cutover path: its `state.json` carries `worktree: null`, no `baseline`, no `merged`, and its run dir has no `lane-map.json`, no `receipts/` and no `results/`. The session can die *after* the Engine C job merges while later waves still have to finish on the old engine. So every field Engine C adds is **OPTIONAL on read**: a job missing `baseline` reconciles the way it always did (git-wins against the recorded pre-dispatch commit, or the worktree HEAD with that weakness stated), a missing `lane-map.json` is not an error, and a missing receipt is **re-derived** by the integration gate rather than treated as a failure. Never refuse to resume a run because it predates a field.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Steps
 
 1. **Locate the run.** If `{{args}}` is empty, list the subdirectories of `docs/superpowers/execution/` and ask which run to resume. The run dir is `docs/superpowers/execution/<run-id>/`. If it does not exist, stop and say so.
@@ -28,7 +42,7 @@ Resume belongs to the **verification layer**, not to any engine. It deliberately
    - Update `circuit_open[backend].cleared_by` and write `state.json` for every breaker transition.
 
 5. **Re-dispatch only the incomplete jobs** — those that are `pending`, `failed`, or `blocked` after steps 3–4 (and **not** behind a still-open breaker) — honoring `depends_on`, `run`, and `max_parallel` exactly as the original dispatch. Each re-dispatch replays the captured prompt at `jobs/<id>.prompt.md` verbatim.
-   - **Re-dispatch on the engine the run can actually reach now, not the one it started on.** Probe as [`/v:dispatch`](v-dispatch.md) step 4 does. On a successful probe, **first run `python3 scripts/compound-v-emit-workflow.py resume-prepare --run-dir docs/superpowers/execution/<run-id>`** — it clears the crashed attempt's baseline pin for every job that has not integrated — except a codex job whose `failure_class` is environmental (`timeout`|`network`), whose `session_id` is recorded and whose worktree still exists: that one is left intact for `codex exec resume` per the eligibility rule below — (the relaunch branches a fresh worktree from the current HEAD, and a pin from the crashed attempt charges the job with every commit landed since — proven BLOCKED on 2026-09-03, finding 146), resets those jobs to `pending`, drops their stale lane-map entries and archives their superseded receipts; integrated jobs are untouched. Then relaunch the committed workflow by `scriptPath` (there is no job-subset flag on `emit`: the committed script is relaunched whole, and integrated jobs are skipped by the at-most-once guard below); the pipeline's own guards make this safe to repeat — Record is idempotent and keys each merge to an immutable realised commit, so a job that already merged is not merged twice. Where the probe fails or this is a subagent context, use the residual subagent path ([`parallel-dispatcher.md`](../agents/parallel-dispatcher.md)).
+   - **Re-dispatch on the engine the run can actually reach now, not the one it started on.** Probe as [`/v:dispatch`](v-dispatch.md) step 4 does. On a successful probe, **first run `python3 "$CV/scripts/compound-v-emit-workflow.py" resume-prepare --run-dir docs/superpowers/execution/<run-id>`** — it clears the crashed attempt's baseline pin for every job that has not integrated — except a codex job whose `failure_class` is environmental (`timeout`|`network`), whose `session_id` is recorded and whose worktree still exists: that one is left intact for `codex exec resume` per the eligibility rule below — (the relaunch branches a fresh worktree from the current HEAD, and a pin from the crashed attempt charges the job with every commit landed since — proven BLOCKED on 2026-09-03, finding 146), resets those jobs to `pending`, drops their stale lane-map entries and archives their superseded receipts; integrated jobs are untouched. Then relaunch the committed workflow by `scriptPath` (there is no job-subset flag on `emit`: the committed script is relaunched whole, and integrated jobs are skipped by the at-most-once guard below); the pipeline's own guards make this safe to repeat — Record is idempotent and keys each merge to an immutable realised commit, so a job that already merged is not merged twice. Where the probe fails or this is a subagent context, use the residual subagent path ([`parallel-dispatcher.md`](../agents/parallel-dispatcher.md)).
    - **A run that started pre-cutover resumes cleanly on either path.** Its jobs simply have no `merged` record yet, so the at-most-once guard has nothing to skip and does the full merge once.
    - A Codex worktree job's resume-vs-recreate decision is governed by the **resume-eligibility rule below** — reproduced verbatim so it agrees word-for-word with [`parallel-dispatcher.md`](../agents/parallel-dispatcher.md) and kills the old contradiction (this step once said "may use `codex exec resume`" unconditionally, while the dispatcher's invariant recreates the worktree fresh at HEAD). Either way — resumed session or fresh recreate — the **scope gate re-runs** on return.
    - Update each job's `status` and write `state.json` after every transition.
@@ -43,7 +57,7 @@ Both inputs the rule needs live in **`state.json jobs[<id>]`** — `session_id` 
 
 6. **Gate integration on the authority — BEFORE any job commit is integrated.**
    ```
-   python3 scripts/compound-v-integration-gate.py \
+   python3 "$CV/scripts/compound-v-integration-gate.py" \
      --run-dir docs/superpowers/execution/<run-id>/ --json
    ```
    **Not optional on the resume path either** — it is *more* load-bearing here, because a crashed run is exactly where a job's receipt is most likely to be missing or half-written. A missing or partial receipt is **re-derived** and that verdict wins; a receipt whose bindings disagree with the tree is **refused outright, never re-derived**; a verifying receipt whose conclusion disagrees with an independent re-derivation is refused as **contradicted**; `unverifiable` and duplicate receipts fail closed. Anything other than a clean report ⇒ **HALT**, do not merge.

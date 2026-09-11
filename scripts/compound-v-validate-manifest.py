@@ -2037,7 +2037,26 @@ def _triage_digest_problems(digest, repo_root, taxonomy_path):
                 "load — fail-closed"]
     try:
         on_disk = tax.taxonomy_digest_file(path)
-    except Exception as e:  # noqa: BLE001 - absent/unreadable both fail closed
+    except FileNotFoundError as e:
+        # ABSENCE is the common case, not the exotic one: a repo that has never
+        # run /v:onboard has no `.claude/compound-v-impact-taxonomy.yaml` at
+        # all, so every --require-triage dispatch fails closed here and every
+        # triage bands `unknown`. That refusal is correct — a record whose
+        # rules cannot be found must not verify — but naming the real producer
+        # (the `draft-taxonomy` step inside /v:onboard's default pipeline, see
+        # skills/compound-v/onboarding.md and scripts/compound-v-onboard.py's
+        # `draft-taxonomy` subcommand) turns "a required field is missing"
+        # into something actionable. This is diagnosis only: the verdict
+        # (fail-closed) is identical to the generic "unreadable" case below,
+        # and a taxonomy that disagrees with an on-disk digest — a different,
+        # more serious case — is handled separately, further down, and never
+        # gets this hint.
+        return ["manifest triage.taxonomy_digest is unverifiable: taxonomy '%s' "
+                "is unreadable because it does not exist (%s) — a triage record "
+                "must not outlive the rules that produced it (fail-closed); run "
+                "/v:onboard (its draft-taxonomy step drafts and, on approval, "
+                "writes %s)" % (path, e, DEFAULT_TAXONOMY_REL)]
+    except Exception as e:  # noqa: BLE001 - present-but-unreadable fails closed too
         return ["manifest triage.taxonomy_digest is unverifiable: taxonomy '%s' "
                 "is unreadable (%s) — a triage record must not outlive the rules "
                 "that produced it (fail-closed)" % (path, e)]
@@ -5302,6 +5321,32 @@ def _selftest():
                              require_triage=True)
     expect("triage: absent taxonomy on disk fails closed (never a silent skip)",
            any("triage.taxonomy_digest" in p and "unreadable" in p for p in _t_notax))
+    # This task: an ABSENT taxonomy (the common "never ran /v:onboard" case)
+    # names the real producer so the failure is actionable, not just diagnosed.
+    expect("triage: absent taxonomy names /v:onboard draft-taxonomy as the fix",
+           any("triage.taxonomy_digest" in p and "does not exist" in p
+               and "/v:onboard" in p and "draft-taxonomy" in p for p in _t_notax))
+    # The verdict must not blur with the DIGEST-MISMATCH case (taxonomy exists,
+    # disagrees) — that is a different, more serious situation (the record
+    # outlived the rules) and must never suggest re-running /v:onboard, only
+    # /v:triage against the taxonomy that is already there.
+    expect("triage: mismatch case (file exists) is never given the /v:onboard hint",
+           not any("/v:onboard" in p for p in _t_mismatch))
+    expect("triage: mismatch case still points at /v:triage, unchanged",
+           any("re-run /v:triage" in p for p in _t_mismatch))
+    # A taxonomy that exists but is unreadable for a DIFFERENT reason (here: the
+    # configured path is a directory, not a file) must fall through to the
+    # generic "unreadable" message, unchanged — the /v:onboard hint is specific
+    # to genuine absence, not a stand-in for every unreadable-taxonomy case.
+    _tri_taxdir = os.path.join(_tri_root, "a-directory-not-a-file")
+    os.makedirs(_tri_taxdir, exist_ok=True)
+    _t_taxisdir = validate_text(_v3_manifest(_triage_block(_tri_digest)),
+                                repo_root=_tri_root, require_triage=True,
+                                taxonomy_path=_tri_taxdir)
+    expect("triage: taxonomy path that is a directory fails closed, generically",
+           any("triage.taxonomy_digest" in p and "is unreadable" in p
+               and "does not exist" not in p and "/v:onboard" not in p
+               for p in _t_taxisdir))
     # --taxonomy overrides the default location.
     _t_over = validate_text(_v3_manifest(_triage_block(_tri_digest)),
                             repo_root=os.path.join(_tri_root, "no-such-root"),

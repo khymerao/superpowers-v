@@ -24,8 +24,15 @@ for a in code-archaeologist domain-expert doc-validator spec-reviewer partition-
   check "$a exists" "$([ -f "$f" ] && echo 1 || echo 0)"
   check "$a is told to consult V-memory" \
     "$(grep -qi 'V-memory' "$f" && echo 1 || echo 0)"
+  # The `"?` is load-bearing. Since 3.6.1 every command doc resolves the plugin
+  # root first and spells the script as `"$CV/scripts/compound-v-memory.py"`,
+  # so a closing quote now sits between the script name and its subcommand.
+  # This row asserted the UNQUOTED spelling, which was the broken one: it named
+  # a path relative to the user's repository, where the plugin's scripts do not
+  # exist. The pattern accepts either so the row keeps testing what it means —
+  # that a runnable recall command is named — and not one obsolete spelling.
   check "$a names a runnable recall command" \
-    "$(grep -q 'compound-v-memory.py \(search\|recall-check\)' "$f" && echo 1 || echo 0)"
+    "$(grep -qE 'compound-v-memory\.py"? (search|recall-check)' "$f" && echo 1 || echo 0)"
   check "$a says recall is NEVER a routing input" \
     "$(grep -qi 'never a routing input\|never.*routing input' "$f" && echo 1 || echo 0)"
   check "$a says a missing/empty result must not block it" \

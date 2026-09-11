@@ -11,6 +11,18 @@ A reusable sub-skill (a sibling directory under `skills/`, pulled in by prose "r
 
 There is no skill-import API: an adapter is a sibling doc (`adapter-codex.md`, `adapter-claude.md`, `adapter-antigravity.md`) that says "read the contract in this file, then do the backend-specific steps." Adapters are built by downstream tasks; this file is the contract they implement.
 
+**Resolving the plugin root.** The `scripts/` invoked below ship with the plugin, not with the
+caller's repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## The contract
@@ -37,7 +49,7 @@ There is no skill-import API: an adapter is a sibling doc (`adapter-codex.md`, `
     "full_command":  "bash tests/run-all.sh",
     "resolved_commands": [             //   caller-resolved, ordered, deduped; the floor is first
       "bash tests/run-floor.sh",
-      "python3 scripts/compound-v-preeval.py --selftest"
+      "npm run test:unit"
     ]
   }
 }
@@ -61,7 +73,7 @@ Defined and validated by [`schemas/job_result.schema.json`](../../schemas/job_re
   "worktree": "/tmp/compound-v/<run-id>/task-1-editor-ui",
   "exit_code": 0,
   "tests": {                           // optional, MEASURED-ONLY (v3.0 B3) — absent when no tests ran
-    "command": "bash tests/run-floor.sh\npython3 scripts/compound-v-preeval.py --selftest",
+    "command": "bash tests/run-floor.sh\nnpm run test:unit",
     "exit_code": 0,
     "scope": "impacted",
     "selected_count": 2,
@@ -106,7 +118,7 @@ failure the triage block exists to remove, one layer down.
   "scope": "impacted",                    // full | impacted | floor_only | impacted+referencing — the job's test_scope
   "floor_command": "bash tests/run-floor.sh",   // optional, informational: what the floor was
   "full_command":  "bash tests/run-all.sh",     // optional, informational: what full would have been
-  "resolved_commands": ["bash tests/run-floor.sh", "python3 scripts/compound-v-preeval.py --selftest"]
+  "resolved_commands": ["bash tests/run-floor.sh", "npm run test:unit"]
 }
 ```
 
@@ -128,7 +140,7 @@ The worker never re-derives the set; it executes exactly the list it was handed.
 **Transport.** Every worker script takes the resolved slice as a real argument:
 
 ```bash
-scripts/compound-v-run-<backend>-worker.sh … \
+"$CV/scripts/compound-v-run-<backend>-worker.sh" … \
   --test-contract-file /abs/run-dir/jobs/<job-id>.test-contract.json \
   [--test-timeout-sec 900]
 ```
@@ -181,7 +193,7 @@ scripts (`compound-v-run-codex-worker.sh`, `-antigravity-worker.sh`, `-cursor-wo
 `-opencode-worker.sh`) accept the identical flag pair:
 
 ```bash
-scripts/compound-v-run-<backend>-worker.sh … \
+"$CV/scripts/compound-v-run-<backend>-worker.sh" … \
   --provision-command "<shell command>" \
   --provision-timeout-sec 600            # optional, default 600
 ```
@@ -246,7 +258,7 @@ than enforced.
 **Every** external-CLI invocation — a dispatched worker (codex/cursor/agy) OR an orchestrator-level call (the cross-model plan review [`scripts/compound-v-codex-review.sh`](../../scripts/compound-v-codex-review.sh), any ad-hoc verification) — MUST run **through the process-group timeout supervisor** [`scripts/compound-v-run-with-timeout.py`](../../scripts/compound-v-run-with-timeout.py) with **`stdin </dev/null`**:
 
 ```bash
-python3 scripts/compound-v-run-with-timeout.py --timeout <sec> --grace 3 -- <cli> … </dev/null
+python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout <sec> --grace 3 -- <cli> … </dev/null
 ```
 
 - **`</dev/null`** — `codex`/`cursor`/`agy` read stdin when it is not a TTY and **hang on `Reading additional input from stdin…`** in a background/non-interactive run. (This exact bug once left an ad-hoc codex review hung for 44 minutes at 0% CPU.) The redirect makes stdin an immediate EOF; the supervisor also forces `stdin=DEVNULL` on the child.
@@ -299,7 +311,7 @@ This is the *instructed* half. The git-diff scope gate above is the *enforced* h
 The codex adapter MUST use exactly this flag set, launched **under the process-group supervisor with `stdin </dev/null`** per the non-negotiable rule above (never a bare `timeout … codex exec`):
 
 ```bash
-python3 scripts/compound-v-run-with-timeout.py --timeout "$timeout_sec" -- codex exec \
+python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout "$timeout_sec" -- codex exec \
   --cd "$WT" \
   --sandbox "$([ "$read_only" = true ] && echo read-only || echo workspace-write)" \
   --skip-git-repo-check \

@@ -10,6 +10,21 @@ Branch on `{{args}}`:
   alternative you weighed, and what it trades away." Then proceed.
 - **A decision description** → capture it per the discipline below.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` get
+`$CV`.
+
 The authoritative flow lives in [`skills/compound-v/adr-capture.md`](../skills/compound-v/adr-capture.md) —
 read it and apply it. In short:
 
@@ -23,7 +38,7 @@ read it and apply it. In short:
 5. **Commit** with the two-command discipline (`git add` then a separate `git commit`, no `&&`,
    check each exit code) — an uncommitted ADR is invisible to recall and can be lost on worktree
    cleanup.
-6. Then it's **FTS5-recallable**: `python3 scripts/compound-v-memory.py refresh` and confirm with
+6. Then it's **FTS5-recallable**: `python3 "$CV/scripts/compound-v-memory.py" refresh` and confirm with
    `search`.
 
 **Out of scope:** C4 diagrams and SAD / full-architecture documents. This captures an ADR and

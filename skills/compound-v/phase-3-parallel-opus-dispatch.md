@@ -12,6 +12,18 @@
 
 > **Compatibility:** the older "no worktrees, direct writes only" stance from 0.1.x is now **per-job isolation** (the manifest's `isolation` field). Direct writes remain the default for in-harness Claude jobs whose partition is clean; worktrees are used where a job is risky (touches a broad/shared surface) or runs on an external backend (Codex is **always** worktree). A bare plan path with no manifest still works — the dispatcher materializes a manifest first (see `commands/v-dispatch.md`), then proceeds as below.
 
+**Resolving the plugin root.** The `scripts/` invoked below ship with the plugin, not with the
+target repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Concurrency Reality
 
 **On Engine C, concurrency is the runtime's, not ours.** Concurrent `agent()` calls are capped at
@@ -160,7 +172,7 @@ Each dispatch must include:
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
-   RESOLVED=$(python3 scripts/compound-v-resolve-model.py "$@")
+   RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
    ```
 
@@ -227,9 +239,9 @@ The SCOPE LOCK prose is advisory. The **authority** is the deterministic git-dif
 
 ```bash
 # worktree job (codex always, claude when isolation: worktree)
-python3 scripts/compound-v-scope-check.py --worktree "$WT" --allow-file "$ALLOW"
+python3 "$CV/scripts/compound-v-scope-check.py" --worktree "$WT" --allow-file "$ALLOW"
 # direct job (in-harness claude against a pre-dispatch baseline commit)
-python3 scripts/compound-v-scope-check.py --repo "$CWD" --baseline "$BASE" --allow-file "$ALLOW"
+python3 "$CV/scripts/compound-v-scope-check.py" --repo "$CWD" --baseline "$BASE" --allow-file "$ALLOW"
 ```
 
 The gate computes what the job *actually* changed purely from git —

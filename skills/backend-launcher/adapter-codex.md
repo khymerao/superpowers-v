@@ -2,6 +2,17 @@
 
 > Read the contract in [`SKILL.md`](SKILL.md) first — this adapter implements that `job_spec → job_result` interface. This file is the backend-specific runbook; the wiring lives in [`scripts/compound-v-run-codex-worker.sh`](../../scripts/compound-v-run-codex-worker.sh).
 
+The worker script ships with the plugin, not with the caller's repository. Resolve the plugin root
+once per session before invoking it:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+installed plugin cache or a checkout of this repo.
+
 The Codex backend is a **Bash-spawned `codex exec` worker** — its own process, its own git worktree. It is never an `agents/` entry and never the experimental `openai-codex` `app-server` broker (that broker is single-flight and returns "busy" mid-turn, so it cannot fan out). The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
 
 Verified live against **codex-cli 0.144.1** on stock macOS (bash 3.2.57, git 2.50.1) — refreshed 2026-07-10 (was 0.130.0). All facts below are pinned — do not re-derive them per run; re-probe only in `/v:init`.
@@ -155,7 +166,7 @@ The script parses the **first** `{"type":"thread.started","thread_id":"<uuid>"}`
 ## Invoking the script
 
 ```bash
-scripts/compound-v-run-codex-worker.sh \
+"$CV/scripts/compound-v-run-codex-worker.sh" \
   --run-id   2026-06-26-linkedin-sequence-editor \
   --job-id   task-1-editor-ui \
   --repo     /abs/path/to/repo \
@@ -190,7 +201,7 @@ way a job's `test_scope` could reach a headless Codex worker was as a sentence i
 `--prompt-file`, hoping the model noticed it.
 
 ```bash
-scripts/compound-v-run-codex-worker.sh \
+"$CV/scripts/compound-v-run-codex-worker.sh" \
   … \
   --test-contract-file /abs/run-dir/jobs/<job-id>.test-contract.json \
   --test-timeout-sec 900        # optional, default 900, per COMMAND
@@ -223,7 +234,7 @@ Read [`SKILL.md`](SKILL.md) §Provisioning first: the contract and its ordering 
 identically across all four external workers. This is the codex-specific invocation.
 
 ```bash
-scripts/compound-v-run-codex-worker.sh \
+"$CV/scripts/compound-v-run-codex-worker.sh" \
   … \
   --provision-command "npm ci" \
   --provision-timeout-sec 600          # optional, default 600

@@ -10,12 +10,26 @@ two-tier citation gate, detect-and-bridge, and the human-gate contract. This com
 which branch of that skill to run. Deterministic mechanics live in `scripts/compound-v-onboard.py`;
 indexing is [`/v:memory-refresh`](v-memory-refresh.md).
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Branch on `{{args}}`
 
 - **`--refresh`** → the refresh branch (§Refresh in the skill): re-extract **only files whose content
   hash changed** since generation, run the **cited-evidence staleness gate**
-  (`python3 scripts/compound-v-onboard.py staleness --repo .`), re-run
-  `python3 scripts/compound-v-onboard.py rules-lint --repo .` over `.claude/rules/**` (a rule whose
+  (`python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .`), re-run
+  `python3 "$CV/scripts/compound-v-onboard.py" rules-lint --repo .` over `.claude/rules/**` (a rule whose
   cited line drifted is flagged `cited-changed`; one whose citation now dangles is a lint failure),
   put any flagged docs and rules through the **same human gate**, commit, then auto-run
   `/v:memory-refresh`.

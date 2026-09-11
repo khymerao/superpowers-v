@@ -16,6 +16,18 @@ It is **the same discipline as the rest of the toolchain**: pure-stdlib core, of
 `--selftest`'d, no daemon, no fabricated metrics. Commands: [`/v:remember`](../../commands/v-remember.md),
 [`/v:memory-refresh`](../../commands/v-memory-refresh.md).
 
+**Resolving the plugin root.** The engine script ships with the plugin, not with the target
+repository. Resolve the plugin root once per session before calling it:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## Two lanes
@@ -34,8 +46,8 @@ The semantic lane is bootstrapped **only** by an explicit command (the one and o
 step) — never from a hook:
 
 ```
-python3 scripts/compound-v-memory.py bootstrap                  # out-of-repo venv + model, validated by a probe
-python3 scripts/compound-v-memory.py refresh --with-embeddings  # populate vectors
+python3 "$CV/scripts/compound-v-memory.py" bootstrap                  # out-of-repo venv + model, validated by a probe
+python3 "$CV/scripts/compound-v-memory.py" refresh --with-embeddings  # populate vectors
 ```
 
 [`/v:init`](../../commands/v-init.md) asks once whether to enable this lane and records the
@@ -51,7 +63,7 @@ after the explicit `bootstrap` above; the flag never triggers an install.
 |---|---|
 | `refresh [--rebuild] [--quick] [--with-embeddings] [--repo P]` | incremental index by file hash (FTS5 always; dense only when bootstrapped) |
 | `search "<q>" [--top N] [--intent planning\|review] [--json] [--no-embed] [--no-refresh]` | recall: FTS5 (∪ dense) → rank-union → agent-ready context pack. The FTS5 lane is fresh **by construction** at every search — a stale or missing index is refreshed inline before the query runs (`--no-refresh` opts out and searches whatever is already indexed); the dense lane is unaffected and refreshes only on an explicit `/v:memory-refresh --with-embeddings`. |
-| `recall-check --files <glob>… [--k N] [--json]` | **deterministic** recurring-failure → `tighten`/`none`/`unavailable` verdict. Files match lane globs with the same matcher as the scope gate: `*` matches within one path segment (never `/`); `**` matches across segments; `dir/**` also matches `dir` itself; `?` matches one non-`/` character; `[` and `]` are literal (no character classes — `app/[locale]/**` is a real directory); matching is anchored to the full repo-relative path (see [`execution-manifest.md`](execution-manifest.md)). recall-check only: a bare path with no wildcard means "this path or anything under it" (the enforced gate has no such reading). Proof: the `parity …` rows of `python3 scripts/compound-v-memory.py --selftest`. |
+| `recall-check --files <glob>… [--k N] [--json]` | **deterministic** recurring-failure → `tighten`/`none`/`unavailable` verdict. Files match lane globs with the same matcher as the scope gate: `*` matches within one path segment (never `/`); `**` matches across segments; `dir/**` also matches `dir` itself; `?` matches one non-`/` character; `[` and `]` are literal (no character classes — `app/[locale]/**` is a real directory); matching is anchored to the full repo-relative path (see [`execution-manifest.md`](execution-manifest.md)). recall-check only: a bare path with no wildcard means "this path or anything under it" (the enforced gate has no such reading). Proof: the `parity …` rows of `python3 "$CV/scripts/compound-v-memory.py" --selftest`. |
 | `bootstrap [--model M]` | the ONLY network step: create the out-of-repo embedding venv |
 | `doctor` | index / venv / model / staleness health |
 | `--selftest` | stdlib-only self-tests (no network, no model) |

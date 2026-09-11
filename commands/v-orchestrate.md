@@ -8,6 +8,20 @@ The argument is `{{args}}`. It is normally a **plan path**. It may instead be an
 
 The manifest schema and rules are defined in [`skills/compound-v/execution-manifest.md`](../skills/compound-v/execution-manifest.md); the routing decisions come from [`skills/compound-v/routing-policy.md`](../skills/compound-v/routing-policy.md); the run-dir layout and `state.json` shape come from [`skills/compound-v/state-machine.md`](../skills/compound-v/state-machine.md). Read those — they are the authority; this command is the procedure.
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Steps
 
 0a. **Obtain a triage record if there is none (spec §A3).** Every run this command materializes must
@@ -50,7 +64,7 @@ The manifest schema and rules are defined in [`skills/compound-v/execution-manif
 
 0. **Fast-path branch (accepted pre-eval → committed single-job run).** If `{{args}}` resolves to an accepted `FASTPATH_ELIGIBLE` pre-eval record (a `pre_eval_id`, or a `docs/superpowers/pre-eval/<pre_eval_id>.json` path with `decision: FASTPATH_ELIGIBLE`), do **not** run the plan-based flow below — the fast path has no full plan and no three audits. Instead delegate to the deterministic materializer, which runs the authoritative **Phase-M** lifecycle (mint a deterministic run-id from `pre_eval_id` → copy the pinned taxonomy snapshot into the run → write spec/plan **stubs**, block-YAML audit **skip-records**, the single-job `fast_path` manifest with the review **declaration** only, and the captured implementer prompt → **commit all artifacts except `state.json`** → **append + commit the `bind` event** → **commit `state.json` at `FASTPATH_DISPATCHED` LAST**). It also runs the validator in `--mode pre-dispatch` as an in-code gate before binding, so a manifest the validator would reject never reaches dispatch.
    ```bash
-   python3 scripts/compound-v-fastpath-materialize.py materialize \
+   python3 "$CV/scripts/compound-v-fastpath-materialize.py" materialize \
      --repo . --pre-eval-id <pre_eval_id> [--prompt-file <captured-implementer-prompt>]
    ```
    The materializer is **idempotent + crash-consistent**: a committed `state.json` at `FASTPATH_DISPATCHED` ⇒ the `bind` is already durable ⇒ the run is complete (re-running is a no-op); a run interrupted before `state.json` is rebuilt deterministically (same `pre_eval_id` → same run-id; an existing child is discovered before another is minted). It **fails closed** — a tampered record (its `localization.resolved_paths[0]` disagreeing with the committed localization artifact, a non-`FASTPATH_ELIGIBLE` decision, or a taxonomy snapshot whose bytes don't content-address to the record's `taxonomy_digest`) is **rejected before any write or commit**. Report the run-id and the next step (`/v:dispatch <run-id>`), then **stop** — Steps 1-9 below do not apply.
@@ -107,7 +121,7 @@ The manifest schema and rules are defined in [`skills/compound-v/execution-manif
 
 7. **Validate before declaring done.** Run the deterministic manifest validator:
    ```
-   python3 scripts/compound-v-validate-manifest.py docs/superpowers/execution/<run-id>/manifest.yaml
+   python3 "$CV/scripts/compound-v-validate-manifest.py" docs/superpowers/execution/<run-id>/manifest.yaml
    ```
    It enforces the invariants (disjoint `write_allowed`, `codex ⇒ worktree`, `reviewers ⇒ opus`, shared-in-Task-0). If it exits non-zero, **fix the manifest** and re-run — do not hand a manifest the validator rejects to dispatch. A plan-based manifest carries **no** `fast_path` block, so it is validated mode-lessly (legacy). The **only** `fast_path` manifest this command produces comes from the Step 0 materializer, which validates it with `--mode pre-dispatch` itself — never hand-materialize a `fast_path` manifest here without that mode (a mode-less `fast_path` manifest is fail-closed rejected; CR5-1).
 
@@ -134,7 +148,7 @@ The manifest schema and rules are defined in [`skills/compound-v/execution-manif
 
 8b. **Bind every pre-eval-backed run (CR3-2).** If Step 6 set a `pre_eval_id`, append **and commit** the `bind` triage event **now** (after the run dir is committed, so the run it points at is durable), via the two-command discipline (no `&&`, each exit code checked):
    ```bash
-   python3 scripts/compound-v-triage-outcomes.py bind --pre-eval-id <pre_eval_id> --run-id <run-id>
+   python3 "$CV/scripts/compound-v-triage-outcomes.py" bind --pre-eval-id <pre_eval_id> --run-id <run-id>
    git add docs/superpowers/memory/triage-outcomes.jsonl
    git commit -m "chore(v-orchestrate): bind run <run-id> to <pre_eval_id>"
    ```

@@ -36,10 +36,12 @@ Skip **only** when the change cannot alter a shipped artifact, runtime behavior,
 
 ### Gate 2 — Knowledge-base hit (V-memory)
 
-Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path):
+Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path). The engine script ships with the plugin, not with the target repository — resolve the plugin root once per session (`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo):
 
 ```bash
-python3 scripts/compound-v-memory.py search "<topic>" --top 8 --json
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+python3 "$CV/scripts/compound-v-memory.py" search "<topic>" --top 8 --json
 ```
 
 - **The search refreshes the FTS5 lane itself** — it checks the index against the working tree and, if stale, refreshes inline before the query runs, printing one stderr line: `V-memory: refreshed N stale doc(s) before recall (FTS5 lane)`. No separate refresh step is needed; recent recon docs are already visible to the very next search.

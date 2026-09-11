@@ -516,10 +516,14 @@ the machine-generated scorecard that
 **from run results** (`--from-runs docs/superpowers/execution` — every manifest
 job joined against its own `results/<job-id>.json`), unioned with the legacy
 `task-outcomes.jsonl` — one row per `(backend, type)` with a `health` verdict.
-Query a single cell at routing time:
+Query a single cell at routing time. The script ships with the plugin, not with the target
+repository, so resolve the plugin root first — `CLAUDE_PLUGIN_ROOT` is a hook-context hint, not
+a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo:
 
 ```bash
-python3 scripts/compound-v-scorecard.py --query --backend <default> --type <task-type>
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+python3 "$CV/scripts/compound-v-scorecard.py" --query --backend <default> --type <task-type>
 # → stats + health ∈ {insufficient_data, healthy, watch, unhealthy}
 ```
 

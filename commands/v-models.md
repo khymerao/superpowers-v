@@ -23,6 +23,19 @@ map drives dispatch only, never any arbiter/review panel seat.
 discovery, *show* what you found, then let the user choose. Never silently pick a
 model the user did not confirm. **NEVER assign `haiku` to any tier on any backend.**
 
+**Resolving the plugin root.** The `scripts/` this command calls ship with the plugin — they are
+not files in your own repository. Resolve the plugin root once per session before calling any of
+them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ---
 
 ## Step 0 — Load the current map
@@ -108,7 +121,7 @@ to get a real `proposed` frontier/deep/standard/light map plus the full `availab
 
 ```bash
 command -v agy >/dev/null \
-  && agy models </dev/null | python3 scripts/compound-v-discover-models.py --backend antigravity \
+  && agy models </dev/null | python3 "$CV/scripts/compound-v-discover-models.py" --backend antigravity \
   || echo "agy unavailable"
 ```
 
@@ -125,7 +138,7 @@ command -v agy >/dev/null \
   form (it merges into `models.antigravity`, preserving the other backends):
 
   ```bash
-  agy models </dev/null | python3 scripts/compound-v-discover-models.py \
+  agy models </dev/null | python3 "$CV/scripts/compound-v-discover-models.py" \
     --backend antigravity --write-config .claude/compound-v.json
   ```
 
@@ -277,7 +290,7 @@ resolver reads the per-stance block you wrote (omitting it defaults to `balanced
 for s in balanced cost-aware; do
   for b in claude codex antigravity cursor opencode; do
     for t in deep standard light; do
-      python3 scripts/compound-v-resolve-model.py --backend "$b" --tier "$t" \
+      python3 "$CV/scripts/compound-v-resolve-model.py" --backend "$b" --tier "$t" \
         --stance "$s" --config .claude/compound-v.json
     done
   done

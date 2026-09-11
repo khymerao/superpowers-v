@@ -8,6 +8,21 @@ The epic spec is `{{args}}` (a path to an epic brief, or a described feature set
 
 The epic model, run-dir layout, the final integration review, and the honesty boundary are defined in [`skills/compound-v/epic-mode.md`](../skills/compound-v/epic-mode.md) — read it; it is the authority. The deterministic state spine is [`scripts/compound-v-epic-state.py`](../scripts/compound-v-epic-state.py) (one level up from [`state-machine.md`](../skills/compound-v/state-machine.md)). Each per-feature run is a normal v1.0 run materialized per [`execution-manifest.md`](../skills/compound-v/execution-manifest.md).
 
+## Resolving the plugin root
+
+The `scripts/` this command calls ship with the plugin — they are not files in your own
+repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/`
+get `$CV`.
+
 ## Steps
 
 1. **Resolve the epic spec.** From `{{args}}`: if it is a path to an epic brief, read it; if it is a described feature set, work from the description. If `{{args}}` is empty, ask the user for the epic brief (or list existing epics under `docs/superpowers/execution/epics/` to resume one). Pick an `<epic-id>` (convention: `YYYY-MM-DD-<slug>`) and an epic **title**, and capture the epic's **acceptance criteria** (used by the final integration review). Agree an **autonomy budget** with the user — `MAX_FEATURES` per `/v:epic` invocation. Seed the default from `.claude/compound-v.json` `epic.max_features` if set (written by [`/v:init`](v-init.md) Step 3c), else **1**: build one feature, then checkpoint; raise it only when the user wants more autonomy per run. An epic is *N full v1.0 runs*, so this is the **human checkpoint cadence** — a *driver policy*, not a script-enforced token meter: by default the loop builds one feature, reports `--stats`, and stops for you to review and re-run.
@@ -17,10 +32,10 @@ The epic model, run-dir layout, the final integration review, and the honesty bo
 2. **Decompose + spec every feature UP FRONT — the one interactive phase.** Decompose the product into independent-ish **features**, each a *vertical slice* (`auth`, `api`, `ui`), not a layer; capture cross-feature dependencies in `depends_on` (`api` depends_on `auth`). Then, for **each** feature, run `superpowers:brainstorming` to produce a real **per-feature spec file** (with feature-level Acceptance Criteria), saved to `docs/superpowers/execution/epics/<epic-id>/specs/<feature-id>.md`. **Trigger 0 applies to each of these brainstorms:** before each per-feature brainstorm, run the pre-brainstorm recon gate sequence from [`phase-0-recon.md`](../skills/compound-v/phase-0-recon.md) (plumbing-skip → KB-hit → config); later features in the same epic increasingly skip via the KB-hit gate as earlier recon/audit docs accumulate — designed behavior, not a bypass. This is the **only** human-interactive phase: every spec is written and approved *here*, before the autonomous loop — so the loop never pauses to brainstorm. That batching is what makes the epic genuinely **autonomous** *and* keeps a **real spec per feature** (the central tension, resolved). Write `features.json` = a JSON array of `{id, title, depends_on, spec_path}`, each `spec_path` pointing at its spec file.
 
 3. **Review the decomposition, then init (specs enforced).**
-   - **Gate the feature DAG before building** (one level up from partition-review): `python3 scripts/compound-v-epic-state.py --lint --features docs/superpowers/execution/epics/<epic-id>/features.json` flags structural smells (an **ISLAND** feature with no deps *and* no dependents = a likely missed dependency; an **over-coupled** feature depending on most others = a layer, not a slice) plus any hard validation error. Then **critique it yourself**: are these real vertical slices, are `depends_on` correct *and complete*? A missing edge means a feature builds before its prerequisite. Fix `features.json` until lint is clean and the split is sound — a weak decomposition is the #1 way an epic fails downstream.
-   - **Resume-aware init.** The epic lives at `docs/superpowers/execution/epics/<epic-id>/epic-state.json`. **If it already exists → CONTINUE** (read it; first run `python3 scripts/compound-v-epic-state.py --check-specs --state <epic-state.json>` to confirm every non-`done` feature still has an existing, contained `spec_path` — this guards an old or hand-made state from entering the loop spec-less — then go to the loop). **Else** initialize:
+   - **Gate the feature DAG before building** (one level up from partition-review): `python3 "$CV/scripts/compound-v-epic-state.py" --lint --features docs/superpowers/execution/epics/<epic-id>/features.json` flags structural smells (an **ISLAND** feature with no deps *and* no dependents = a likely missed dependency; an **over-coupled** feature depending on most others = a layer, not a slice) plus any hard validation error. Then **critique it yourself**: are these real vertical slices, are `depends_on` correct *and complete*? A missing edge means a feature builds before its prerequisite. Fix `features.json` until lint is clean and the split is sound — a weak decomposition is the #1 way an epic fails downstream.
+   - **Resume-aware init.** The epic lives at `docs/superpowers/execution/epics/<epic-id>/epic-state.json`. **If it already exists → CONTINUE** (read it; first run `python3 "$CV/scripts/compound-v-epic-state.py" --check-specs --state <epic-state.json>` to confirm every non-`done` feature still has an existing, contained `spec_path` — this guards an old or hand-made state from entering the loop spec-less — then go to the loop). **Else** initialize:
      ```
-     python3 scripts/compound-v-epic-state.py --init --require-specs \
+     python3 "$CV/scripts/compound-v-epic-state.py" --init --require-specs \
        --features docs/superpowers/execution/epics/<epic-id>/features.json \
        --epic-id <epic-id> --title "<title>" \
        --out docs/superpowers/execution/epics/<epic-id>/epic-state.json
@@ -33,7 +48,7 @@ The epic model, run-dir layout, the final integration review, and the honesty bo
 4. **The autonomous loop (checkpoint stance — the default).** If the marathon gate (step 1) applies, **skip steps 4–7** and use the [Autonomous marathon loop](#autonomous-marathon-loop-opt-in-v210) after step 7 instead — everything below this point is the unchanged checkpoint behavior. Bounded by `MAX_FEATURES`. Repeat until no feature is runnable **or this invocation's budget is spent**:
    - **Ask for the next runnable feature:**
      ```
-     python3 scripts/compound-v-epic-state.py --next \
+     python3 "$CV/scripts/compound-v-epic-state.py" --next \
        --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
      ```
      It prints `{"feature": <feature|null>, "reason": "runnable|epic complete|epic blocked: …|epic needs reconcile: …"}`. A feature is runnable when it is `pending` and **all** its `depends_on` are `done`, returned in topological order. The loop is **fail-fast (checkpoint stance)**: any `failed` feature halts the whole epic (even independent pending features wait) until reconciled — `--next` will not route around a failure. (The marathon loop below uses a different, DAG-aware routing rule — `--next --autonomous` — that continues past an abandoned feature onto its independents; the fail-fast rule here applies only to the checkpoint `--next`.)
@@ -48,16 +63,16 @@ The epic model, run-dir layout, the final integration review, and the honesty bo
         - The scope gate, model-broker, failure-handling, and scorecards all apply **per feature**, unchanged.
      3. **On the feature's success**, mark it done with the v1.0 run-id of its run dir:
         ```
-        python3 scripts/compound-v-epic-state.py --update --feature <id> --status done \
+        python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status done \
           --run-id <run-id> --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
         ```
      4. **On the feature failing** (scope-gate BLOCKED, unresolvable reviewer ISSUES, a 🔴 pre-flight, or an exhausted backend) — mark it `failed`:
         ```
-        python3 scripts/compound-v-epic-state.py --update --feature <id> --status failed \
+        python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status failed \
           --run-id <run-id> --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
         ```
         then **stop the loop** and go to step 6 (the epic is now blocked but resumable).
-     5. **Checkpoint (human-in-the-loop cadence — checkpoint stance).** Count each completed feature against `MAX_FEATURES`. When this invocation's budget is spent: **first commit `epic-state.json`** — two separate commands, checking each exit code — `git add docs/superpowers/execution/epics/<epic-id>/epic-state.json`, then `git commit -m "chore(v-epic): checkpoint <epic-id> (<N> features done)"` — **then STOP and report** `python3 scripts/compound-v-epic-state.py --stats --state <epic-state.json>` (done / remaining) so the human reviews the accumulated diff and re-runs `/v:epic` to continue. **The commit is not optional**: each feature's own v1.0 run already commits *that feature's* run directory (parallel-dispatcher's Step 7), but epic-state.json itself (which `run_id`/`status` each feature is at — the epic's *only* resume mechanism) lives one level up and is never covered by that. A checkpoint is exactly the moment control returns to a human who might close the session or clean up the worktree — an uncommitted `epic-state.json` at that instant means a later `/v:epic <epic-id>` has no record of what's done, and a `finishing-a-development-branch` cleanup can erase it outright. This is a *driver-enforced cadence*, not a token ceiling; with the default `MAX_FEATURES=1` the epic checkpoints (and commits) after **every** feature.
+     5. **Checkpoint (human-in-the-loop cadence — checkpoint stance).** Count each completed feature against `MAX_FEATURES`. When this invocation's budget is spent: **first commit `epic-state.json`** — two separate commands, checking each exit code — `git add docs/superpowers/execution/epics/<epic-id>/epic-state.json`, then `git commit -m "chore(v-epic): checkpoint <epic-id> (<N> features done)"` — **then STOP and report** `python3 "$CV/scripts/compound-v-epic-state.py" --stats --state <epic-state.json>` (done / remaining) so the human reviews the accumulated diff and re-runs `/v:epic` to continue. **The commit is not optional**: each feature's own v1.0 run already commits *that feature's* run directory (parallel-dispatcher's Step 7), but epic-state.json itself (which `run_id`/`status` each feature is at — the epic's *only* resume mechanism) lives one level up and is never covered by that. A checkpoint is exactly the moment control returns to a human who might close the session or clean up the worktree — an uncommitted `epic-state.json` at that instant means a later `/v:epic <epic-id>` has no record of what's done, and a `finishing-a-development-branch` cleanup can erase it outright. This is a *driver-enforced cadence*, not a token ceiling; with the default `MAX_FEATURES=1` the epic checkpoints (and commits) after **every** feature.
    - **If `feature` is null**, branch on `reason` (step 5/6).
 
 5. **Epic complete (checkpoint stance)** (`reason == "epic complete"`). All features are `done`. Run a **final cross-feature integration review**: the *whole accumulated diff* on the branch against the **epic's** acceptance criteria — not the per-feature ACs (those already passed in each feature's own review), but the cross-feature contracts: do the features compose, do shared boundaries line up, is the product coherent end-to-end. On PASS, **commit `epic-state.json` (same as the checkpoint step, if it isn't already)**, then hand to `superpowers:finishing-a-development-branch` (merge / PR / cleanup options) — never hand off with an uncommitted `epic-state.json`. On ISSUES, surface them and stay resumable.
@@ -121,7 +136,7 @@ binding.
 
 **The condition, verbatim.** Use this exact shape, with `<epic-id>` and `<path>` filled in:
 
-> epic `<epic-id>`: `python3 scripts/compound-v-epic-state.py --stats --state <path>` reports every
+> epic `<epic-id>`: `python3 "$CV/scripts/compound-v-epic-state.py" --stats --state <path>` reports every
 > feature `done` or the epic terminal
 
 It points the evaluator at deterministic `--stats` output on disk, so completion is read, never
@@ -143,21 +158,21 @@ released turn is **not** a finished epic — report completion only from `--stat
 At the top of each loop pass, pick a **stable cycle id for this pass** (an incrementing counter held in your own scratch state, or a UUID minted once per pass and reused for every call *within* that same pass, so one pass is never double-counted):
 
 ```
-python3 scripts/compound-v-epic-state.py --record-progress-cycle --cycle-id <cycle-id> \
+python3 "$CV/scripts/compound-v-epic-state.py" --record-progress-cycle --cycle-id <cycle-id> \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 
 Idempotent by `cycle_id` (safe to replay after a crash); compares this pass's `done` count to the last recorded count and resets/increments `no_progress_cycles`. Then:
 
 ```
-python3 scripts/compound-v-epic-state.py --breaker-check \
+python3 "$CV/scripts/compound-v-epic-state.py" --breaker-check \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 
 `--breaker-check` is **read-only** → `{"tripped","which":[...],"detail":{...}}`. If `tripped`:
 
 ```
-python3 scripts/compound-v-epic-state.py --trip-breaker \
+python3 "$CV/scripts/compound-v-epic-state.py" --trip-breaker \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 
@@ -166,7 +181,7 @@ python3 scripts/compound-v-epic-state.py --trip-breaker \
 ### 2. Ask for the next runnable feature
 
 ```
-python3 scripts/compound-v-epic-state.py --next --autonomous \
+python3 "$CV/scripts/compound-v-epic-state.py" --next --autonomous \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 
@@ -175,7 +190,7 @@ Prints `{"feature": <feature|null>, "reason": "...", "blocked_by": [ids]}`. Unli
 - `feature` non-null (`reason` is `"runnable"` or `"running_with_failures: runnable (...)"`) → §3. **A `failed` feature carrying a `retry_fix` disposition that is still under its retry cap is handed back here as runnable** — the driver runs it exactly like any other runnable feature (§3). This is the crash-safe retry path: the retry intent lives in the persisted `disposition`, so it survives a breaker trip or a hard crash between recording the verdict and re-running.
 - `"needs_arbitration: feature <id> ..."` — a `failed` feature with **no valid recorded disposition**: either the arbiter exchange never completed (a crash mid-arbitration), or a *stale* disposition was recorded against an earlier attempt (a disposition is attempt-bound — the state script only honors it when its `attempt` equals the feature's current `attempts`, so a re-run that bumped `attempts` invalidates the old verdict and this reason re-fires). **Do NOT treat this as done or abandoned** and **do NOT blindly restart from `--prepare`** — a crash can leave a challenge already `in_progress` or `consumed`, and `--prepare`/`--classify` reject a consumed/in-progress challenge, which would deadlock. Instead run the **idempotent recovery ladder first** — read the feature's current `attempts` (`--can-retry --feature <id>` → `attempts`), then:
   ```
-  python3 scripts/compound-v-epic-arbiter.py --resume-challenge \
+  python3 "$CV/scripts/compound-v-epic-arbiter.py" --resume-challenge \
     --state docs/superpowers/execution/epics/<epic-id>/epic-state.json \
     --feature <id> --attempt <attempts>
   ```
@@ -186,7 +201,7 @@ Prints `{"feature": <feature|null>, "reason": "...", "blocked_by": [ids]}`. Unli
   Only after this recovery ladder resolves does the driver treat the failure as newly-arbitrated. Then act on the disposition (§6) and loop.
 - `"needs_blocker_recording: feature(s) <ids> ..."` — the **symmetric "finish the interrupted transition on resume" case** to `needs_arbitration`, one step further along: the feature's attempt-matched disposition IS `blocked_external` (the arbiter verdict was recorded) but the crash landed *between* `--record-disposition` and the `--update --status blocked` that appends the ledger entry. **Complete the interrupted transition idempotently** — the ledger append is keyed by `(feature, attempt)`, so re-running is safe and never duplicates:
   ```
-  python3 scripts/compound-v-epic-state.py --update --feature <id> --status blocked \
+  python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status blocked \
     --blocker-reason "<from the recorded disposition's reason>" \
     --audit-file docs/superpowers/execution/epics/<epic-id>/arbiter/<id>-<attempt>.json \
     [--families-agreeing <from the disposition's families_agreeing csv, omitted if empty>] \
@@ -208,7 +223,7 @@ Prints `{"feature": <feature|null>, "reason": "...", "blocked_by": [ids]}`. Unli
 Identical to the checkpoint loop's step 4.1–4.2 — pick the run-id, mark it running, run the full v1.0 pipeline:
 
 ```
-python3 scripts/compound-v-epic-state.py --update --feature <id> --status running \
+python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status running \
   --run-id <run-id> --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 
@@ -224,17 +239,17 @@ python3 scripts/compound-v-epic-state.py --update --feature <id> --status runnin
 
 - **Sampled** — record the obligation, then (or in the same commit as) the `done` mark:
   ```
-  python3 scripts/compound-v-epic-state.py --mark-sample-audit-due --feature <id> \
+  python3 "$CV/scripts/compound-v-epic-state.py" --mark-sample-audit-due --feature <id> \
     --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
   ```
   ```
-  python3 scripts/compound-v-epic-state.py --update --feature <id> --status done \
+  python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status done \
     --run-id <run-id> --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
   ```
   Commit (§9) — **both** writes in one commit, so `done` is never persisted without its pending `sample_audit_due`. A due sample-audit is a durable obligation: it survives a crash/resume, `--next --autonomous` surfaces it as `"sample_audit_due: ..."` once no pending feature remains, and the terminal (`--record-final-review passed`) is rejected while any is outstanding — the driver runs the audit right here, before the next pass, rather than relying on that gate (finding 148).
 - **Not sampled** — just the `done` mark, then commit (§9):
   ```
-  python3 scripts/compound-v-epic-state.py --update --feature <id> --status done \
+  python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status done \
     --run-id <run-id> --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
   ```
   Loop back to §1.
@@ -245,13 +260,13 @@ Then run the sample-audit for a sampled feature (also the entry point when `--ne
 2. **Dispatch a FRESH `superpowers-v:spec-reviewer` Task** (Opus, no context from the build) for **PASS 2 QUALITY + the 2.5 reward-hack check** over just that feature's diff (`git diff` for its run), against its feature-level acceptance criteria.
 3. **On APPROVED** — clear the obligation, then commit (§9):
    ```
-   python3 scripts/compound-v-epic-state.py --clear-sample-audit-due --feature <id> \
+   python3 "$CV/scripts/compound-v-epic-state.py" --clear-sample-audit-due --feature <id> \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
    ```
    Loop back to §1.
 4. **On ISSUES** — the success was not real. Revert it with the SINGLE atomic command (never a clear-then-revert two-step — a crash between those two writes would leave the feature `done` with its obligation already cleared, so the bad `done` sticks silently):
    ```
-   python3 scripts/compound-v-epic-state.py --record-audit-failed --feature <id> \
+   python3 "$CV/scripts/compound-v-epic-state.py" --record-audit-failed --feature <id> \
      --last-error "sample-audit ISSUES: <summary>" \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
    ```
@@ -265,13 +280,13 @@ The entry point whenever `--next --autonomous` surfaces `"blocker_audit_due: fea
 2. **Dispatch a FRESH adversarial `superpowers-v:spec-reviewer` Task** (Opus, **no context from the build**) over the confirmed blocker — its **ledger entry** (in `epic-state.json`) plus its **frozen arbiter audit** (`docs/superpowers/execution/epics/<epic-id>/arbiter/<id>-<attempt>.json`), read from disk, never driver say-so. Per `agents/spec-reviewer.md` §2.6, it must VERIFY, from that on-disk evidence: the frozen audit's **`confirmed == true`**; that **≥2 distinct external families** (from `GPT`/`Gemini`/`Grok`, Claude never counts) agreed on the **SAME `blocker_category`**; and that there was **no retry dissent** (`retry_n == 0` — no ballot in `ballots[]` carries `disposition: "retry_fix"`). The missing-external-fact evidence must actually be present — not merely the `blocked_external` label.
 3. **On APPROVED** — the confirmation is sound. Clear the obligation, then commit (§9):
    ```
-   python3 scripts/compound-v-epic-state.py --clear-blocker-audit-due --feature <id> \
+   python3 "$CV/scripts/compound-v-epic-state.py" --clear-blocker-audit-due --feature <id> \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
    ```
    Continue the loop (§1). Once every due blocker-audit clears, the next `--next --autonomous` advances toward §8.
 4. **On ISSUES** — the confirmation was **not** sound (unconfirmed, category mismatch, retry dissent, or hidden remainder). The feature must **NOT** reach `done_with_blockers`. Revert it out of the confirmed-blocked state with the SINGLE atomic command — never a bare `--update --status failed`, which does **not** clear `blocker_audit_due` nor deactivate the active confirmed ledger entry, so it would leave the terminal permanently blocked (a later retry→done then hits a stale `blocker_audit_due:true` that PERMANENTLY rejects `--record-final-review passed`, plus a still-active confirmed ledger entry). Exactly analogous to §4's sample-audit `--record-audit-failed`:
    ```
-   python3 scripts/compound-v-epic-state.py --record-blocker-audit-failed --feature <id> \
+   python3 "$CV/scripts/compound-v-epic-state.py" --record-blocker-audit-failed --feature <id> \
      --last-error "blocker-audit ISSUES: <summary>" \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
    ```
@@ -282,7 +297,7 @@ The entry point whenever `--next --autonomous` surfaces `"blocker_audit_due: fea
 **First**, mark the feature `failed` — before any progress/breaker/arbiter step — so a retry legally starts from `failed`, not `running` (the transition table only allows `pending`/`failed → running`):
 
 ```
-python3 scripts/compound-v-epic-state.py --update --feature <id> --status failed \
+python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status failed \
   --last-error "<one-line failure summary: scope-gate BLOCKED / reviewer ISSUES / pre-flight critical / backend exhausted>" \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
@@ -291,7 +306,7 @@ python3 scripts/compound-v-epic-state.py --update --feature <id> --status failed
 
 1. **Breaker gate**, then read the feature's current attempt count (`--can-retry --feature <id>` → `{"can_retry","attempts","cap"}`; `attempts` is the number `--prepare` needs) and issue the challenge:
    ```
-   python3 scripts/compound-v-epic-arbiter.py --prepare \
+   python3 "$CV/scripts/compound-v-epic-arbiter.py" --prepare \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json \
      --feature <id> --attempt <attempts>
    ```
@@ -301,7 +316,7 @@ python3 scripts/compound-v-epic-state.py --update --feature <id> --status failed
 
 3. **Breaker gate**, then aggregate — Codex is polled *inside* this call, so it is itself a model-call boundary:
    ```
-   python3 scripts/compound-v-epic-arbiter.py --classify \
+   python3 "$CV/scripts/compound-v-epic-arbiter.py" --classify \
      --state docs/superpowers/execution/epics/<epic-id>/epic-state.json \
      --feature <id> --challenge <challenge_id> \
      --evidence-file evidence.json \
@@ -312,7 +327,7 @@ python3 scripts/compound-v-epic-state.py --update --feature <id> --status failed
 Record the verdict (`--confirmed` is **never** passed as `true` — still hard-rejected; the stored `confirmed` is **DERIVED from the FROZEN ARBITER AUDIT** you pass via `--audit-file` — contained under `arbiter/` and validated — **never** from the `--families-agreeing` CSV. `--families-agreeing`/`--blocker-category` are recorded metadata only; a `blocked_external` verdict records `confirmed:true` only when that on-disk audit itself proves ≥2 distinct known external families on the same `blocker_category`, and a missing/invalid `--audit-file` ⇒ `confirmed:false` (SUSPECTED)):
 
 ```
-python3 scripts/compound-v-epic-state.py --record-disposition --feature <id> \
+python3 "$CV/scripts/compound-v-epic-state.py" --record-disposition --feature <id> \
   --disposition <disposition> --reason "<reason>" [--families-agreeing <families_agreeing csv — recorded metadata only>] \
   --audit-file <the --classify result's audit_path — docs/superpowers/execution/epics/<epic-id>/arbiter/<id>-<attempt>.json> \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
@@ -328,7 +343,7 @@ The disposition is **already persisted** by the `--record-disposition` at the en
 - **`halt_feature`** — abandon this feature. No further status change needed — it is already `failed`, disposition recorded — `--next --autonomous` on the next pass routes around it: independents keep running, only its transitive dependents block. Continue the loop (§1).
 - **`blocked_external`** — isolate it in the blocker ledger. **`confirmed` is DERIVED from the FROZEN ARBITER AUDIT, never from the CSV and never caller-asserted** (`--blocker-confirmed true` is still hard-rejected): the state script reads the frozen audit you hand it via **`--audit-file <path>`** and sets the ledger entry's `confirmed:true` **only** when that on-disk audit itself proves the blocker (≥2 distinct known external families — `GPT`/`Gemini`/`Grok` — agreeing on the SAME `blocker_category` with no `retry_fix` dissent). `--families-agreeing` and `--blocker-category` are now **recorded metadata only** — they annotate the ledger entry for the finish-summary/audit; they do **not** decide `confirmed`. **Without a valid `--audit-file`, the blocker is SUSPECTED** (`confirmed:false`) no matter what the CSV says. Pass `--audit-file` set to the `--classify` result's **`audit_path`** (the frozen audit for THIS feature+attempt — `docs/superpowers/execution/epics/<epic-id>/arbiter/<id>-<attempt>.json`), plus the metadata `--families-agreeing` + the agreed `--blocker-category` (the single category the confirming families share, read from that same audit's `ballots[]`):
   ```
-  python3 scripts/compound-v-epic-state.py --update --feature <id> --status blocked \
+  python3 "$CV/scripts/compound-v-epic-state.py" --update --feature <id> --status blocked \
     --blocker-reason "<reason>" \
     --audit-file <the --classify result's audit_path — the frozen audit for this feature+attempt> \
     --families-agreeing <families_agreeing csv — recorded metadata only> \
@@ -369,8 +384,8 @@ Page **only** when the epic itself is blocked — `blocked_needing_human` (tripp
 - **Every panel ballot + reason + resolved family + why it aggregated** — read straight from the persisted `.../arbiter/<id>-<n>.json` audit (`ballots`, `families_present`, `families_agreeing`, the aggregation `reason`) — never re-derived or paraphrased into something the audit doesn't say.
 - **Breaker state (n/cap)** — the `--breaker-check`/`--trip-breaker` `detail` object verbatim (counts + hours only — never a fabricated cost or token number).
 - **Copy-paste resume commands (human-gated — this is the un-trip path, not an auto-revive).** The epic is parked at `blocked_needing_human`; a human resolves the root cause, clears the latch, and RE-RUNS `/v:epic <epic-id>` to **resume the marathon** (the loop picks up from `epic-state.json` per §0). Give the exact commands for the specific block:
-  - **A tripped breaker or an exhausted per-feature cap** — `python3 scripts/compound-v-epic-state.py --clear-breaker --state <epic-state.json> [--set-max-total-attempts N] [--set-max-attempts-per-feature N] [--reset-wall-clock]` clears the `blocked_needing_human` latch and re-arms the tripped caps so the next `/v:epic` resumes the marathon. Add `--reset-wall-clock` if the wall-clock breaker tripped (re-stamps `autonomy.started_at` to now, so the hours budget starts fresh), and/or `--set-max-total-attempts <N>` if the attempt breaker tripped (raises the cap so there's headroom to continue). Without those re-arm flags the same cap trips again on the first pass.
-  - **A `halt_epic` disposition** — `python3 scripts/compound-v-epic-state.py --clear-disposition --feature <id> --state <epic-state.json>` clears the sticky `halt_epic` verdict on that feature (which `--next --autonomous` treats as a whole-epic stop) so the DAG routes normally again; then `--clear-breaker` if the status latch is also set, and re-run `/v:epic <epic-id>`.
+  - **A tripped breaker or an exhausted per-feature cap** — `python3 "$CV/scripts/compound-v-epic-state.py" --clear-breaker --state <epic-state.json> [--set-max-total-attempts N] [--set-max-attempts-per-feature N] [--reset-wall-clock]` clears the `blocked_needing_human` latch and re-arms the tripped caps so the next `/v:epic` resumes the marathon. Add `--reset-wall-clock` if the wall-clock breaker tripped (re-stamps `autonomy.started_at` to now, so the hours budget starts fresh), and/or `--set-max-total-attempts <N>` if the attempt breaker tripped (raises the cap so there's headroom to continue). Without those re-arm flags the same cap trips again on the first pass.
+  - **A `halt_epic` disposition** — `python3 "$CV/scripts/compound-v-epic-state.py" --clear-disposition --feature <id> --state <epic-state.json>` clears the sticky `halt_epic` verdict on that feature (which `--next --autonomous` treats as a whole-epic stop) so the DAG routes normally again; then `--clear-breaker` if the status latch is also set, and re-run `/v:epic <epic-id>`.
   - **A recoverable incomplete run** (a feature caught mid-pipeline) — resume THAT run in place with `/v:resume <run-id>` using the feature's **recorded `run_id`** (from `--summary`). Then route the OUTCOME through the marathon handlers — **NEVER bare-mark a recovered feature `--status done`**, which would skip §4's mandatory sample-decision (especially the invocation's first-success `--mark-sample-audit-due`-before-`done`): a recovered **success** goes through **§4's success handler** (sample-decide → `--mark-sample-audit-due` if selected → then `done`); a recovered **failure** goes through **§5** (mark `failed`, then the arbiter exchange). This is distinct from abandoning + retrying from scratch: a fresh `--update --status pending --feature <id> --state <epic-state.json>` throws away the half-built run and restarts it from the spec — only do that when `/v:resume` can't recover it (or `run_id` is null).
   - Then **re-run `/v:epic <epic-id>`** — re-entrant, resumes the marathon from the persisted state (§0 re-confirms `stance=="marathon"`). Clearing the latch is **human-gated, never automatic**: a `/loop` or `/schedule` firing re-enters `/v:epic`, but a tripped breaker is still terminal until a human clears it, so the firing reports and stops the loop rather than un-tripping anything. **After any marathon recovery, a feature only ever reaches `done` through §4 — never a bare `--update --status done` in the recovery path.**
 - **Paths** — the arbiter JSON(s), the epic run dir, and `git diff <autonomy.start_sha>..HEAD` (the epic's start SHA captured at `--init`; falls back to the branch name if an older marathon state predates `start_sha`) for the accumulated diff.
@@ -382,7 +397,7 @@ Counts only, never fabricated cost/token metrics. Then stop this invocation.
 When `--next --autonomous` reports `"running_with_failures: all features done, awaiting final_review ..."` — **or its v2.14 sibling `"running_with_failures: all reachable done, awaiting final_review (done_with_blockers pending)"`** (every feature `done`-or-confirmed-blocked, awaiting the review that unlocks the `done_with_blockers` terminal): run the breaker gate (§1, this pass's cycle-id) before spending this model call — tripped → `--trip-breaker` → §7. Otherwise dispatch `superpowers-v:spec-reviewer` for **PASS 3 INTEGRATION only**, over the **whole accumulated diff** on the branch since the epic started — `git diff <autonomy.start_sha>..HEAD` (the SHA captured at `--init`; the branch name if an older state predates `start_sha`) — against the epic's acceptance criteria (same in spirit as the checkpoint loop's step 5 integration review). Record the verdict:
 
 ```
-python3 scripts/compound-v-epic-state.py --record-final-review --status passed \
+python3 "$CV/scripts/compound-v-epic-state.py" --record-final-review --status passed \
   --state docs/superpowers/execution/epics/<epic-id>/epic-state.json
 ```
 

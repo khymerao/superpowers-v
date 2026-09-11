@@ -27,6 +27,18 @@ The Partition Map (and the manifest's disjoint `write_allowed`) is your safety c
 
 The executable spec you implement is [`skills/compound-v/phase-3-parallel-opus-dispatch.md`](../skills/compound-v/phase-3-parallel-opus-dispatch.md). This agent is the executable; that skill is the spec. Read it if a step here is ambiguous.
 
+**Resolving the plugin root.** The `scripts/` this agent calls ship with the plugin, not with
+the caller's repository. Resolve the plugin root once per session before calling any of them:
+
+```bash
+CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+CV="${CV:-$PWD}"; CV="${CV%/}"
+```
+
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+of this repo.
+
 ## Required inputs (the caller should provide)
 
 1. **Manifest path** OR **plan file path.**
@@ -75,8 +87,8 @@ Honor the manifest's `depends_on`, `run`, and `max_parallel`. For each job you b
 wave by `max_parallel`. Ask it, rather than re-deriving batch sizes and orderings here:
 
 ```bash
-python3 scripts/compound-v-emit-workflow.py emit <run-dir>/manifest.yaml --out /dev/null 2>/dev/null \
-  || python3 scripts/compound-v-emit-workflow.py emit <run-dir>/manifest.yaml --print | head -1
+python3 "$CV/scripts/compound-v-emit-workflow.py" emit <run-dir>/manifest.yaml --out /dev/null 2>/dev/null \
+  || python3 "$CV/scripts/compound-v-emit-workflow.py" emit <run-dir>/manifest.yaml --print | head -1
 # the emit report's `waves` array IS the schedule: a list of lists of job ids
 ```
 
@@ -133,7 +145,7 @@ worktree path is absolute.)
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
-   RESOLVED=$(python3 scripts/compound-v-resolve-model.py "$@")
+   RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
    EFFORT_OUT=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["effort"])')
    ```
@@ -163,12 +175,12 @@ worktree path is absolute.)
    **`test_contract` is a real argument, never prompt prose.** Before 3.0 there was no transport at all: every worker takes `--prompt-file`, the `job_spec` had no test field, and a job's `test_scope` could only reach an external worker as a sentence inside a prompt, hoping the model noticed it. **A value a model has to notice is not a contract.** So write the resolved slice to a file per job and pass its path:
 
    ```bash
-   python3 scripts/compound-v-fastpath-run.py resolve-tests \
+   python3 "$CV/scripts/compound-v-fastpath-run.py" resolve-tests \
      --manifest "$RUN_DIR/manifest.yaml" --job-id "$JOB_ID" \
      --worktree "$WT" --baseline "$BASE" (--last-result … | --no-prior-run) \
      --out "$RUN_DIR/jobs/$JOB_ID.test-contract.json"
 
-   scripts/compound-v-run-<backend>-worker.sh … \
+   "$CV/scripts/compound-v-run-<backend>-worker.sh" … \
      --test-contract-file "$RUN_DIR/jobs/$JOB_ID.test-contract.json" \
      [--test-timeout-sec <test_contract.timeout_s — always passed; 480 when the manifest is silent>]
    ```
@@ -192,7 +204,7 @@ The SCOPE LOCK prose is advisory. The **authority** is the deterministic, git-de
 # worktree job (codex always; claude when isolation: worktree). The worker
 # already baselines against the pre-`worktree add` SHA (so an in-worktree commit
 # is still diffed); a fresh worktree has no pre-existing untracked, so no snapshot.
-python3 scripts/compound-v-scope-check.py --worktree "$WT" --allow-file "$ALLOW"
+python3 "$CV/scripts/compound-v-scope-check.py" --worktree "$WT" --allow-file "$ALLOW"
 
 # direct job (in-harness claude against the pre-dispatch baseline commit). For a
 # direct/serial job you MUST record, BEFORE launch: (1) the pre-dispatch baseline
@@ -201,7 +213,7 @@ python3 scripts/compound-v-scope-check.py --worktree "$WT" --allow-file "$ALLOW"
 #  `git -C "$CWD" ls-files --others --ignored --exclude-standard -- .` → $PREEXIST).
 # Passing --preexisting keeps a normal dirty tree from producing false BLOCKs on
 # files this job never created, while a NEW out-of-scope path still BLOCKS.
-python3 scripts/compound-v-scope-check.py --repo "$CWD" --baseline "$BASE" \
+python3 "$CV/scripts/compound-v-scope-check.py" --repo "$CWD" --baseline "$BASE" \
   --preexisting "$PREEXIST" --allow-file "$ALLOW"
 ```
 
@@ -238,7 +250,7 @@ A `job_result.status` that is **not** `success` and **not** `blocked` is a backe
 1. **Classify.** Read the job's `failure_class` from the `job_result` (the Codex worker emits it; `null` on success/blocked). If absent — e.g. a `claude` job — recompute it by running the classifier with the backend's exit code + captured stderr (for `claude`, pass `--backend claude`; the classifier reads the stream-json `api_retry.error` enum — see [`adapter-claude.md`](../skills/backend-launcher/adapter-claude.md)):
 
    ```bash
-   python3 scripts/compound-v-classify-failure.py --backend "$BACKEND" \
+   python3 "$CV/scripts/compound-v-classify-failure.py" --backend "$BACKEND" \
      --exit-code "$EXIT" --stderr-file "$STDERR"   # → {failure_class, retryable, matched}
    ```
 
@@ -255,7 +267,7 @@ A `job_result.status` that is **not** `success` and **not** `blocked` is a backe
           --current-tier "$TIER"
    [ -n "$RETRY_AFTER" ] && [ "$RETRY_AFTER" -gt 0 ] && set -- "$@" --retry-after "$RETRY_AFTER"
    [ "$FALLBACK_OPEN" = "1" ] && set -- "$@" --fallback-open
-   python3 scripts/compound-v-failure-policy.py "$@"
+   python3 "$CV/scripts/compound-v-failure-policy.py" "$@"
    # → {action, reason, backoff_seconds, reroute_to, escalate_tier, circuit_break}
    ```
 
@@ -303,7 +315,7 @@ The worktree-recreate invariant above is the default: every dispatch — first a
 Between dispatching a batch and collecting it — and any time you are **waiting** on a background job whose completion notification has not arrived — run the read-only liveness probe over the run's `state.json` and act on it. This turns a silent forever-wait (a subagent that finished but whose notification was lost, or one that genuinely stalled) into a detected, acted-upon state. One-shot CLI, git+FS-derived, no daemon:
 
 ```bash
-python3 scripts/compound-v-liveness.py "docs/superpowers/execution/$RUN_ID" [--stale-sec 600]
+python3 "$CV/scripts/compound-v-liveness.py" "docs/superpowers/execution/$RUN_ID" [--stale-sec 600]
 # → per running job: WORKING | LIKELY-DONE | STALE | DEAD | UNKNOWN  (exit 3 if any STALE/DEAD)
 ```
 
@@ -333,24 +345,24 @@ Reconcile git **against the job's immutable pre-launch baseline SHA** (`state.js
 2. **Scope gate** (Step 2b) against `$BASE`. Out-of-scope ⇒ BLOCKED, HALT.
 3. **F2 — post-hoc reclassify, AFTER the scope gate and BEFORE any merge/commit/worktree-removal (CR1-3).** Run the sibling reclassifier over the SAME pinned baseline + the authoritative changed-path set the scope gate used:
    ```bash
-   python3 scripts/compound-v-postdiff-reclassify.py \
+   python3 "$CV/scripts/compound-v-postdiff-reclassify.py" \
      --worktree "$WT" --baseline "$BASE" --taxonomy "$TAXONOMY_REF" \   # manifest fast_path.taxonomy_ref (repo-relative)
      [--changed-file "$SCOPE_CHANGED"]        # → {"escalate": bool, "reasons": [...]}
    ```
    On `escalate: true`, go to **Escalation** below — do NOT merge, do NOT remove the worktree.
 4. **Review — one combined SPEC+QUALITY deep/opus Task; write the receipt (CR2-5/CR5-6).** The review is **NOT** dispatched from Python. **FIRST invalidate any stale receipt and bump the attempt (HIGH-1: do this BEFORE generating the spec — the review runs before `accept-review`, so a crash between must not leave a prior approval usable):** `fastpath-run.py invalidate-receipt --run-dir "$RUN_DIR"`, then increment + persist `state.json`'s `review_attempt` (start at 1) into `$REVIEW_ATTEMPT`. Then build the request with the runner (it fails closed unless the floor PASSED, scope was CLEAN, and F2 did NOT escalate — so F2 always precedes review), passing the attempt:
    ```bash
-   python3 scripts/compound-v-fastpath-run.py review-spec --worktree "$WT" --baseline "$BASE" \
+   python3 "$CV/scripts/compound-v-fastpath-run.py" review-spec --worktree "$WT" --baseline "$BASE" \
      --manifest "$RUN_DIR/manifest.yaml" --run-id "$RUN_ID" --pre-eval-id "$PRE_EVAL_ID" \
      --attempt-id "$REVIEW_ATTEMPT" \
      --floor-result "$FLOOR_JSON" --scope-clean --f2-result "$F2_JSON" --out "$SPEC_JSON"
    ```
    Run the in-harness `deep`/opus Task on the emitted `needs_review` prompt (a combined SPEC+QUALITY pass with the recorded vacuous INTEGRATION rationale) — the receipt was already invalidated and the attempt bumped above, before the spec. Then let **`accept-review` itself SEAL the receipt after acceptance** — the agent does NOT hand-write it (HIGH-3): `fastpath-run.py accept-review --spec "$SPEC_JSON" --result "$RESULT_JSON" --run-dir "$RUN_DIR" --attempt-id "$REVIEW_ATTEMPT"`. ONLY on a clean `approved` result bound to THIS diff does it atomically write a fully-sealed receipt (ts + `worktree` == `$WT` + `attempt_id` == `$REVIEW_ATTEMPT` + all binding fields + a `record_digest` self-seal) — naming the resolved reviewer (`backend:claude`, model == Claude Opus). A rejected/timed-out/wrong-tier result leaves NO valid receipt; only a sealed one advances to post-review.
-5. **Post-review receipt validation — C1 `--mode post-review`.** Before merge, `python3 scripts/compound-v-validate-manifest.py --mode post-review [--repo-root "$REPO"] --worktree "$WT" --expected-attempt "$REVIEW_ATTEMPT" [--receipt "$RUN_DIR/review/receipt.json"] "$RUN_DIR/manifest.yaml"` (**`--worktree "$WT"`** is REQUIRED for the intended PASS: the validator recomputes `final_diff_digest` in the worker's linked worktree; omitting it recomputes against the main repo and fails closed. **`--expected-attempt "$REVIEW_ATTEMPT"`** (from `state.json`, HIGH-1) requires `receipt.attempt_id` to match the current review attempt — a stale earlier-attempt receipt fails closed) — it REQUIRES + verifies the receipt (run/pre-eval bindings, reviewer opus, self-digest, attempt). Missing/mismatched ⇒ fail closed, no merge.
+5. **Post-review receipt validation — C1 `--mode post-review`.** Before merge, `python3 "$CV/scripts/compound-v-validate-manifest.py" --mode post-review [--repo-root "$REPO"] --worktree "$WT" --expected-attempt "$REVIEW_ATTEMPT" [--receipt "$RUN_DIR/review/receipt.json"] "$RUN_DIR/manifest.yaml"` (**`--worktree "$WT"`** is REQUIRED for the intended PASS: the validator recomputes `final_diff_digest` in the worker's linked worktree; omitting it recomputes against the main repo and fails closed. **`--expected-attempt "$REVIEW_ATTEMPT"`** (from `state.json`, HIGH-1) requires `receipt.attempt_id` to match the current review attempt — a stale earlier-attempt receipt fails closed) — it REQUIRES + verifies the receipt (run/pre-eval bindings, reviewer opus, self-digest, attempt). Missing/mismatched ⇒ fail closed, no merge.
 6. **Final scope recheck → merge.** Re-run the scope gate (Step 2b) once more, then merge the worktree diff back with the index-based patch (Step 2b PASS path) and `git worktree remove -f`.
 7. **Terminal `actual` at MERGED — append + commit, idempotently (CR3-2/CR5-4).** ONLY AFTER the merge/commit boundary succeeds, append the terminal triage event, then commit it with the run substrate:
    ```bash
-   python3 scripts/compound-v-triage-outcomes.py actual \
+   python3 "$CV/scripts/compound-v-triage-outcomes.py" actual \
      --pre-eval-id "$PRE_EVAL_ID" --run-id "$RUN_ID" --review-result approved
    ```
    A precision-IGNORED `--merge-pending` intermediate MAY precede it, but a `review_passed` `actual` that never merged must NEVER reach Tier 2. Read `phase` back from `state.json` — the workflow finalizer advanced it to `MERGED` and committed the run directory itself (3.4.1; `fix(finalize)`) — never author it here; commit only what this step appended (`docs/superpowers/memory/triage-outcomes.jsonl`), then hand off.
@@ -395,7 +407,7 @@ that boundary.
 ### Step 5b — Integration gate — the authority, BEFORE any job commit is integrated
 
 ```bash
-python3 scripts/compound-v-integration-gate.py \
+python3 "$CV/scripts/compound-v-integration-gate.py" \
   --run-dir docs/superpowers/execution/<run-id>/ --json
 ```
 
@@ -423,7 +435,7 @@ After the run settles, refresh the machine-generated scorecard **from files** �
 outcome-logging step, no intermediate ledger to keep in sync:
 
 ```bash
-python3 scripts/compound-v-scorecard.py --update --from-runs docs/superpowers/execution
+python3 "$CV/scripts/compound-v-scorecard.py" --update --from-runs docs/superpowers/execution
 # regenerates docs/superpowers/memory/worker-performance.jsonl FROM manifest jobs x
 # results/*.json across every run dir, unioned with the legacy task-outcomes.jsonl
 # (one row per (backend, type): success/block/error rates + health)
