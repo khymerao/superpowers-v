@@ -1,6 +1,6 @@
 {
   "run_id": "2026-09-11-v3.6-wide-dispatch",
-  "phase": "DISPATCHED",
+  "phase": "BLOCKED",
   "jobs": {
     "scope-workers-provision": {
       "baseline": "3509f762cdea5394522264205f00779b049fc852",
@@ -153,6 +153,10 @@
         "integrated": true,
         "commit": "58087b52f9f2925a84eea0e6161d35dac8bfe8a0"
       }
+    },
+    "docs-landed": {
+      "baseline": "05cce5663b51c8cfc442762f3619e1bbda33d2ef",
+      "isolation": "worktree"
     }
   },
   "updated_at": "2026-09-11T17:45:00Z",
@@ -189,5 +193,7 @@
       "commit": "58087b52f9f2925a84eea0e6161d35dac8bfe8a0",
       "integrated": true
     }
-  }
+  },
+  "blocked_reason": "wave 3: integration REFUSED by scripts/compound-v-integration-gate.py: {\"blocked\": 1}. Nothing was merged and nothing was committed.",
+  "blocked_at": "2026-09-11T17:45:00Z"
 }

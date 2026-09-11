@@ -4882,7 +4882,7 @@ def cmd_record(argv):
     if _rec_mode:
         isolation = _rec_mode
     elif isolation == "worktree" and (job.get("depends_on") or []) \
-            and not _worktree_base_is_head(repo_root):
+            and not _worktree_base_is_head(args.repo_root):
         isolation = "direct"
     if isolation not in ("direct", "worktree"):
         ack["reason"] = (
@@ -6747,6 +6747,38 @@ def selftest():
             tests=_empty_floor)
         _check("an UNcontracted job with no floor evidence still passes",
                _jr_nocontract["status"] == "success", str(_jr_nocontract["status"]))
+
+        # A GATE FAILURE for a dependent worktree job reaches the one branch that
+        # re-derives isolation, and that branch read an unbound name: `record`
+        # raised NameError and the wave halted with the job unrecorded. Live, on
+        # the 2026-09-11 ten-job run: docs-landed's implementer hit its turn cap,
+        # the gate failed closed with no `mode`, and Record crashed instead of
+        # writing the evidence that says so. Latent since the receipt-carries-the
+        # -mode change — every earlier run had a receipt, so nothing reached here.
+        _dep_run = os.path.join(tmp, "rec-dep-run"); os.makedirs(_dep_run)
+        _dep_man_p = os.path.join(_dep_run, "manifest.yaml")
+        with open(_dep_man_p, "w", encoding="utf-8") as fh:
+            json.dump({"run_id": "rec-dep",
+                       "jobs": [{"id": "a", "backend": "claude", "tier": "light",
+                                 "isolation": "worktree",
+                                 "write_allowed": ["docs/x/**"]},
+                                {"id": "dep", "backend": "claude", "tier": "light",
+                                 "isolation": "worktree", "depends_on": ["a"],
+                                 "write_allowed": ["docs/y/**"]}]}, fh)
+        _rc_dep = cmd_record([
+            "--run-dir", _dep_run, "--job-id", "dep", "--manifest", _dep_man_p,
+            "--repo-root", tmp,
+            "--verdict-json", json.dumps({
+                "job_id": "dep", "verdict": "error", "source": "gate-receipt",
+                "exit_code": 2,
+                "reason": "implementer returned no result and lane-map.json holds "
+                          "no single registered worktree for this job"})])
+        _dep_res = _read_json(os.path.join(_dep_run, "results", "dep.json"), None)
+        _check("a gate FAILURE on a dependent worktree job is recorded, not a crash",
+               _rc_dep == 0 and isinstance(_dep_res, dict), str(_rc_dep))
+        _check("...and its status carries the failure, not a fabricated success",
+               (_dep_res or {}).get("status") in ("error", "blocked"),
+               str((_dep_res or {}).get("status")))
 
         _check("a lane-declaring job with no observable worktree is RECORDED",
                rc_nw == 0 and isinstance(nw_res, dict), str(rc_nw))
