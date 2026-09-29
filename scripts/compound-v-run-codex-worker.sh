@@ -404,7 +404,7 @@ fi
 # the codex backend, so it is accepted here (the resolver + manifest validator
 # reject xhigh for every other backend). model_reasoning_effort=xhigh
 # live-verified 2026-07-11 on codex-cli 0.144.1; re-verified 2026-09-24 on codex-cli
-# 0.156.1 with gpt-6-sol/gpt-6-luna (rc 0, thread.started present, output-last-message
+# 0.156.1 with gpt-6.1-sol/gpt-6-luna (rc 0, thread.started present, output-last-message
 # written). `ultra`/`max` (GPT-6) are NOT in this vocabulary — never adopted.
 if [ -n "$EFFORT" ]; then
   case "$EFFORT" in
@@ -563,7 +563,8 @@ mkdir -p "$(dirname "$EVENTS_LOG")" 2>/dev/null || die "cannot create events-log
 
 # --- run the headless Codex worker -------------------------------------------
 # Pinned flag set, verified live against codex-cli 0.144.1; re-verified 2026-09-24 on
-# codex-cli 0.156.1 with the GPT-6 family (gpt-6-sol, gpt-6-luna). NOTE: `--ask-for-approval
+# codex-cli 0.156.1 with the GPT-6 family (gpt-6-sol, gpt-6-luna), and 2026-09-30 on 0.159.1
+# with gpt-6.1-sol and gpt-6-astra. NOTE: `--ask-for-approval
 # never` is INVALID for `codex exec` (top-level/interactive flag only) and is
 # deliberately OMITTED — `codex exec` already defaults to approval: never.
 #
@@ -582,7 +583,7 @@ STDERR_LOG="$ART/codex_stderr.log"
 # With `--json`, codex prints its event stream (JSONL) to STDOUT — the FIRST line is
 # `{"type":"thread.started","thread_id":"<uuid>"}` (live-probed, codex-cli 0.144.1;
 # library-audit/2026-07-11-session-aware-workers.md §1; re-verified 2026-09-24 on 0.156.1
-# with gpt-6-sol/gpt-6-luna). We redirect that stdout to the
+# with gpt-6.1-sol/gpt-6-luna). We redirect that stdout to the
 # EVENTS_LOG so (a) it never reaches the worker's own stdout — reserved for the session
 # line + canonical job_result JSON — and (b) the id and any progress signal can be parsed
 # from it. `--output-last-message` still writes the final agent message verbatim (the two

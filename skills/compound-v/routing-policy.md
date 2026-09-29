@@ -106,7 +106,7 @@ judgment is bumped to `deep` — that is a planner call, not a hard rule.
 
 > With the per-stance models map (Balanced shown), `frontier` on `claude` resolves to
 > `fable`, `deep` to `opus`, and `standard`/`light` to `sonnet`; `standard` on `codex`
-> resolves to `gpt-6-sol` (the same model as `deep`, differing only by `effort`). **This is a behaviour change as of 3.0.5**: `standard`
+> resolves to `gpt-6.1-sol` (the same model as `deep`, differing only by `effort`). **This is a behaviour change as of 3.0.5**: `standard`
 > on `claude` was `opus` before, and — because `opts.model` was never set on the
 > claude path — nothing was actually routed at all. Every agent inherited the session
 > model. The tier existed, was validated, was documented, and never reached `agent()`.
@@ -299,7 +299,7 @@ a different effort independently. For `codex`, effort maps to
 has no separate effort flag). `xhigh` is valid **iff** `backend: codex`; every other
 backend rejects it with a clear error naming the rule (use `high` instead) — it is
 codex's top *adopted* effort rung (live-verified 2026-07-11 on codex-cli 0.144.1,
-re-verified 2026-09-24 on codex-cli 0.156.1 with `gpt-6-sol`/`gpt-6-luna`), enforced by
+re-verified 2026-09-24 on codex-cli 0.156.1 with `gpt-6-sol`/`gpt-6-luna`, and 2026-09-30 on 0.159.1 with `gpt-6.1-sol`/`gpt-6-astra`), enforced by
 the resolver and the manifest validator. GPT-6 also exposes `ultra` (astra/sol) and
 `max` above `xhigh`; Compound V adopts neither — see "Not adopted" above.
 
@@ -317,12 +317,12 @@ reaching `fable`:
 "models": {
   "balanced": {
     "claude":      { "frontier": "fable", "deep": "opus", "standard": "sonnet", "light": "sonnet" },
-    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" }
   },
   "cost-aware": {
     "claude":      { "frontier": "opus", "deep": "opus", "standard": "sonnet", "light": "sonnet" },
-    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" }
   }
 }
@@ -330,13 +330,13 @@ reaching `fable`:
 
 Codex is the one non-claude backend with its own explicit `frontier` cell: GPT-6 ships a
 dedicated frontier model (`gpt-6-astra`) above the workhorse `deep`/`standard` model
-(`gpt-6-sol`), so — unlike antigravity/cursor, where `frontier` defaults to the same value
+(`gpt-6.1-sol`), so — unlike antigravity/cursor, where `frontier` defaults to the same value
 as `deep` because no vendor there ships a rung above its own top model — codex's `frontier`
 is genuinely stronger. **Every Codex review/judge role runs on `frontier`:** the cross-model
 plan review ([`cross-model-review.md`](cross-model-review.md)), [`/v:review-plan`](../../commands/v-review-plan.md),
 and the epic arbiter's Codex ballot all resolve `codex` at `tier: frontier` / `effort: xhigh`
 (e.g. `gpt-6-astra`), never `tier: deep` — review is where the strongest reasoning pays;
-implementation stays on the workhorse (`deep`/`standard`, `gpt-6-sol`).
+implementation stays on the workhorse (`deep`/`standard`, `gpt-6.1-sol`).
 
 **Not adopted: `max`, `ultra`.** GPT-6 exposes five reasoning efforts (`low`, `medium`,
 `high`, `xhigh`, `max`) plus `ultra` on `astra`/`sol` ("maximum reasoning with automatic
@@ -371,7 +371,7 @@ into it.
 ```
 compound-v-resolve-model.py --backend codex --tier deep --effort high \
   --config .claude/compound-v.json
-# → {"backend": "codex", "tier": "deep", "model": "gpt-6-sol", "effort": "high"}
+# → {"backend": "codex", "tier": "deep", "model": "gpt-6.1-sol", "effort": "high"}
 ```
 
 Precedence, lowest to highest:

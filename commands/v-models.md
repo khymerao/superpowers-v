@@ -53,13 +53,13 @@ everywhere else `standard` Claude is `sonnet`; and `cost-aware.claude.frontier` 
 "models": {
   "balanced": {
     "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" }
   },
   "cost-aware": {
     "claude":      { "frontier": "opus",  "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" }
   }
@@ -69,7 +69,7 @@ everywhere else `standard` Claude is `sonnet`; and `cost-aware.claude.frontier` 
 
 Codex is the one non-claude backend that carries its own `frontier` cell distinct from
 `deep`: GPT-6 ships a dedicated frontier model (`gpt-6-astra`) above the workhorse
-`deep`/`standard` model (`gpt-6-sol`, which differ only by `effort`) — every other
+`deep`/`standard` model (`gpt-6.1-sol`, which differ only by `effort`) — every other
 external backend still defaults `frontier` to the same value as `deep`.
 
 `/v:models` writes this **per-stance** shape; the resolver still accepts the **legacy
@@ -125,13 +125,15 @@ command -v codex >/dev/null \
 - This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, retiring:[...], efforts_not_adopted:[...], note, backend}`.
   The script keeps only `visibility: list` models, drops any carrying an
   `upgrade.retirement_at` (reported separately under `retiring` — e.g. `gpt-5.5` retires
-  2026-10-14, upgrading to `gpt-5.6-sol`), and picks the newest family by `priority` to
-  propose. Against the live catalog (codex-cli 0.156.1, 2026-09-24: GPT-6 family —
-  `gpt-6-astra` priority 1 "Frontier intelligence for the most demanding work.",
-  `gpt-6-sol` priority 2 "Workhorse model for coding and everyday work.", `gpt-6-luna`
-  priority 3 "Fast and affordable model for easier tasks."; the GPT-5.6 trio still listed,
-  described as "Older …") the proposal is **frontier: `gpt-6-astra`, deep: `gpt-6-sol`,
-  standard: `gpt-6-sol`, light: `gpt-6-luna`** — `deep` and `standard` share the model and
+  2026-10-14, upgrading to `gpt-5.6-sol`), and assigns tiers by the ROLE in each slug —
+  `-astra` frontier, `-sol` deep/standard, `-luna` light — taking the newest version of
+  each role (`gpt-6.1-sol` over `gpt-6-sol`). `priority` is not used for this: it is the
+  picker's display order, and on codex-cli 0.159.1 the new workhorse `gpt-6.1-sol` sits at
+  priority 1 above `gpt-6-astra` at 2. Against that live catalog (2026-09-30: `gpt-6.1-sol`
+  "Latest workhorse model", `gpt-6-astra` "Frontier intelligence for the most demanding
+  work.", `gpt-6-sol` "Previous generation workhorse model.", `gpt-6-luna` "Fast and
+  affordable model for easier tasks."; the GPT-5.6 trio listed as "Older …") the proposal is **frontier: `gpt-6-astra`, deep: `gpt-6.1-sol`,
+  standard: `gpt-6.1-sol`, light: `gpt-6-luna`** — `deep` and `standard` share the model and
   differ only by `effort` (the orthogonal axis; see Step 5). Unlike antigravity/opencode
   (where `frontier` defaults to the same value as `deep` because no vendor there ships a
   rung above its own top model), codex's `frontier` is a real, distinct rung: GPT-6 ships
@@ -173,7 +175,7 @@ command -v agy >/dev/null \
   || echo "agy unavailable"
 ```
 
-- This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, note, backend}`. For antigravity (and every other external backend except codex) `frontier` is the same value as `deep` — no vendor there ships a rung above its own top model. Codex is the one exception: GPT-6 ships a dedicated frontier model (`gpt-6-astra`) above its workhorse `deep`/`standard` model (`gpt-6-sol`) — see §1b.
+- This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, note, backend}`. For antigravity (and every other external backend except codex) `frontier` is the same value as `deep` — no vendor there ships a rung above its own top model. Codex is the one exception: GPT-6 ships a dedicated frontier model (`gpt-6-astra`) above its workhorse `deep`/`standard` model (`gpt-6.1-sol`) — see §1b.
   **Show the user the `available` catalog and the `proposed` map**, then let them
   confirm or override (Step 2). The proposal is real, current model names — no more
   placeholders. Against the live catalog (agy 1.1.22, 2026-09-03: Gemini 3.6/3.7/3.8 Flash
@@ -259,7 +261,7 @@ fast/cheap option → `light`). Example shape:
 | Backend | Available now | deep | standard | light |
 |---|---|---|---|---|
 | claude | opus, sonnet | opus | opus | sonnet |
-| codex | gpt-6-astra, gpt-6-sol, gpt-6-luna | gpt-6-sol | gpt-6-sol | gpt-6-luna |
+| codex | gpt-6-astra, gpt-6.1-sol, gpt-6-luna | gpt-6.1-sol | gpt-6.1-sol | gpt-6-luna |
 | antigravity | *(from `agy models </dev/null`)* | Gemini 3.1 Pro (High) | Gemini 3.1 Pro (Low) | Gemini 3.8 Flash (Low) |
 | opencode | *(from `opencode models </dev/null`)* | anthropic/claude-opus-4-6 | openai/gpt-5.6-terra | opencode/mimo-v2.5-free |
 
@@ -301,14 +303,14 @@ Resulting shape (only `models` is this command's responsibility) — write the
   "models": {
     "balanced": {
       "claude":      { "deep": "opus",    "standard": "opus",    "light": "sonnet" },
-      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "…",       "standard": "…",       "light": "…" },
       "cursor":      { "deep": "auto",    "standard": "auto",    "light": "auto" },
       "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }
     },
     "cost-aware": {
       "claude":      { "deep": "opus",    "standard": "sonnet",  "light": "sonnet" },
-      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6-sol", "standard": "gpt-6-sol", "light": "gpt-6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "…",       "standard": "…",       "light": "…" },
       "cursor":      { "deep": "auto",    "standard": "auto",    "light": "auto" },
       "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }

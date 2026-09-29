@@ -423,7 +423,7 @@ of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's o
 - Do NOT delegate the run to a subagent — it has no Workflow tool.
 - A scope-gate **BLOCKED** halts the run; the offending worktree is left for inspection and never
   merged. Recover with [`/v:resume <run-id>`](v-resume.md).
-- `backend` / `model` (e.g. `gpt-6-sol`) are **execution-layer data** — manifest only, never
+- `backend` / `model` (e.g. `gpt-6.1-sol`) are **execution-layer data** — manifest only, never
   frontmatter. Reviewers stay `model: opus`.
 - Never arm a headless Engine C launch under `bypassPermissions`: a run could start with no prompt
   and no spend cap.

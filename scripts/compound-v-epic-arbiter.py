@@ -588,7 +588,7 @@ def resolve_codex_model(config_path=None, explicit_model=None, tier="frontier"):
     """Resolve the codex model for the arbiter's ballot. The arbiter is a JUDGE, not an
     implementer, so its default tier is `frontier` -- "the strongest brains for review"
     -- never `deep`: codex's frontier and deep now resolve to genuinely different models
-    (gpt-6-astra vs gpt-6-sol, since the 2026-09-24 GPT-6 default-map update), unlike
+    (gpt-6-astra vs gpt-6.1-sol, since the 2026-09-24 GPT-6 default-map update), unlike
     antigravity's frontier/deep which still mirror each other (see resolve_agy_model,
     left on `deep` below -- changing its default would be a no-op there anyway, and the
     maintainer's frontier-for-judges decision was scoped to codex)."""

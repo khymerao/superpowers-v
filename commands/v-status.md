@@ -66,7 +66,7 @@ of this repo.
    | Job | Title | Backend · Model | Status | Liveness | Usage | Isolation | Worktree |
    |---|---|---|---|---|---|---|---|
    | task-0-schema | DB schema + types | claude · opus (deep/high) | done | — | — | direct | — |
-   | task-1-editor-ui | Editor UI slice | codex · gpt-6-sol (standard/med) | running | WORKING | in=12.3k out=4.1k | worktree | $TMPDIR/… |
+   | task-1-editor-ui | Editor UI slice | codex · gpt-6.1-sol (standard/med) | running | WORKING | in=12.3k out=4.1k | worktree | $TMPDIR/… |
 
    If a job carries an explicit `model:` override in the manifest, show that verbatim (resolution is skipped for it). Per-job `status` is one of `{pending | running | done | blocked | failed}` (see state-machine.md). Show the `session_id` for any Codex/worktree job that has one. If `state.json.attempts[<job>]` is present and non-zero, show the retry count for that job (e.g. an `Attempts` column or `· retried 2×`).
 

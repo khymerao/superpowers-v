@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.7.5] - 2026-09-30
+
+### Changed — Codex implementation moves to `gpt-6.1-sol`; review stays on Astra
+
+codex-cli 0.159.1 lists a new workhorse, `gpt-6.1-sol` ("Latest workhorse model for coding and everyday work"),
+and renames `gpt-6-sol` "Previous generation workhorse model". The default Codex map is now frontier
+`gpt-6-astra`, deep and standard `gpt-6.1-sol`, light `gpt-6-luna`. Review, second-opinion and arbiter roles stay
+on Astra, the frontier model. `gpt-6.1-sol` and `gpt-6-astra` both answered through the pinned worker flag set at
+`xhigh` on 0.159.1. An older client fails: 0.157.0 rejected `gpt-6.1-sol` with a misleading "not supported when
+using Codex with a ChatGPT account" (TROUBLESHOOTING has the fix and a pin back to `gpt-6-sol`).
+
+Claude needs no change. Every agent and tier uses the aliases `opus`, `sonnet` and `fable`, and Claude Code
+resolves them, so Opus 5.5 and Sonnet 5.5 arrive without a release. The `maxEffortLevel` lookup matches a
+`modelSettings` key such as `claude-opus-5-5` by alias segment, as before.
+
+### Fixed — `/v:models` proposed the new workhorse for all four Codex tiers
+
+The Codex proposal ranked models by the catalog's `priority`, which used to put Astra first. On 0.159.1 the new
+`gpt-6.1-sol` has priority 1, above `gpt-6-astra`, and forms its own "family" (`gpt-6.1`), so `/v:models`
+proposed `gpt-6.1-sol` for frontier, deep, standard and light. Review would have left Astra, and light would have
+left Luna. Tiers now follow the role OpenAI puts in the slug: `-astra` frontier, `-sol` deep and standard, `-luna`
+light, taking the newest version of each role (`6.1` over `6`, numerically). The old priority rule remains a
+fallback for a catalog without those suffixes, and it says so in `note`.
+
 ## [3.7.4] - 2026-09-25
 
 Two ideas taken from popular Claude Code plugins, and two V-memory defects found while building them.

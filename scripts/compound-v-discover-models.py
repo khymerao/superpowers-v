@@ -42,16 +42,24 @@ Ranking (codex, `--backend codex`):
     candidate pool (it still appears in `available`, and separately in `retiring`) --
     routing new work onto a model that is already scheduled to retire is a foreseeable
     failure, not a coincidence.
-  - Group the remaining candidates by FAMILY: the slug up to (not including) the last
-    `-<suffix>` when that suffix is alphabetic (`gpt-6-astra` -> family `gpt-6`); a slug
-    with no such alphabetic suffix (`gpt-5.5`) is its own one-member family. This keeps
-    `gpt-6` and the older `gpt-5.6` from colliding into one family by the `gpt-` prefix.
-  - The winning family is the one containing the single lowest `priority` value anywhere
-    in the candidate pool; order its members by `priority` ascending (lowest = strongest).
-  - `frontier` = 1st in that order; `deep` = 2nd if the family has >= 2 members, else the
-    same 1st; `standard` = same model as `deep` (tier and effort are orthogonal axes --
-    see compound-v-resolve-model.py -- so `deep`/`standard` legitimately share a model and
-    differ only by effort); `light` = last in that order.
+  - ROLES FIRST (3.7.5). OpenAI names a model's role in its slug suffix, the same way
+    across two generations: `-astra` frontier, `-sol` workhorse, `-luna` fast/cheap
+    (`-terra`, a mid tier, is not auto-assigned: `standard` shares `sol` by the
+    maintainer's 3.7.1 decision). For each role suffix keep the NEWEST version -- the
+    number between `gpt-` and the suffix, compared numerically (`gpt-6.1-sol` beats
+    `gpt-6-sol`), lower `priority` breaking a tie. Then `frontier` = astra (else sol),
+    `deep` = `standard` = sol (else astra), `light` = luna (else deep). Tier and effort are
+    orthogonal axes (see compound-v-resolve-model.py), so deep/standard legitimately share
+    a model and differ only by effort.
+    Why not priority: until codex-cli 0.157 `priority` happened to order strength
+    (astra 1, sol 2, luna 3). 0.159.1 (live-checked 2026-09-30) lists the new workhorse
+    `gpt-6.1-sol` at priority 1 above `gpt-6-astra` at 2 -- priority is the picker's
+    display order, not a strength rank -- and the family rule below proposed
+    `gpt-6.1-sol` for all four tiers, frontier review included.
+  - FALLBACK, when no candidate carries a known role suffix: group by FAMILY (the slug up
+    to the last alphabetic `-<suffix>`; `gpt-5.5` is its own family), take the family
+    holding the lowest `priority`, order it by priority; `frontier` = 1st, `deep` =
+    `standard` = 2nd (or the 1st), `light` = last. The `note` says the fallback ran.
   - `efforts_not_adopted` = every effort name appearing in any visible entry's
     `supported_reasoning_levels` that is outside this project's adopted `low|medium|high|
     xhigh` vocabulary (sorted, deduplicated) -- visible so a new rung (`ultra`, `max`, or
@@ -202,6 +210,33 @@ def _codex_family_of(slug):
     return slug
 
 
+_CODEX_ROLE_SUFFIXES = ("astra", "sol", "luna")
+
+
+def _codex_version(family):
+    """'gpt-6.1' -> (6, 1); 'gpt-6' -> (6,); a family with no parseable number -> ()."""
+    m = re.search(r"(\d+(?:\.\d+)*)$", family or "")
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
+
+
+def _codex_by_role(candidates):
+    """{suffix: entry} -- the newest listed, non-retiring model of each role suffix."""
+    best = {}
+    for e in candidates:
+        slug = e.get("slug") or ""
+        fam = _codex_family_of(slug)
+        if fam == slug:
+            continue
+        suffix = slug[len(fam) + 1:]
+        if suffix not in _CODEX_ROLE_SUFFIXES:
+            continue
+        prio = e.get("priority") if isinstance(e.get("priority"), (int, float)) else float("inf")
+        key = (_codex_version(fam), -prio)
+        if suffix not in best or key > best[suffix][0]:
+            best[suffix] = (key, e)
+    return {k: v[1] for k, v in best.items()}
+
+
 def propose_codex(catalog):
     """Propose a frontier/deep/standard/light map from `codex debug models`' raw JSON.
 
@@ -258,6 +293,20 @@ def propose_codex(catalog):
                 "note": "no non-retiring listed codex models in catalog",
                 "retiring": retiring, "efforts_not_adopted": efforts_not_adopted}
 
+    roles = _codex_by_role(candidates)
+    if roles:
+        sol = roles.get("sol") or roles.get("astra") or roles.get("luna")
+        astra = roles.get("astra") or sol
+        deep = sol["slug"]
+        return {
+            "available": available,
+            "proposed": {"frontier": astra["slug"], "deep": deep, "standard": deep,
+                         "light": (roles.get("luna") or sol)["slug"]},
+            "note": "",
+            "retiring": retiring,
+            "efforts_not_adopted": efforts_not_adopted,
+        }
+
     families = {}
     for e in candidates:
         families.setdefault(_codex_family_of(e.get("slug", "")), []).append(e)
@@ -280,7 +329,8 @@ def propose_codex(catalog):
     return {
         "available": available,
         "proposed": {"frontier": frontier, "deep": deep, "standard": standard, "light": light},
-        "note": "",
+        "note": "no -astra/-sol/-luna role suffix in the catalog; ranked by priority "
+                "within the lowest-priority family (fallback rule)",
         "retiring": retiring,
         "efforts_not_adopted": efforts_not_adopted,
     }
@@ -492,6 +542,36 @@ def _selftest():
           all(v not in ("gpt-reserve", "codex-auto-review") for v in rc["proposed"].values()))
     check("codex: efforts_not_adopted is exactly max/ultra, sorted+deduped",
           rc["efforts_not_adopted"] == ["max", "ultra"])
+
+    # codex-cli 0.159.1 (live 2026-09-30): the new workhorse gpt-6.1-sol is listed at
+    # priority 1, ABOVE gpt-6-astra -- priority stopped ranking strength. Roles decide.
+    cat_061 = [dict(e) for e in codex_catalog]
+    for e in cat_061:
+        if e["slug"] == "gpt-6-sol":
+            e["priority"] = 3
+        elif e["slug"] == "gpt-6-astra":
+            e["priority"] = 2
+    cat_061.insert(0, {"slug": "gpt-6.1-sol", "description": "Latest workhorse model.",
+                       "visibility": "list", "priority": 1, "upgrade": None,
+                       "supported_reasoning_levels": _lvls("low", "medium", "high", "xhigh"),
+                       "default_reasoning_level": "low"})
+    r61 = propose_codex(cat_061)
+    check("codex 0.159.1: frontier stays astra though gpt-6.1-sol has priority 1",
+          r61["proposed"] == {"frontier": "gpt-6-astra", "deep": "gpt-6.1-sol",
+                              "standard": "gpt-6.1-sol", "light": "gpt-6-luna"})
+    check("codex: role version compares numerically (gpt-6.10 beats gpt-6.9)",
+          _codex_by_role([
+              {"slug": "gpt-6.9-sol", "visibility": "list", "priority": 1},
+              {"slug": "gpt-6.10-sol", "visibility": "list", "priority": 2},
+          ])["sol"]["slug"] == "gpt-6.10-sol")
+    check("codex: gpt-5.6-sol never beats gpt-6-sol",
+          _codex_by_role([
+              {"slug": "gpt-5.6-sol", "visibility": "list", "priority": 1},
+              {"slug": "gpt-6-sol", "visibility": "list", "priority": 5},
+          ])["sol"]["slug"] == "gpt-6-sol")
+    r_no_astra = propose_codex([e for e in cat_061 if not e["slug"].endswith("-astra")])
+    check("codex: no astra in the catalog -> frontier falls back to the newest sol",
+          r_no_astra["proposed"]["frontier"] == "gpt-6.1-sol")
 
     # single listed model -> every tier maps to it
     one_model = [

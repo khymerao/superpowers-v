@@ -27,7 +27,7 @@ Vocabulary (never changes when models churn):
                                     error naming the rule; use `high` instead)
 
 Output: a single JSON object on stdout, e.g.
-  {"backend": "codex", "tier": "deep", "model": "gpt-6-sol", "effort": "high"}
+  {"backend": "codex", "tier": "deep", "model": "gpt-6.1-sol", "effort": "high"}
 
 For `backend: claude`, the CLI (not the `resolve()` function — see
 `apply_effort_cap`) also reads the project's and user's Claude Code
@@ -91,7 +91,12 @@ _CLAUDE_COST_AWARE = {"frontier": "opus", "deep": "opus",
 # ("Fast and affordable model for easier tasks") -- there is no gpt-6-terra. All
 # three answered a trivial `codex exec` with this repo's pinned flag set (rc 0,
 # `thread.started` present), so the flag set is re-verified on 0.156.1.
-# `deep` and `standard` deliberately SHARE gpt-6-sol and differ only by effort --
+# 2026-09-30, codex-cli 0.159.1: `gpt-6.1-sol` ("Latest workhorse model for coding and
+# everyday work") joined at priority 1, gpt-6-sol became "Previous generation workhorse",
+# and gpt-6-astra (priority 2) is still the frontier model. gpt-6.1-sol and gpt-6-astra
+# both answered with the pinned flag set at xhigh (rc 0, `thread.started`), so
+# deep/standard move to gpt-6.1-sol and frontier stays on Astra.
+# `deep` and `standard` deliberately SHARE gpt-6.1-sol and differ only by effort --
 # tier and effort are orthogonal axes in this resolver, and Sol has no separate
 # "standard-strength" sibling the way Astra/Sol/Luna cover frontier/deep/light.
 # The older GPT-5.6 family (Sol/Terra/Luna, verified live 2026-07-10 on codex-cli
@@ -99,8 +104,8 @@ _CLAUDE_COST_AWARE = {"frontier": "opus", "deep": "opus",
 # also still listed but retires 2026-10-14 (upgrade target: gpt-5.6-sol). An
 # under-floor client fails LOUD (not silent; the failure-policy retries once
 # then halts cleanly).
-_CODEX = {"frontier": "gpt-6-astra", "deep": "gpt-6-sol",
-          "standard": "gpt-6-sol", "light": "gpt-6-luna"}
+_CODEX = {"frontier": "gpt-6-astra", "deep": "gpt-6.1-sol",
+          "standard": "gpt-6.1-sol", "light": "gpt-6-luna"}
 # Antigravity (agy): FALLBACK default; the live catalog is discoverable headlessly
 # (`agy models </dev/null`), and /v:models/+/v:init pipe it through
 # compound-v-discover-models.py to OVERRIDE this map in .claude/compound-v.json. Names
@@ -128,7 +133,7 @@ _CURSOR = {"frontier": "auto", "deep": "auto", "standard": "auto", "light": "aut
 # opencode.json mitigation. NEVER haiku anywhere (light is a free model, not haiku).
 # `standard` stayed on gpt-5.6-terra during the 2026-09-24 codex GPT-6 pass: `opencode
 # models openai` on this machine returned "Provider not found: openai" (no openai
-# provider/credentials configured in this environment), so gpt-6-sol's presence in
+# provider/credentials configured in this environment), so gpt-6.1-sol's presence in
 # opencode's own catalog could not be live-confirmed here -- do not swap this string
 # on the codex probe alone; re-check `opencode models openai` before changing it.
 _OPENCODE = {
@@ -822,10 +827,10 @@ def _selftest():
     # above ("frontier resolves", "no haiku", "every cell populated") pass regardless of
     # WHICH model each cell names, so a stale or wrong string would slip through unnoticed
     # without this exact-match guard. frontier/light are the distinct rungs (astra/luna);
-    # deep and standard deliberately share gpt-6-sol, differing only by effort.
+    # deep and standard deliberately share gpt-6.1-sol, differing only by effort.
     expect("codex default map matches the 2026-09-24 GPT-6 decision",
-           DEFAULT_MODELS["codex"] == {"frontier": "gpt-6-astra", "deep": "gpt-6-sol",
-                                       "standard": "gpt-6-sol", "light": "gpt-6-luna"})
+           DEFAULT_MODELS["codex"] == {"frontier": "gpt-6-astra", "deep": "gpt-6.1-sol",
+                                       "standard": "gpt-6.1-sol", "light": "gpt-6-luna"})
 
     # --- effort cap from Claude Code settings (Fact 1, maxEffortLevel 2.1.267+) ---
     def _write_json(path, obj):

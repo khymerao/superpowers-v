@@ -161,10 +161,16 @@ Re-run the validator (or `/v:dispatch`) until it's clean. The manifest schema + 
 
 **Causes & fixes:**
 1. **The deprecation line is cosmetic.** `codex` emits `[features].codex_hooks is deprecated` on stderr; the worker script already suppresses it. If you call `codex exec` by hand, ignore that line — it does not indicate a failure.
-2. **Wrong flags.** The verified `codex-cli 0.144.1` flag set (verified 2026-07-11 on 0.144.1, re-verified 2026-09-24 on 0.156.1 with `gpt-6-sol`/`gpt-6-luna`) is `--cd <wt> --sandbox workspace-write --skip-git-repo-check --model <m> --output-last-message <f> -c sandbox_workspace_write.network_access=<bool>` (optionally `--output-schema <f>`). **Do not pass `--ask-for-approval never`** — it is invalid for `codex exec` (a top-level/interactive flag only) and will fail every job. `exec` already defaults to `approval: never`; if you ever need a non-default, use `-c approval_policy=never`.
+2. **Wrong flags.** The verified `codex-cli 0.144.1` flag set (verified 2026-07-11 on 0.144.1, re-verified 2026-09-24 on 0.156.1 with `gpt-6-sol`/`gpt-6-luna` and 2026-09-30 on 0.159.1 with `gpt-6.1-sol`/`gpt-6-astra`) is `--cd <wt> --sandbox workspace-write --skip-git-repo-check --model <m> --output-last-message <f> -c sandbox_workspace_write.network_access=<bool>` (optionally `--output-schema <f>`). **Do not pass `--ask-for-approval never`** — it is invalid for `codex exec` (a top-level/interactive flag only) and will fail every job. `exec` already defaults to `approval: never`; if you ever need a non-default, use `-c approval_policy=never`.
 3. **Timeout.** The worker wraps `codex exec` in `timeout` (default 900s). A `status: timeout` result means the job exceeded it — raise `--timeout-sec` or split the job smaller.
 4. **Stale flags after a Codex upgrade.** Re-probe with `/v:init`, which re-checks the flag set against `codex exec --help` (the **exec** subcommand help, not the top-level help — the top-level merge is what masked the original `--ask-for-approval` bug).
 5. **No worktree / dirty diff.** The worker runs inside a fresh `git worktree add <wt> HEAD` under `$TMPDIR`. If `git worktree` fails (e.g. repo not initialized, or `$TMPDIR` unwritable), the script reports an environment fault rather than a job result.
+
+## Codex job fails: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account"
+
+**Cause:** the installed `codex` is too old to know the model. The message says "account", but the account is fine: on 2026-09-30 codex-cli 0.157.0 returned exactly this for `gpt-6.1-sol`, and 0.159.1 ran it on the same account.
+
+**Fix:** `codex update` (standalone install) or `npm i -g @openai/codex`, then `codex debug models` should list `gpt-6.1-sol`. To stay on an old client, pin the previous workhorse in `.claude/compound-v.json`: `"models": {"codex": {"deep": "gpt-6-sol", "standard": "gpt-6-sol"}}`.
 
 ## A run was interrupted — how do I resume?
 

@@ -73,7 +73,7 @@ Deltas from default practice that this repo actually enforces.
 - **Fable is never frontmatter.** It belongs to a business-critical *invocation*, set by the caller's
   `model` override; a static `model: fable` would spend the top model on every routine pre-flight.
   (`scripts/lint-frontmatter.py:218-221`)
-- Execution-layer model values (`gpt-6-sol`, etc.) are NEVER placed in any frontmatter — they live
+- Execution-layer model values (`gpt-6.1-sol`, etc.) are NEVER placed in any frontmatter — they live
   only in the manifest/job_spec. (`skills/backend-launcher/SKILL.md:46`)
 
 ## No fabricated metrics (anti-ruflo)

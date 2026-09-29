@@ -47,7 +47,7 @@
     "reviewer_backend": {
       "type": "string",
       "const": "claude",
-      "description": "MUST be claude (CR5-5): the reviewer⇒opus guarantee needs backend:claude even when model:opus is pinned, because tier:deep alone routes codex→gpt-6-sol, not opus."
+      "description": "MUST be claude (CR5-5): the reviewer⇒opus guarantee needs backend:claude even when model:opus is pinned, because tier:deep alone routes codex→gpt-6.1-sol, not opus."
     },
     "reviewer_tier": {
       "type": "string",

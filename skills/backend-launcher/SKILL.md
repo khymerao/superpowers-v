@@ -35,7 +35,7 @@ of this repo.
   "prompt": "…",                       // the worker prompt (opens with the planner/executor lock, below)
   "tier": "standard",                  // frontier | deep | standard | light — the routing INTENT (stable across model churn)
   "effort": "medium",                  // low | medium | high | xhigh — orthogonal reasoning-effort hint (optional; xhigh is codex-only)
-  "model": "gpt-6-sol",                  // OPTIONAL explicit override; when present it skips resolution.
+  "model": "gpt-6.1-sol",                  // OPTIONAL explicit override; when present it skips resolution.
                                        //   execution-layer data — NEVER appears in any frontmatter
   "cwd": "/repo",                      // absolute repo root
   "write_allowed": ["src/features/sequences/components/**"],

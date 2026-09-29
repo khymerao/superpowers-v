@@ -27,12 +27,12 @@
 #
 # Defaults: model gpt-6-astra ("frontier" per compound-v-resolve-model.py's codex map --
 # this is a REVIEW/JUDGE role, so it gets the strongest brains, not the workhorse `deep`
-# tier gpt-6-sol; probed 2026-09-24 on codex-cli 0.156.1, `codex debug models` priority 1,
+# tier gpt-6.1-sol; probed 2026-09-24 on codex-cli 0.156.1 and again 2026-09-30 on 0.159.1,
 # "Frontier intelligence for the most demanding work"), effort xhigh (the "Codex on their
 # max" the design calls for — xhigh is codex-only and live-verified on codex-cli 0.144.1,
 # re-verified 2026-09-24 on 0.156.1; requires codex-cli >= 0.143.0 -- an older client fails
 # loud with a clear "requires a newer version of Codex" error, not silently). Pass --model
-# to override (e.g. back to gpt-6-sol for a cheaper pass). `--effort xhigh` is also
+# to override (e.g. gpt-6.1-sol for a cheaper pass). `--effort xhigh` is also
 # accepted: this script runs codex only, and `xhigh` is valid iff backend is codex
 # (model_reasoning_effort=xhigh; every other backend rejects it).
 # Schema default = <plugin>/schemas/plan-review.schema.json, resolved relative to THIS
