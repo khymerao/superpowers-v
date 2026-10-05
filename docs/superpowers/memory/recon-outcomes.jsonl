@@ -4,3 +4,5 @@
 {"ts": "2026-07-11T01:31:00Z", "topic": "off-negative-control", "outcome": "off"}
 {"ts": "2026-07-11T01:31:00Z", "topic": "engine-failure-injected", "outcome": "no_engine"}
 {"ts": "2026-07-11T01:31:52Z", "topic": "fts5-cyrillic-tokenizer", "outcome": "consumed", "path": "docs/superpowers/recon/2026-07-11-fts5-cyrillic-tokenizer.md"}
+{"ts": "2026-10-05T00:00:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "fired", "engine": "websearch"}
+{"ts": "2026-10-05T00:10:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "saved", "engine": "websearch", "path": "docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md"}
