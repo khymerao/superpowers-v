@@ -1,0 +1,2 @@
+- [Claude Code mod/userConfig secret scope](claude-code-mod-secret-scope.md) — userConfig key reaches all plugin hooks; mod tool.call answer skips lane-guard
+- [System One classifier calibration](system-one-classifier-calibration.md) — Jev/OpenRouter 32k, 402 no-retry, ZDR gap, small-n rules

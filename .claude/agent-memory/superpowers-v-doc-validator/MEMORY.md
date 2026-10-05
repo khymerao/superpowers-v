@@ -1,0 +1,1 @@
+- [Jev and mods drift facts](drift-jev-and-mods.md) - dated 2026-10-05 versions, paths and API shapes for Jev/OpenRouter and Claude Code mods

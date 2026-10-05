@@ -1,0 +1,1 @@
+- [Triage T3 map](triage-t3-map.md) — who calls T3, what it can change, record/hook/onboard couplings (3.5.1 checkout)
