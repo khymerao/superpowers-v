@@ -1072,9 +1072,10 @@ _UI_SAMPLE_RANK = (
 _SECRET_BASENAMES = ("wp-config.php", "settings.py", "local_settings.py", "configuration.php", "env.php")
 # A credential-looking name (quoted or bare) assigned a quoted literal of 4+ characters. `SECRET_RE`
 # only knows vendor token families, so a `DB_PASSWORD`-style value passes it; this catches that shape.
+# The name parts are bounded at 64 characters: unbounded, a long name-like run backtracks quadratically.
 _CRED_ASSIGN_RE = re.compile(
     r"""(?ix)
-    ["']?[a-z0-9_.-]*(?:password|passwd|pwd|secret|api_?key|auth_?key|token)[a-z0-9_.-]*["']?
+    ["']?[a-z0-9_.-]{0,64}(?:password|passwd|pwd|secret|api_?key|auth_?key|token)[a-z0-9_.-]{0,64}["']?
     \s*(?:=>|=|:|,)\s*
     (?P<q>["'])(?:(?!(?P=q)).){4,}(?P=q)
     """)
@@ -1099,6 +1100,8 @@ def _secret_named(path):
 def _has_credential_assignment(text):
     """True when a bounded read assigns a quoted literal of 4+ chars to a credential-looking name."""
     return _CRED_ASSIGN_RE.search(text) is not None
+
+
 # Layer -> (difficulty_band, impact_band). The ONE place a Jev layer becomes bands; `unknown` (and
 # any label not listed) produces no row.
 _LAYER_BANDS = {
@@ -1233,7 +1236,7 @@ def _ui_sample(repo):
             continue
         if _has_credential_assignment(text):
             continue
-        head ="\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])
+        head = "\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])
         out.append({"path": f, "head": head})
     return out
 
@@ -2591,6 +2594,11 @@ def _selftest() -> int:
           _has_credential_assignment("db_password = 'plant-db-0005'") is True
           and _has_credential_assignment("x = 1") is False
           and _has_credential_assignment("token: ''") is False)
+    import time as _time
+    _t_cred = _time.monotonic()
+    _has_credential_assignment("x = '" + "A" * 16384 + "'")
+    check("ui sample: the credential rule stays linear on a 16 KiB name-like run (no backtracking blow-up)",
+          _time.monotonic() - _t_cred < 2.0)
     rp = tempfile.mkdtemp()
     rw_base = tempfile.mkdtemp()
     try:

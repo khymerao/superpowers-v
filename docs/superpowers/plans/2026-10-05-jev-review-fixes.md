@@ -97,10 +97,11 @@ _touch(rp, "lib/math.php", "<?php\nfunction add($a, $b) { return $a + $b; }\n")
 - [ ] **Step 3: Implement.** Near `_UI_SAMPLE_RANK`:
 
 ```python
+# Name parts bounded at 64 (review fix 2026-10-05): unbounded `*` backtracks quadratically on long runs.
 _SECRET_BASENAMES = ("wp-config.php", "settings.py", "local_settings.py", "configuration.php", "env.php")
 _CRED_ASSIGN_RE = re.compile(
     r"""(?ix)
-    ["']?[a-z0-9_.-]*(?:password|passwd|pwd|secret|api_?key|auth_?key|token)[a-z0-9_.-]*["']?
+    ["']?[a-z0-9_.-]{0,64}(?:password|passwd|pwd|secret|api_?key|auth_?key|token)[a-z0-9_.-]{0,64}["']?
     \s*(?:=>|=|:|,)\s*
     (?P<q>["'])(?:(?!(?P=q)).){4,}(?P=q)
     """)

@@ -17,8 +17,8 @@ CLI (one JSON object on stdout; exit 0 unless a usage error, which exits 2):
 
 Data dir: ~/.claude/compound-v-jev/<repo-digest>/ (0700; files 0600), where <repo-digest> is
 the first 16 hex of sha256 of the repo's absolute real path. It holds req/, resp/,
-calls.jsonl, shadow-pairs.jsonl and eval-t3.json. Every write prunes entries older than 30
-days. Request text only ever arrives in a file, never in argv. A response body that is not a
+calls.jsonl, shadow-pairs.jsonl, eval-t3.json and the T3 hook's pending-*.json descriptors.
+Every write prunes entries older than 30 days, descriptors included. Request text only ever arrives in a file, never in argv. A response body that is not a
 success body is never read, so nothing from an OpenRouter error body is copied anywhere: only
 the status class is recorded.
 """
@@ -1209,14 +1209,20 @@ def _selftest():
         link_p = os.path.join(dd, "pending-link.json")
         os.symlink(old_p + ".target", link_p)  # dangling on purpose
         os.utime(link_p, (now - RETENTION_S - 60, now - RETENTION_S - 60), follow_symlinks=False)
+        dir_p = os.path.join(dd, "pending-dir.json")
+        os.mkdir(dir_p)
+        os.utime(dir_p, (now - RETENTION_S - 60, now - RETENTION_S - 60))
         prune(dd, now)
         check("prune: a pending-*.json older than 30 days is removed", not os.path.exists(old_p))
         check("prune: a fresh pending-*.json stays", os.path.exists(new_p))
         check("prune: a future-dated pending-*.json stays", os.path.exists(fut_p))
         check("prune: a pending-*.json symlink is never removed", os.path.islink(link_p))
+        check("prune: a directory named pending-*.json is never removed", os.path.isdir(dir_p))
         for p in (old_p, new_p, fut_p, link_p):
             with contextlib.suppress(OSError):
                 os.unlink(p)
+        with contextlib.suppress(OSError):
+            os.rmdir(dir_p)
 
         # -- eval: Wilson, rule of three, mixed models, histogram, hard share.
         lo, hi = wilson(5, 10)
