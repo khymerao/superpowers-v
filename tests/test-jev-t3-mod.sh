@@ -71,7 +71,8 @@ printf '%s' "$calls" | grep -qF '$.jev.classify' && printf '%s' "$calls" | grep 
   && ok "the module reaches the vault only through \$.jev" || bad "\$.jev calls missing"
 printf '%s\n' "$out" | grep -qE 'jev-t3\.tsx env writes: CV_JEV_T3$' \
   && ok "the module writes one environment variable, CV_JEV_T3" || bad "env writes line is not exactly CV_JEV_T3"
-printf '%s\n' "$out" | grep -qE 'jev-t3\.tsx state writes: superpowers-v\.band$' \
+# run-band.tsx owns both keys (`band`, and `spin` since 3.8.2); jev-t3.tsx adds none of its own.
+printf '%s\n' "$out" | grep -qE 'jev-t3\.tsx state writes: superpowers-v\.band, superpowers-v\.spin$' \
   && ok "the module writes only the band's declared state" || bad "state contract line missing"
 if printf '%s' "$out" | grep -qiE 'compound-v-vault|vault\.tsx'; then
   echo "BLOCKED plugins/compound-v-vault is loaded as part of this plugin (Task R must move the marketplace root)"
