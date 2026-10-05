@@ -68,6 +68,29 @@ alternation and went quadratic on a long run of that class inside the bounded re
 content-filter regex on one line made only of its own character class, at the reader's cap (`UI_READ_CAP`), against
 the base version of the same function. Plan-supplied code gets the same quality pass as code the implementer wrote.
 
+## A spec amendment can contradict the AC beside it
+
+From run `2026-10-05-engine-c-refinalize-and-lane-guard`. Re-verify before relying on it.
+
+That spec's amendment required the recorded wave commit's own subject (`git log -1`) to be the wave subject, while
+AC-4 named a real wave whose recorded commit is a bookkeeping commit (the finalizer records HEAD when a re-finalize
+has nothing left to commit). The implementer widened the check to the commit's history. Before calling such a
+deviation unjustified, run the AC's live fixture against the amendment's literal rule; if the literal rule fails the
+AC, the finding is a spec amendment for the orchestrator, not a code change.
+
+## A "nothing happened" row does not guard the validation it names
+
+Same run. Row E asserted that no file was planted by a `--output=...` commit value and that the run went `BLOCKED`.
+With the SHA validation removed, git still rejected the value, so the row stayed green and the validation was
+unguarded. Mutate the validation out of a scratch clone and watch whether the row moves; a row about a side effect
+not happening usually passes for an unrelated reason too.
+
+## The clamped Bash surface and the rtk rewrite
+
+A hook rewrites bare `cat`, `ls`, `grep` and `git diff` invocations to `rtk ...`, which the per-spawn clamp then
+refuses. Use the Read and Glob tools for single files, and put everything else in a scratchpad script run with
+`bash <path>`.
+
 ## Closed enums split across two jobs
 
 From run `2026-10-05-jev-classifier-foundation`. Re-verify before relying on it.
