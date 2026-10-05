@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/manifest.yaml",
+  "run_id": "2026-10-05-jev-classifier-foundation",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-2": "vault"
+  }
+}

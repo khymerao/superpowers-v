@@ -1,37 +1,35 @@
 {
-  "blocked": true,
+  "blocked": false,
   "exit_code": 0,
   "failure_class": null,
   "files_changed": [
     "plugins/compound-v-vault/.claude-plugin/plugin.json",
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
     "plugins/compound-v-vault/README.md",
     "plugins/compound-v-vault/hooks/hooks.json",
-    "plugins/compound-v-vault/hooks/vault.test.tsx",
     "plugins/compound-v-vault/hooks/vault.tsx",
     "plugins/compound-v-vault/types/index.d.ts",
     "tests/test-vault-mod.sh"
   ],
   "gate_receipt": {
-    "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
-    "diff_digest": "sha256:526b7e683d593cfc61ada67d86f8571e00795e18cf8255bf552ffa3644fbca71",
+    "baseline_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
+    "diff_digest": "sha256:f26e0e7363028f9dbae438e963ca888667a3fafe0709e373b6c105df81850a4a",
     "exit_code": 0,
-    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.claude-plugin/plugin.json\",\n    \"plugins/compound-v-vault/README.md\",\n    \"plugins/compound-v-vault/hooks/hooks.json\",\n    \"plugins/compound-v-vault/hooks/vault.test.tsx\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/types/index.d.ts\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/**\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
-    "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"2ba0b812644e2155584ec49656cef64b3ff2343a\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.claude-plugin/plugin.json\",\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\",\n    \"plugins/compound-v-vault/README.md\",\n    \"plugins/compound-v-vault/hooks/hooks.json\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/types/index.d.ts\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/**\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
     "verdict": "pass"
   },
   "retry_after_seconds": 0,
   "session_id": "",
-  "status": "blocked",
+  "status": "success",
   "summary": "Task D \u2014 plugin compound-v-vault",
   "tests": {
     "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'\nbash tests/test-vault-mod.sh",
-    "exit_code": 1,
-    "failures": [
-      "bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'"
-    ],
+    "exit_code": 0,
+    "failures": [],
     "scope": "impacted",
     "selected_count": 3
   },
   "violations": [],
-  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-5"
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-2"
 }

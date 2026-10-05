@@ -1,5 +1,5 @@
 {
-  "phase": "PARTITION_VERIFIED",
+  "phase": "DISPATCHED",
   "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
@@ -13,7 +13,8 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "commit": "a0379817896d0fec83cf4e4d203d2e5cfa40267d"
+        "proof": "head-matches-artifact",
+        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -28,7 +29,7 @@
         "mode": "worktree",
         "integrated": true,
         "proof": "head-matches-artifact",
-        "commit": "a0379817896d0fec83cf4e4d203d2e5cfa40267d"
+        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -43,14 +44,14 @@
         "mode": "worktree",
         "integrated": true,
         "proof": "head-matches-artifact",
-        "commit": "a0379817896d0fec83cf4e4d203d2e5cfa40267d"
+        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
     "vault": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-2",
       "session_id": null,
       "retries": [
         {
@@ -60,8 +61,14 @@
           "wait_ms": 2000
         }
       ],
-      "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
-      "merged": null
+      "realised_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
+      "merged": {
+        "realised_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+      },
+      "baseline": "2ba0b812644e2155584ec49656cef64b3ff2343a"
     },
     "ui-floor-onboard-jev": {
       "status": "pending",
@@ -80,7 +87,8 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "commit": "a0379817896d0fec83cf4e4d203d2e5cfa40267d"
+        "proof": "head-matches-artifact",
+        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -119,10 +127,11 @@
         "record-t3",
         "config-jev",
         "jev-core",
+        "vault",
         "corpus"
       ],
-      "commit": "a0379817896d0fec83cf4e4d203d2e5cfa40267d",
-      "integrated": false
+      "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac",
+      "integrated": true
     }
   },
   "blocked_reason": "wave 1 refused: vault",
