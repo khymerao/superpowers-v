@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.8.2] - 2026-10-05
+
+### Changed — the run band is a table now, with colour and the model each job runs on
+
+The first band was three lines of running text. Seen live, it read as a log line, not as a status display.
+
+```
+ V 2026-10-05-band-demo dispatched                         ━━━━━━━━ 1/4
+ wave 1/2  ● docs-core      claude opus                            done
+           ◐ docs-skills    codex gpt-6.1-sol                       23s
+           ✕ docs-backend   claude sonnet                   STALE · 11m
+ wave 2/2  ○ spec-review    claude opus                          queued
+```
+
+- **Header.** Run id and phase on the left. On the right, one segment per job, coloured by that job's state,
+  and the `done/total` count. The segments show which jobs are finished; they are not a percentage.
+- **One row per job**, in columns: status mark, job id, backend, model, and on the right the time since last
+  progress or the status. The mark of a running job turns.
+- **The model.** `compound-v-dashboard.py hud` now resolves each job's backend and tier through
+  `compound-v-resolve-model.py` under the project's current config and stance (an explicit `model` in the
+  manifest wins). It is the route as configured when the band reads it, not a record of what a worker ran.
+- **Colour, one meaning each.** Green done, blue running, amber five minutes without progress, red stalled,
+  dead or blocked. Backends carry their vendor's colour.
+- **Large runs.** More than eight jobs, or more rows than the band may take, folds to one line per wave.
+
+Seen live on the desktop Code tab against a fixture run; still not seen on a real dispatch.
+
 ## [3.8.1] - 2026-10-05
 
 ### Changed — the syringe mark is gone
