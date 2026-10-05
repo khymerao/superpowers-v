@@ -1,0 +1,459 @@
+diff --git a/hooks/triage-prompt-nudge.sh b/hooks/triage-prompt-nudge.sh
+index ff33b42..9564b29 100755
+--- a/hooks/triage-prompt-nudge.sh
++++ b/hooks/triage-prompt-nudge.sh
+@@ -169,6 +169,13 @@
+ # `hooks/hooks.json` raises UserPromptSubmit — and ONLY that event — to 25.
+ # An ordinary prompt never reaches this path and keeps its ~1 s cost.
+ #
++# THE JEV T3 SHADOW (spec 1). The re-entry now also passes `--t3-engine <backend>`,
++# so the record's `t3` block names which route answered; the tier is unchanged.
++# With `CV_JEV_T3=1` the hook additionally leaves a pending descriptor for the
++# `hooks/jev-t3.tsx` module after a decided T3 (see `_write_t3_descriptor`). The
++# descriptor never changes what this hook prints, and a failure to write it is
++# logged and otherwise ignored.
++#
+ # OUTPUT. `hookSpecificOutput.additionalContext` — verified against the runtime:
+ # UserPromptSubmit is one of the three events whose additionalContext is
+ # injected into the model's context (with SessionStart and UserPromptExpansion).
+@@ -329,7 +336,7 @@ _has_active_run() {
+ # second call differs from the first, which is why there is one function and not
+ # two.
+ _run_engine() {
+-  local proj="$1" sid="$2" request="$3" t3cat="${4:-}" engine py base out
++  local proj="$1" sid="$2" request="$3" t3cat="${4:-}" t3eng="${5:-}" engine py base out
+   engine="$(_locate_script compound-v-preeval.py)" || return 1
+   py="$(_python)" || return 1
+   # The engine never runs git, by design — so HEAD is an input, supplied here.
+@@ -343,6 +350,9 @@ _run_engine() {
+          --session-id "$sid" --json
+   [ -n "$base" ] && set -- "$@" --base-commit "$base"
+   [ -n "$t3cat" ] && set -- "$@" --t3-category "$t3cat"
++  # Which backend answered T3 goes on the record's `t3` block. It is evidence only:
++  # the engine never lets it change the tier.
++  [ -n "$t3cat" ] && [ -n "$t3eng" ] && set -- "$@" --t3-engine "$t3eng"
+ 
+   out="$(CV_TRIAGE_REQUEST="$request" PYTHONDONTWRITEBYTECODE=1 \
+          "$py" "$engine" "$@" 2>/dev/null)" || return 1
+@@ -372,8 +382,9 @@ _classify_timeout() {
+   fi
+ }
+ 
+-# Prints the resolved T3 enum on stdout, or returns non-zero having printed
+-# nothing — which the caller reads as "nothing was classified" and degrades.
++# Prints `category<TAB>backend` on stdout (the resolved T3 enum and the route that
++# answered it, `claude` or `codex`), or returns non-zero having printed nothing —
++# which the caller reads as "nothing was classified" and degrades.
+ #
+ # The engine's OWN `t3_prompt` is what gets classified, passed through a temp
+ # file rather than argv: it already carries the resolved paths and the taxonomy
+@@ -413,7 +424,7 @@ _classify_headless() {
+   case "$cat" in
+     plumbing | user-facing-minor | user-facing-major | unknown)
+       _log "headless T3 classify: ${cat} (backend=${backend})"
+-      printf '%s' "$cat"
++      printf '%s\t%s' "$cat" "$backend"
+       ;;
+     *)
+       _log "the headless classify returned no usable category"
+@@ -422,6 +433,83 @@ _classify_headless() {
+   esac
+ }
+ 
++# --- the T3 shadow descriptor (Jev, spec 1) ----------------------------------
++# Written ONLY when `CV_JEV_T3=1` (set by the vault-backed `hooks/jev-t3.tsx`
++# module) and only after the headless classify DECIDED and the re-entry wrote a
++# record. It is a hand-off, not a decision: the module reads it after this hook
++# has returned, asks Jev the same question, and stores the pair. Nothing here
++# reaches stdout, so the hook's output is byte-identical with the flag set or not.
++#
++#   <data_dir>/pending-<sha256(proj|sid)>.json =
++#     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid}
++#
++# `<data_dir>` is `compound-v-jev.py`'s per-user directory, outside the repository.
++# The request travels to `build` in a 0600 state file (never argv), and that file
++# is deleted as soon as `build` returns. `state` is today's bounded classify input:
++# the request capped at 2,000 characters, plus the resolved paths and taxonomy
++# hints read back out of the engine's own `t3_prompt`, where `build_prompt` has
++# already bounded them (20 and 40). The LAST paths header is the one used: the
++# request text comes before it and is user input.
++_T3_STATE_MAX_CHARS=2000
++
++# Runs in a subshell so `umask 077` cannot leak into the rest of the hook.
++# Returns non-zero on any failure, having written no descriptor.
++_write_t3_descriptor() (
++  proj="$1" sid="$2" key="$3" pid="$4" request="$5" prompt="$6"
++  reason="$7" cat="$8" backend="$9"
++  [ -n "$pid" ] && [ -n "$key" ] && [ -n "$sid" ] || exit 1
++  script="$(_locate_script compound-v-jev.py)" || exit 1
++  py="$(_python)" || exit 1
++  umask 077
++
++  statef="$(mktemp "${TMPDIR:-/tmp}/cv-jev-state.XXXXXX" 2>/dev/null)" || exit 1
++  # Request and prompt reach jq through its environment, never its argv.
++  if ! CV_JEV_REQ="$request" CV_JEV_PROMPT="$prompt" \
++       jq -n --argjson n "$_T3_STATE_MAX_CHARS" '
++         def items($text; $hdr):
++           ($text | split("\n" + $hdr + "\n")) as $parts
++           | if ($parts | length) < 2 then []
++             else ($parts[-1] | split("\n\n")[0] | split("\n")
++                   | map(select(startswith("- ")) | .[2:]))
++             end;
++         ($ENV.CV_JEV_PROMPT // "") as $p
++         | "RESOLVED FILE PATHS (may be empty or approximate):" as $ph
++         | ($p | split("\n" + $ph + "\n")
++            | if length < 2 then "" else "\n" + $ph + "\n" + .[-1] end) as $tail
++         | {request: (($ENV.CV_JEV_REQ // "")[0:$n]),
++            paths: (items($tail; $ph) | map(select(. != "(none resolved)")) | .[0:20]),
++            hints: (items($tail; "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):")
++                    | .[0:40])}' >"$statef" 2>/dev/null; then
++    rm -f "$statef"
++    exit 1
++  fi
++  out="$(PYTHONDONTWRITEBYTECODE=1 "$py" "$script" build --point t3 \
++         --state-file "$statef" --repo "$proj" 2>/dev/null)"
++  rm -f "$statef" 2>/dev/null || true
++
++  rf="$(printf '%s' "$out" | jq -r 'if (type == "object") and (.status == "ok")
++          and ((.request_file | type) == "string") then .request_file else empty end' \
++        2>/dev/null)"
++  [ -n "$rf" ] && [ -f "$rf" ] || exit 1
++  rdir="$(dirname "$rf")"
++  [ "$(basename "$rdir")" = "req" ] || exit 1
++  dd="$(dirname "$rdir")"
++  [ -d "$dd" ] || exit 1
++
++  tmpd="$(mktemp "${dd}/.pending.XXXXXX" 2>/dev/null)" || exit 1
++  if jq -n --arg pid "$pid" --arg rf "$rf" --arg reason "$reason" --arg cat "$cat" \
++        --arg backend "$backend" --arg proj "$proj" --arg sid "$sid" \
++        '{pre_eval_id: $pid, request_file: $rf, t3_reason: $reason,
++          claude_category: $cat, backend: $backend, proj: $proj, sid: $sid}' \
++        >"$tmpd" 2>/dev/null \
++     && chmod 600 "$tmpd" 2>/dev/null \
++     && mv -f "$tmpd" "${dd}/pending-${key}.json" 2>/dev/null; then
++    exit 0
++  fi
++  rm -f "$tmpd" 2>/dev/null || true
++  exit 1
++)
++
+ # The line this hook used to print unconditionally. It is now the DEGRADED path:
+ # the engine could not run, or could not band the request without a model call
+ # that a hook cannot make. It asks for exactly the thing that failed.
+@@ -601,8 +689,10 @@ EOF
+   # prompt, then re-invoke the SAME subcommand with the enum and carry on as if
+   # T1 had banded. Only a classifier that never reported degrades to the
+   # reminder; see the header.
++  # Set only when the headless classify decided; it gates the shadow descriptor.
++  local t3_backend=""
+   if [ "$needs_t3" = "true" ]; then
+-    local t3_prompt t3_reason t3_cat
++    local t3_prompt t3_reason t3_cat t3_out
+     t3_prompt="$(printf '%s' "$res" | jq -r '.t3_prompt // ""' 2>/dev/null)"
+     # `t3_reason` (unbanded | demotion | sensitive) is for THIS LOG only. The
+     # re-entry is identical whichever way the engine got here, so the hook must
+@@ -616,13 +706,19 @@ EOF
+     fi
+ 
+     _log "the request needs T3 (reason=${t3_reason}) — running the headless classify"
+-    t3_cat="$(_classify_headless "$proj" "$t3_prompt")" || {
++    t3_out="$(_classify_headless "$proj" "$t3_prompt")" || {
+       _log "nothing classified this request — degrading to the reminder"
+       _emit "$(_reminder_text)"
+       return $?
+     }
+-
+-    res="$(_run_engine "$proj" "$sid" "$request" "$t3_cat")" || {
++    t3_cat="${t3_out%%$'\t'*}"
++    t3_backend="${t3_out#*$'\t'}"
++    case "$t3_backend" in
++      claude | codex) : ;;
++      *) t3_backend="" ;;
++    esac
++
++    res="$(_run_engine "$proj" "$sid" "$request" "$t3_cat" "$t3_backend")" || {
+       _log "the re-score with --t3-category ${t3_cat} did not run — degrading to the reminder"
+       _emit "$(_reminder_text)"
+       return $?
+@@ -654,6 +750,14 @@ EOF
+     return $?
+   }
+ 
++  # THE T3 SHADOW HAND-OFF. After the decision, never before or instead of it, and
++  # with stdout discarded: whatever happens here, the hook's output is unchanged.
++  if [ -n "$t3_backend" ] && [ "${CV_JEV_T3:-}" = "1" ]; then
++    _write_t3_descriptor "$proj" "$sid" "$key" "$pid" "$request" "$t3_prompt" \
++      "$t3_reason" "$t3_cat" "$t3_backend" >/dev/null 2>&1 \
++      || _log "no T3 shadow descriptor was written (shadow only; the decision stands)"
++  fi
++
+   local next
+   case "$tier" in
+     DIRECT)
+diff --git a/tests/test-native-points.sh b/tests/test-native-points.sh
+index 8ef4132..bd29e08 100755
+--- a/tests/test-native-points.sh
++++ b/tests/test-native-points.sh
+@@ -517,6 +517,28 @@ t3_records_for() {
+ 
+ ARGV_LOG="$WORK/fake-claude-argv"
+ 
++# THE JEV SHADOW (spec 1) writes into `~/.claude/compound-v-jev/`, so the WHOLE T3
++# section runs under a sandbox HOME: both passes below see the same environment,
++# and the flag is the only thing that differs between them. The pristine sandbox
++# is copied BEFORE case 1, because the engine is write-once and resumes by request
++# fingerprint: replaying a request in the same project would measure a conflict.
++REAL_HOME="$HOME"
++export HOME="$WORK/home"
++mkdir -p "$HOME"
++JEVDATA="$HOME/.claude/compound-v-jev"
++unset CV_JEV_T3 2>/dev/null || true
++T3TEMPLATE="$WORK/t3-template"
++cp -R "$T3PROJ" "$T3TEMPLATE"
++
++# The four T3 cases, by number, so the flagged replay sends the SAME requests.
++T3_SIDS=("" sess-T3A sess-T3B sess-T3C sess-T3D)
++T3_REQS=(""
++  'please add a retry loop to the uploader module at src/uploader.py'
++  'please add a retry loop to the downloader module at src/uploader.py'
++  'please add a retry loop to the exporter module at src/uploader.py'
++  'please add a retry loop to the importer module at src/uploader.py')
++T3_OUTS=("" "" "" "" "")
++
+ # --- case 1: the fake answers with an enum -> a real tier, no reminder ------- #
+ export CV_CLASSIFY_CLAUDE_BIN="$FAKE_CLAUDE"
+ export FAKE_CLAUDE_ARGV="$ARGV_LOG"
+@@ -524,7 +546,8 @@ export FAKE_CLAUDE_STDIN="$WORK/fake-claude-stdin"
+ export FAKE_CLAUDE_REPLY="user-facing-minor"
+ unset FAKE_CLAUDE_SLEEP 2>/dev/null || true
+ 
+-o="$(run_nudge sess-T3A 'please add a retry loop to the uploader module at src/uploader.py' "$T3PROJ")"
++o="$(run_nudge "${T3_SIDS[1]}" "${T3_REQS[1]}" "$T3PROJ")"
++T3_OUTS[1]="$o"
+ check "T3: a needs_t3 prompt still exits 0" "$([ "$NUDGE_RC" = 0 ] && echo 1 || echo 0)"
+ check "T3: the hook no longer degrades to the reminder when a classifier answers" \
+   "$(ctx "$o" | grep -q 'could not size this prompt' && echo 0 || echo 1)"
+@@ -539,6 +562,12 @@ check "T3: a user-facing-minor reply lands SCOPED (the enum reached the matrix)"
+   "$([ "$tier_T3A" = "SCOPED" ] && echo 1 || echo 0)"
+ check "T3: the emitted line names that tier (TIER: SCOPED)" \
+   "$(ctx "$o" | grep -q 'TIER: SCOPED' && echo 1 || echo 0)"
++# The re-entry passes `--t3-engine <backend>`, so the record names WHO answered T3.
++# Evidence only: the tier asserted just above is the one it had before the flag.
++check "T3: the record's t3 block names the answering backend and its category" \
++  "$([ -n "$rec_T3A" ] \
++     && jq -e '.t3 == {"engine":"claude","category":"user-facing-minor"}' "$rec_T3A" \
++        >/dev/null 2>&1 && echo 1 || echo 0)"
+ 
+ # THE ARGV. Three properties, each of which was wrong in a draft of this route.
+ check "T3 ARGV: the classify NEVER passes --bare (it skips the login too)" \
+@@ -559,7 +588,8 @@ check "T3: the classify ran with stdin closed (0 bytes readable)" \
+ 
+ # --- case 2: garbage reply -> `unknown` is a REAL answer -> FULL, with a record #
+ export FAKE_CLAUDE_REPLY="Well, I would probably call this plumbing of some sort."
+-o="$(run_nudge sess-T3B 'please add a retry loop to the downloader module at src/uploader.py' "$T3PROJ")"
++o="$(run_nudge "${T3_SIDS[2]}" "${T3_REQS[2]}" "$T3PROJ")"
++T3_OUTS[2]="$o"
+ rec_T3B="$(t3_records_for sess-T3B | head -1)"
+ check "T3: a non-enum reply is still a classification, so a record IS written" \
+   "$([ -n "$rec_T3B" ] && echo 1 || echo 0)"
+@@ -579,7 +609,8 @@ export FAKE_CLAUDE_REPLY="plumbing"
+ export FAKE_CLAUDE_SLEEP=20
+ export CV_CLASSIFY_TIMEOUT_S=3
+ t0=$(date +%s)
+-o="$(run_nudge sess-T3C 'please add a retry loop to the exporter module at src/uploader.py' "$T3PROJ")"
++o="$(run_nudge "${T3_SIDS[3]}" "${T3_REQS[3]}" "$T3PROJ")"
++T3_OUTS[3]="$o"
+ t1=$(date +%s)
+ check "T3: a hanging classifier still exits 0" "$([ "$NUDGE_RC" = 0 ] && echo 1 || echo 0)"
+ check "T3: a hanging classifier yields the REMINDER (nothing was classified)" \
+@@ -601,7 +632,8 @@ unset FAKE_CLAUDE_SLEEP CV_CLASSIFY_TIMEOUT_S
+ # asserts the no-backend degrade on a machine that really does have `claude`.
+ export CV_CLASSIFY_CLAUDE_BIN=""
+ export CV_CLASSIFY_CODEX_BIN=""
+-o="$(run_nudge sess-T3D 'please add a retry loop to the importer module at src/uploader.py' "$T3PROJ")"
++o="$(run_nudge "${T3_SIDS[4]}" "${T3_REQS[4]}" "$T3PROJ")"
++T3_OUTS[4]="$o"
+ check "T3: with no classify backend at all the hook exits 0" \
+   "$([ "$NUDGE_RC" = 0 ] && echo 1 || echo 0)"
+ check "T3: with no classify backend at all it degrades to the reminder" \
+@@ -610,11 +642,180 @@ check "T3: ...and mints no record" \
+   "$([ -z "$(t3_records_for sess-T3D)" ] && echo 1 || echo 0)"
+ unset FAKE_CLAUDE_ARGV FAKE_CLAUDE_STDIN FAKE_CLAUDE_REPLY
+ 
++# --------------------------------------------------------------------------- #
++# 3d. THE JEV T3 SHADOW DESCRIPTOR (spec 1, Task F1).
++#
++# With `CV_JEV_T3=1` and a DECIDED T3, the hook leaves
++# `<data_dir>/pending-<sha256(proj|sid)>.json` for `hooks/jev-t3.tsx`. The whole
++# contract is that nothing else moves: every T3 case above is replayed with the
++# flag set, in a fresh copy of the sandbox, and its stdout must be byte-identical
++# to the unflagged run once the pre_eval_id (it carries a timestamp) is masked.
++# A comparison nobody has watched fail proves nothing, so a mutant that changes
++# the context line only when the flag is set is shown to be caught.
++# --------------------------------------------------------------------------- #
++check "JEV SHADOW: without CV_JEV_T3, cases 1-4 wrote no descriptor and no Jev data dir" \
++  "$([ ! -e "$JEVDATA" ] && echo 1 || echo 0)"
++
++t3_case_env() { # case number -> the classify environment that case ran with
++  export CV_CLASSIFY_CLAUDE_BIN="$FAKE_CLAUDE"
++  export CV_CLASSIFY_CODEX_BIN=""
++  unset FAKE_CLAUDE_SLEEP CV_CLASSIFY_TIMEOUT_S 2>/dev/null || true
++  case "$1" in
++    1) export FAKE_CLAUDE_REPLY="user-facing-minor" ;;
++    2) export FAKE_CLAUDE_REPLY="Well, I would probably call this plumbing of some sort." ;;
++    3) export FAKE_CLAUDE_REPLY="plumbing" FAKE_CLAUDE_SLEEP=20 CV_CLASSIFY_TIMEOUT_S=3 ;;
++    4) export CV_CLASSIFY_CLAUDE_BIN="" ;;
++  esac
++}
++
++# The output with its pre_eval_id replaced by PID (a literal, not a pattern).
++t3_norm() {
++  local o="$1" pid
++  pid="$(ctx "$o" | sed -n 's/.*pre_eval_id \([^)]*\)).*/\1/p' | head -1)"
++  if [ -n "$pid" ]; then printf '%s' "${o//"$pid"/PID}"; else printf '%s' "$o"; fi
++}
++sha_hex() { printf '%s' "$1" | shasum -a 256 | cut -d' ' -f1; }
++
++# The descriptor of one (proj, sid), or empty.
++t3_descriptor() { # proj sid
++  local real dd
++  real="$(cd "$1" && pwd -P)"
++  dd="$JEVDATA/$(sha_hex "$real" | cut -c1-16)"
++  [ -f "$dd/pending-$(sha_hex "${real}|$2").json" ] \
++    && printf '%s' "$dd/pending-$(sha_hex "${real}|$2").json"
++}
++
++T3ON="$WORK/projT3on"
++cp -R "$T3TEMPLATE" "$T3ON"
++T3ON_REAL="$(cd "$T3ON" && pwd -P)"
++export CV_JEV_T3=1
++for n in 1 2 3 4; do
++  t3_case_env "$n"
++  on="$(run_nudge "${T3_SIDS[$n]}" "${T3_REQS[$n]}" "$T3ON")"
++  check "JEV SHADOW: T3 case $n prints byte-identical output with CV_JEV_T3=1" \
++    "$([ -n "$on" ] && [ -n "${T3_OUTS[$n]}" ] \
++       && [ "$(t3_norm "$on")" = "$(t3_norm "${T3_OUTS[$n]}")" ] && echo 1 || echo 0)"
++done
++
++# Cases 1 and 2 DECIDED (`unknown` from a model that ran is a decision); 3 and 4 did not.
++desc1="$(t3_descriptor "$T3ON" sess-T3A)"
++desc2="$(t3_descriptor "$T3ON" sess-T3B)"
++check "JEV SHADOW: a decided T3 (case 1) leaves pending-<sha256(proj|sid)>.json in the data dir" \
++  "$([ -n "$desc1" ] && echo 1 || echo 0)"
++check "JEV SHADOW: a decided 'unknown' (case 2) leaves one too" \
++  "$([ -n "$desc2" ] && jq -e '.claude_category == "unknown" and .backend == "claude"' "$desc2" \
++     >/dev/null 2>&1 && echo 1 || echo 0)"
++check "JEV SHADOW: a hanging classifier (case 3) leaves no descriptor" \
++  "$([ -z "$(t3_descriptor "$T3ON" sess-T3C)" ] && echo 1 || echo 0)"
++check "JEV SHADOW: no classifier at all (case 4) leaves no descriptor" \
++  "$([ -z "$(t3_descriptor "$T3ON" sess-T3D)" ] && echo 1 || echo 0)"
++
++rec_on="$(find "$T3ON/docs/superpowers/pre-eval" -maxdepth 1 -type f -name '*.json' 2>/dev/null \
++  | while IFS= read -r f; do
++      jq -e '(type == "object") and (.session_id == "sess-T3A")' "$f" >/dev/null 2>&1 \
++        && printf '%s\n' "$f"
++    done | head -1)"
++check "JEV SHADOW: the flagged record's t3 block is the same claude/user-facing-minor" \
++  "$([ -n "$rec_on" ] \
++     && jq -e '.t3 == {"engine":"claude","category":"user-facing-minor"}' "$rec_on" \
++        >/dev/null 2>&1 && echo 1 || echo 0)"
++
++desc_ok=0
++if [ -n "$desc1" ] && [ -n "$rec_on" ]; then
++  python3 - "$desc1" "$rec_on" "$T3ON_REAL" "${T3_REQS[1]}" >"$WORK/desc-check.log" 2>&1 <<'PYEOF' && desc_ok=1
++import json, os, stat, sys
++desc_path, rec_path, proj, request = sys.argv[1:5]
++d = json.load(open(desc_path))
++rec = json.load(open(rec_path))
++assert sorted(d) == sorted(["pre_eval_id", "request_file", "t3_reason", "claude_category",
++                            "backend", "proj", "sid"]), d
++assert stat.S_IMODE(os.stat(desc_path).st_mode) == 0o600
++assert d["claude_category"] == "user-facing-minor" and d["backend"] == "claude"
++assert d["proj"] == proj and d["sid"] == "sess-T3A"
++assert d["pre_eval_id"] == rec["pre_eval_id"]
++assert d["t3_reason"] in ("unbanded", "demotion", "sensitive")
++rf = d["request_file"]
++dd = os.path.realpath(os.path.dirname(desc_path))
++assert os.path.realpath(os.path.dirname(rf)) == os.path.join(dd, "req") and os.path.isfile(rf)
++assert stat.S_IMODE(os.stat(rf).st_mode) == 0o600
++req = json.load(open(rf))
++assert req["point"] == "t3"
++state = json.loads(req["body"]["state"])
++assert sorted(state) == ["hints", "paths", "request"], state
++assert state["request"] == request[:2000]
++assert isinstance(state["paths"], list) and len(state["paths"]) <= 20
++assert isinstance(state["hints"], list) and len(state["hints"]) <= 40
++assert "(none resolved)" not in state["paths"]
++# Read back out of the engine's own prompt: the sandbox taxonomy's one content kind,
++# and the path the request names.
++assert state["hints"] == ["legal_copy"], state
++assert "src/uploader.py" in state["paths"], state
++assert not os.path.realpath(dd).startswith(os.path.realpath(proj) + os.sep)
++PYEOF
++fi
++check "JEV SHADOW: the descriptor has the seven contract keys, 0600, and a t3 request file in <dd>/req" \
++  "$desc_ok"
++[ "$desc_ok" = 1 ] || tail -n 3 "$WORK/desc-check.log" 2>/dev/null | sed 's/^/    /'
++check "JEV SHADOW: the state temp file is deleted after build" \
++  "$([ -z "$(find "$TMPDIR" -name 'cv-jev-state.*' 2>/dev/null)" ] && echo 1 || echo 0)"
++check "JEV SHADOW: no half-written descriptor is left behind" \
++  "$([ -z "$(find "$JEVDATA" -name '.pending.*' 2>/dev/null)" ] && echo 1 || echo 0)"
++check "JEV SHADOW: nothing Jev-related is written under the project" \
++  "$([ -z "$(find "$T3ON" \( -name 'pending-*' -o -name '*.req.json' -o -name 'cv-jev-state.*' \) \
++             2>/dev/null)" ] && echo 1 || echo 0)"
++
++# A `build` that refuses must leave the hook's output untouched and no descriptor.
++# The whole scripts/ tree is copied for the reason 3b gives.
++JEVFAIL="$WORK/jevfailplugin"
++mkdir -p "$JEVFAIL"
++cp -R "$REPO/scripts" "$JEVFAIL/scripts"
++printf '#!/usr/bin/env python3\nimport json\nprint(json.dumps({"status": "error", "reason": "bad_input"}))\n' \
++  >"$JEVFAIL/scripts/compound-v-jev.py"
++T3BF="$WORK/projT3buildfail"
++cp -R "$T3TEMPLATE" "$T3BF"
++t3_case_env 1
++bf="$(prompt_payload sess-T3A "${T3_REQS[1]}" "$T3BF" | CLAUDE_PLUGIN_ROOT="$JEVFAIL" bash "$NUDGE" 2>/dev/null)"
++check "JEV SHADOW: a refused build leaves the output byte-identical" \
++  "$([ -n "$bf" ] && [ "$(t3_norm "$bf")" = "$(t3_norm "${T3_OUTS[1]}")" ] && echo 1 || echo 0)"
++check "JEV SHADOW: ...and writes no descriptor" \
++  "$([ -z "$(t3_descriptor "$T3BF" sess-T3A)" ] && echo 1 || echo 0)"
++
++# PLANTED FAILURE: a hook that touches the context line only when the flag is set.
++MUTJ="$WORK/nudge-flag-leak.sh"
++python3 - "$NUDGE" "$MUTJ" <<'PYEOF'
++import sys
++src, dst = sys.argv[1], sys.argv[2]
++text = open(src).read()
++old = '  _emit "$msg"\n'
++if text.count(old) != 1:
++    sys.exit("MUTATION TARGET NOT UNIQUE (%d hits)" % text.count(old))
++text = text.replace(old, '  [ "${CV_JEV_T3:-}" = "1" ] && msg="${msg} (shadow)"\n' + old)
++open(dst, "w").write(text)
++PYEOF
++mutj_built=$?
++check "the flag-leak mutant could be built (the context emit is where the test says it is)" \
++  "$([ "$mutj_built" = 0 ] && echo 1 || echo 0)"
++if [ "$mutj_built" = 0 ]; then
++  T3MUT="$WORK/projT3mut"
++  cp -R "$T3TEMPLATE" "$T3MUT"
++  t3_case_env 1
++  mo="$(prompt_payload sess-T3A "${T3_REQS[1]}" "$T3MUT" | bash "$MUTJ" 2>/dev/null)"
++  check "PLANTED FAILURE: a context line changed under CV_JEV_T3 is caught by the comparison" \
++    "$([ -n "$mo" ] && [ "$(t3_norm "$mo")" != "$(t3_norm "${T3_OUTS[1]}")" ] && echo 1 || echo 0)"
++fi
++
++unset CV_JEV_T3 FAKE_CLAUDE_REPLY FAKE_CLAUDE_SLEEP CV_CLASSIFY_TIMEOUT_S 2>/dev/null || true
++export CV_CLASSIFY_CLAUDE_BIN=""
++export CV_CLASSIFY_CODEX_BIN=""
++export HOME="$REAL_HOME"
++
+ # --- the contract the hook and the registration have to agree on ------------- #
+ check "T3: the hook calls --classify-headless (not the Task-contract modes)" \
+   "$(grep -q -- '--classify-headless' "$NUDGE" && echo 1 || echo 0)"
+ check "T3: the hook re-enters the engine with --t3-category" \
+   "$(grep -q -- '--t3-category' "$NUDGE" && echo 1 || echo 0)"
++check "T3: the re-entry names the answering backend with --t3-engine" \
++  "$(grep -q -- '--t3-engine' "$NUDGE" && echo 1 || echo 0)"
+ check "T3: the hook's needs_t3 branch no longer degrades unconditionally" \
+   "$(grep -q 'the request needs the T3 classify step . degrading' "$NUDGE" && echo 0 || echo 1)"
+ check "T3: the shipped classify cap is 15 s" \

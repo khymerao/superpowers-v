@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "BLOCKED",
   "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
@@ -71,11 +71,18 @@
       "baseline": "2ba0b812644e2155584ec49656cef64b3ff2343a"
     },
     "ui-floor-onboard-jev": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-6",
       "session_id": null,
-      "merged": null
+      "merged": {
+        "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "17c6d9146729c32a43f9cbbf37dc15782ffe01dc"
+      },
+      "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+      "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
     },
     "corpus": {
       "status": "done",
@@ -93,18 +100,22 @@
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
     "t3-hook-shadow": {
-      "status": "pending",
+      "status": "blocked",
       "isolation": "worktree",
-      "worktree": null,
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-7",
       "session_id": null,
-      "merged": null
+      "merged": null,
+      "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+      "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
     },
     "t3-mod-shadow": {
-      "status": "pending",
+      "status": "blocked",
       "isolation": "worktree",
-      "worktree": null,
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-8",
       "session_id": null,
-      "merged": null
+      "merged": null,
+      "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+      "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
     },
     "spec-review": {
       "status": "pending",
@@ -132,10 +143,22 @@
       ],
       "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "ui-floor-onboard-jev",
+        "t3-hook-shadow",
+        "t3-mod-shadow"
+      ],
+      "merged": [
+        "ui-floor-onboard-jev"
+      ],
+      "commit": "17c6d9146729c32a43f9cbbf37dc15782ffe01dc",
+      "integrated": false
     }
   },
-  "blocked_reason": "wave 1 refused: vault",
-  "blocked_at": "2026-10-05T08:39:58Z",
+  "blocked_reason": "wave 2 refused: t3-hook-shadow, t3-mod-shadow",
+  "blocked_at": "2026-10-05T09:11:31Z",
   "notes": [
     "2026-10-05: attempt 1 ran every wave-1 worktree from 4bd5c49 (main, v2.17) instead of HEAD fbc37d5, because the session's project root was the parent directory and the repo's worktree.baseRef=head setting did not apply. Nothing was merged. Its results and receipts are kept under attempt1-wrong-base/; every job reset to pending for a re-dispatch from a session rooted in this repository."
   ]
