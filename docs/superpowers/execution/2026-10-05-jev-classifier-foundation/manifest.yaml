@@ -51,7 +51,7 @@ test_contract:
   - when: tests/test-jev-core.sh
     run: bash tests/test-jev-core.sh
   - when: plugins/compound-v-vault/**
-    run: bash tests/test-vault-mod.sh
+    run: bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'
   - when: tests/test-vault-mod.sh
     run: bash tests/test-vault-mod.sh
   - when: scripts/compound-v-onboard.py
@@ -92,7 +92,7 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - "- `triage` flags: `--request-file PATH` (third member of the required `--request | --request-env` group; UTF-8, one\n trailing newline stripped), `--t3-engine {claude,codex,parent}`, `--t3-probs-json JSON`, `--t3-model STR`,\n `--t3-catalogue-hash STR`. (`jev` is not a deciding engine in spec 1; the enum keeps room for it in the schema.)\n- `run_preeval(..., t3_meta=None)`, `triage_request(..., t3_meta=None)`; `t3_meta = {\"engine\", \"category\",\n \"probs\"?, \"model\"?, \"catalogue_hash\"?}`.\n- Record key `t3` (present only when `t3_meta` was given and `\"T3\" in tiers_signalled`); `triage` JSON echoes `t3`."
+    - '- `triage` flags: `--request-file PATH` (third member of the required `--request | --request-env` group; UTF-8, one trailing newline stripped), `--t3-engine {claude,codex,parent}`, `--t3-probs-json JSON`, `--t3-model STR`, `--t3-catalogue-hash STR`. (`jev` is not a deciding engine in spec 1; the enum keeps room for it in the schema.) - `run_preeval(..., t3_meta=None)`, `triage_request(..., t3_meta=None)`; `t3_meta = {"engine", "category", "probs"?, "model"?, "catalogue_hash"?}`. - Record key `t3` (present only when `t3_meta` was given and `"T3" in tiers_signalled`); `triage` JSON echoes `t3`.'
   acceptance:
   - preeval --selftest green including the seven new rows (a)-(g), each with its planted failure named; tests/test-native-points.sh and tests/v2.9-e2e/test_fastpath_and_escalation.py green; a record built with t3_meta=None is byte-identical to one built without the parameter.
   body: 'Implement Task A: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -100,8 +100,8 @@ jobs:
   title: Task B — jev config resolver and /v:init seed
   type: implement
   backend: claude
-  tier: standard
-  effort: medium
+  tier: deep
+  effort: high
   isolation: worktree
   run: parallel
   depends_on: []
@@ -113,7 +113,7 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - "```python\n{\"enabled\": True, \"model\": \"typesafe/jev-1.13\",\n \"t3\": {\"mode\": \"shadow\", \"confidence_min\": 0.8, \"calibrated_model\": None},\n \"detect_ui\": {\"mode\": \"active\", \"confidence_min\": 0.8},\n \"onboard\": {\"mode\": \"active\", \"confidence_min\": 0.8}}\n```\n`t3.mode` ∈ `off|shadow` (`active` → `shadow` + warning naming spec 1.5); `detect_ui.mode`/`onboard.mode` ∈\n`off|active`; `confidence_min` float in (0, 1], not bool. CLI output gains `\"jev\"`."
+    - '`JEV_DEFAULTS`; `resolve_jev(cfg) -> (values, warnings)`, never raises: ```python {"enabled": True, "model": "typesafe/jev-1.13", "t3": {"mode": "shadow", "confidence_min": 0.8, "calibrated_model": None}, "detect_ui": {"mode": "active", "confidence_min": 0.8}, "onboard": {"mode": "active", "confidence_min": 0.8}} ``` `t3.mode` ∈ `off|shadow` (`active` → `shadow` + warning naming spec 1.5); `detect_ui.mode`/`onboard.mode` ∈ `off|active`; `confidence_min` float in (0, 1], not bool. CLI output gains `"jev"`.'
   acceptance:
   - project-config --selftest green with the new rows; resolve_jev never raises; t3.mode active is coerced to shadow with a warning; v-init Step 4a seeds the jev block and says the key and egress consent never go there.
   body: 'Implement Task B: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -134,8 +134,8 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - "- CLI (one JSON object on stdout; exit 0 unless usage error = 2; selftest via the literal `--selftest` flag so the CI\n sweep at `validate.yml:298-312` finds it):\n - `build --point {t3,detect_ui,onboard_layer} --state-file F --repo R` → writes\n `<data_dir>/req/<uuid>.req.json`, prints `{\"status\":\"ok\",\"request_file\":…}` or\n `{\"status\":\"error\",\"reason\":\"bad_input\"|\"redaction\"}`.\n - `parse --response-file F --repo R --mode M [--hook-budget-left-ms N]` →\n `{status, reason?, point, answers: {<name>: {type, answer, probs}}, latency_ms, model, catalogue_hash}`;\n appends one telemetry line.\n - `pair --request-file F --claude-category C --backend B --t3-reason R --repo R` → appends one shadow pair line.\n - `eval --t3 --prepare --corpus F [--pairs] --repo R` → `{\"request_files\": [...]}` (originals, a reversed-order\n variant and two alternate-wording variants each); `eval --t3 --report OUT --repo R` → writes the markdown report.\n - `data-dir --repo R` → prints the\
-      \ resolved data dir (creates it 0700).\n- `<data_dir>` = `~/.claude/compound-v-jev/<repo-digest>/`; files: `req/`, `resp/`, `calls.jsonl`,\n `shadow-pairs.jsonl`. Every write prunes entries older than 30 days.\n- Request file: `{\"point\", \"catalogue_hash\", \"model\", \"body\": {\"model\", \"state\", \"questions\"}, \"timeout_ms\",\n \"context\": \"hook\"|\"offline\", \"repo\"}`. Response file (written by the vault, Task D): `{\"status\":\n \"ok\"|\"unavailable\"|\"error\", \"reason\"?, \"http_status\"?, \"latency_ms\", \"body\"?}`."
+    - '- CLI (one JSON object on stdout; exit 0 unless usage error = 2; selftest via the literal `--selftest` flag so the CI sweep at `validate.yml:298-312` finds it): - `build --point {t3,detect_ui,onboard_layer} --state-file F --repo R` → writes `<data_dir>/req/<uuid>.req.json`, prints `{"status":"ok","request_file":…}` or `{"status":"error","reason":"bad_input"|"redaction"}`. - `parse --response-file F --repo R --mode M [--hook-budget-left-ms N]` → `{status, reason?, point, answers: {<name>: {type, answer, probs}}, latency_ms, model, catalogue_hash}`; appends one telemetry line. - `pair --request-file F --claude-category C --backend B --t3-reason R --repo R` → appends one shadow pair line. - `eval --t3 --prepare --corpus F [--pairs] --repo R` → `{"request_files": [...]}` (originals, a reversed-order variant and two alternate-wording variants each); `eval --t3 --report OUT --repo R` → writes the markdown report. - `data-dir --repo R` → prints the resolved data dir (creates it 0700). -
+      `<data_dir>` = `~/.claude/compound-v-jev/<repo-digest>/`; files: `req/`, `resp/`, `calls.jsonl`, `shadow-pairs.jsonl`. Every write prunes entries older than 30 days. - Request file: `{"point", "catalogue_hash", "model", "body": {"model", "state", "questions"}, "timeout_ms", "context": "hook"|"offline", "repo"}`. Response file (written by the vault, Task D): `{"status": "ok"|"unavailable"|"error", "reason"?, "http_status"?, "latency_ms", "body"?}`.'
   acceptance:
   - compound-v-jev.py --selftest (literal flag) and tests/test-jev-core.sh green under Python 3.9; no network import in the file; no output, file or log contains sk-or- or Bearer; nothing is written under the repository; error bodies are never copied.
   body: 'Implement Task C: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -156,7 +156,7 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - "```ts\nexport type JevRequest = { point: string; catalogue_hash: string; model: string;\n body: { model: string; state: unknown; questions: Record<string, unknown> };\n timeout_ms: number; context: 'hook' | 'offline'; repo: string }\nexport type JevResponse = { status: 'ok' | 'unavailable' | 'error'; reason?: string;\n http_status?: number; latency_ms: number; body?: unknown }\nexport type Jev = {\n classify: (req: JevRequest) => Promise<JevResponse>\n status: (repo: string) => Promise<{ on: boolean; reason?: string }>\n}\ndeclare module 'claude-code' { interface EngineInterface { jev: Jev } }\n```\n- Model tool `jev_classify({ request_file })` → text: the response file path, or `refused: <reason>`. Accepts only\n regular files under `~/.claude/compound-v-jev/*/req/` (realpath check, no symlinks); writes the response to the\n sibling `resp/` dir with the same base name.\n- Command `/compound-v-vault:egress allow|deny|status`; consent stored with `$.store` under `egress:<repo realpath>`."
+    - '```ts export type JevRequest = { point: string; catalogue_hash: string; model: string; body: { model: string; state: unknown; questions: Record<string, unknown> }; timeout_ms: number; context: ''hook'' | ''offline''; repo: string } export type JevResponse = { status: ''ok'' | ''unavailable'' | ''error''; reason?: string; http_status?: number; latency_ms: number; body?: unknown } export type Jev = { classify: (req: JevRequest) => Promise<JevResponse> status: (repo: string) => Promise<{ on: boolean; reason?: string }> } declare module ''claude-code'' { interface EngineInterface { jev: Jev } } ``` - Model tool `jev_classify({ request_file })` → text: the response file path, or `refused: <reason>`. Accepts only regular files under `~/.claude/compound-v-jev/*/req/` (realpath check, no symlinks); writes the response to the sibling `resp/` dir with the same base name. - Command `/compound-v-vault:egress allow|deny|status`; consent stored with `$.store` under `egress:<repo realpath>`.'
   acceptance:
   - Step 1 API confirmation recorded at the top of vault.tsx (or the job returns BLOCKED with evidence); claude plugin validate and claude plugin test (pinned 2.1.289) green; the key appears only in the fetch Authorization header in every test; hooks.json has only modules; README covers setup, egress, data classes, boundary.
   body: 'Implement Task D: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -171,6 +171,7 @@ jobs:
   depends_on:
   - jev-core
   - vault
+  - config-jev
   test_scope: impacted
   write_allowed:
   - scripts/compound-v-onboard.py
@@ -180,9 +181,8 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - 'with reason `deterministic:<signal>` or `none`; CLI `detect-ui --repo R [--reason]` (`--reason` prints
-
-      `ui deterministic:<signal>` / `no-ui none`; without it, output unchanged).'
+    - 'E1: `detect_ui(repo) -> bool` (unchanged contract), `detect_ui_reason(repo) -> (bool, str)` with reason `deterministic:<signal>` or `none`; CLI `detect-ui --repo R [--reason]` (`--reason` prints `ui deterministic:<signal>` / `no-ui none`; without it, output unchanged).'
+    - 'E2: consumes Task C CLI (`build`, `parse`, `data-dir`) by subprocess with a minimal env (`PATH`, `HOME`, `TMPDIR`, `LANG`) and the vault tool `jev_classify` through the documented command flow; produces CLI `jev-requests --repo R --point {detect_ui,onboard_layer}` → `{"request_files": [...]}`, `detect-ui --jev-responses DIR`, `draft-taxonomy … --jev-responses DIR`.'
   acceptance:
   - 'onboard --selftest green with every E1 and E2 row and planted failure; detect_ui(repo) -> bool unchanged for existing callers; .html alone stays no-ui; WordPress, Blade, Twig, Liquid, SwiftUI fixtures detected deterministically; Jev never flips True to False and never lowers or removes a taxonomy row; the YAML with # source: jev lines validates.'
   body: 'Implement Task E1: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order. Then implement Task E2 in the same file, in order, after E1 is committed (the validator forbids two jobs on one file, so both tasks are this one job).  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -190,8 +190,8 @@ jobs:
   title: Task K — synthetic T3 corpus
   type: implement
   backend: claude
-  tier: standard
-  effort: medium
+  tier: deep
+  effort: high
   isolation: worktree
   run: parallel
   depends_on: []
@@ -203,7 +203,7 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - '"label_draft", "label_source": "implementer-draft", "human_label": null, "claude_label": null}`.'
+    - 'one JSON object per line: `{"id", "request", "paths", "hints", "t3_reason", "label_draft", "label_source": "implementer-draft", "human_label": null, "claude_label": null}`.'
   acceptance:
   - 80 lines, unique ids, 20 per category, >= 30 marked ambiguous in the README tally, every request < 2000 chars, SECRET_RE finds nothing, label_source implementer-draft on every line, human_label and claude_label null.
   body: 'Implement Task K: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -226,13 +226,7 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - '`<data_dir>/pending-<digest(proj|sid)>.json` = `{"pre_eval_id", "request_file", "t3_reason", "claude_category",
-
-      "backend", "proj", "sid"}` (0600; `request_file` from `compound-v-jev.py build --point t3`, state =
-
-      `{request (≤ 2,000 chars), paths, hints}` written to a 0600 temp file first and deleted after `build`).
-
-      `_classify_headless` prints `category<TAB>backend`; re-entry passes `--t3-engine <backend>`.'
+    - 'pending descriptor, written only when `CV_JEV_T3=1` and T3 was consulted and decided: `<data_dir>/pending-<digest(proj|sid)>.json` = `{"pre_eval_id", "request_file", "t3_reason", "claude_category", "backend", "proj", "sid"}` (0600; `request_file` from `compound-v-jev.py build --point t3`, state = `{request (≤ 2,000 chars), paths, hints}` written to a 0600 temp file first and deleted after `build`). `_classify_headless` prints `category<TAB>backend`; re-entry passes `--t3-engine <backend>`.'
   acceptance:
   - 'tests/test-native-points.sh green: every existing T3 case byte-identical in output with CV_JEV_T3 unset and set; descriptor written only with the flag after a decided T3; shellcheck clean; tests/test-hook-recursion-guard.sh green.'
   body: 'Implement Task F1: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
@@ -260,7 +254,8 @@ jobs:
   - '**'
   interfaces:
     produces:
-    - "`python3 scripts/compound-v-project-config.py <repo>`).\n\n- `session.start`: if `'jev' in $` and `(await $.jev.status(cwd)).on` and `resolve_jev` says `t3.mode == \"shadow\"`,\n `$.env.set(\"CV_JEV_T3\", \"1\")` (a non-secret capability flag); else unset it.\n- `classic.UserPromptSubmit`: `const res = await next(e)`; if `CV_HEADLESS_CLASSIFY=1` or no descriptor for this\n `(proj, sid)` → `return res`. Otherwise read the request file, `await $.jev.classify(req)`, write the response\n file, run `compound-v-jev.py parse --mode shadow --hook-budget-left-ms <n>` then `pair`, delete the descriptor,\n and `return res` **unchanged** (never touch `additionalContext`).\n- Every `$.process.run` is an argv array with a 30 s cap and no secrets; script paths from `$.plugin.root`.\n- `types/index.d.ts`: keep the existing `PluginState` block; add a local structural type for `$.jev` used through a\n runtime guard (`'jev' in $`), so the module compiles and validates with or without the vault installed."
+    - 'consumes the F1 descriptor, Task C (`parse`, `pair`), Task D `$.jev`, Task B `resolve_jev` (via `python3 scripts/compound-v-project-config.py <repo>`). - `session.start`: if `''jev'' in $` and `(await $.jev.status(cwd)).on` and `resolve_jev` says `t3.mode == "shadow"`, `$.env.set("CV_JEV_T3", "1")` (a non-secret capability flag); else unset it. - `classic.UserPromptSubmit`: `const res = await next(e)`; if `CV_HEADLESS_CLASSIFY=1` or no descriptor for this `(proj, sid)` → `return res`. Otherwise read the request file, `await $.jev.classify(req)`, write the response file, run `compound-v-jev.py parse --mode shadow --hook-budget-left-ms <n>` then `pair`, delete the descriptor, and `return res` **unchanged** (never touch `additionalContext`). - Every `$.process.run` is an argv array with a 30 s cap and no secrets; script paths from `$.plugin.root`. - `types/index.d.ts`: keep the existing `PluginState` block; add a local structural type for `$.jev` used through a runtime guard (`''jev''
+      in $`), so the module compiles and validates with or without the vault installed.'
   acceptance:
   - claude plugin validate . lists run-band.tsx and jev-t3.tsx and does not load plugins/compound-v-vault as part of this plugin (else BLOCKED); claude plugin test . 0 failures; tests/test-run-band-mod.sh green; the module returns the classic result deep-equal in every test.
   body: 'Implement Task F2: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'

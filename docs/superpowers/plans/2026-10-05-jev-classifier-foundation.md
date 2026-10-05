@@ -277,8 +277,8 @@ declare module 'claude-code' { interface EngineInterface { jev: Jev } }
   sibling `resp/` dir with the same base name.
 - Command `/compound-v-vault:egress allow|deny|status`; consent stored with `$.store` under `egress:<repo realpath>`.
 
-- [ ] **Step 1: Confirm the API on the pinned build first.** Run
-  `npx -y @anthropic-ai/claude-code@2.1.289 plugin-types <tmpdir>` (or `/plugin-types` on a ≥ 2.1.289 CLI) and
+- [ ] **Step 1: Confirm the API on the installed build first.** Load the `plugin-authoring` skill (Skill tool): it
+  writes this build's `types/claude-code.d.ts` and `reference.md` into its base directory; grep them (do not read whole) and
   confirm: `engine.create` adds a noun; `$.http.fetch(url, {method, headers, body})` → `{status, ok, headers, text}`;
   `$.store`; `$.tool.register`; `$.command.register`; `$.ui.status`/`$.ui.toast`; `$.env.get`; `$.fs`;
   `session.append`; how to race a timeout with `$.clock`; whether `claude plugin test` can stub `http.fetch`. Record
