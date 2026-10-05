@@ -247,7 +247,7 @@ vtest('egress unanswered: unavailable(egress), one toast per session, no fetch',
   expect((await jev($, 'classify', REQ)).reason).toBe('egress')
   expect(seen.fetches).toHaveLength(0)
   expect(seen.toasts).toHaveLength(1)
-  expect(seen.toasts[0]).toMatch(/compound-v-vault:egress allow/)
+  expect(seen.toasts[0]).toMatch(/\/egress allow/)
   expect(seen.toasts[0]).toMatch(/OpenRouter/)
   expect(seen.toasts[0]).toMatch(/TypeSafe/)
 })

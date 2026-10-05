@@ -52,7 +52,7 @@ const REDACTED = '[redacted]'
 // The auth scheme, spelled in two pieces so that no key-shaped literal sits in the tree.
 const AUTH_SCHEME = 'Bear' + 'er '
 const EGRESS_ASK =
-  'Jev is off for this repository until you answer /compound-v-vault:egress allow (or deny). ' +
+  'Jev is off for this repository until you answer /egress allow (or deny). ' +
   'Allowing sends request text, file paths, taxonomy hints and file heads to OpenRouter and TypeSafe.'
 const TOOL_DESCRIPTION =
   'Send one Compound V Jev request file to the System One classifier and write its response. ' +
@@ -335,7 +335,7 @@ async function egressCommand($: any, vault: Vault, args: string): Promise<string
     return `Jev egress for ${repo}: ${answer}.`
   }
 
-  return 'Usage: /compound-v-vault:egress allow|deny|status'
+  return 'Usage: /egress allow|deny|status'
 }
 
 async function startSession($: any, vault: Vault): Promise<void> {

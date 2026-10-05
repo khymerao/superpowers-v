@@ -20,7 +20,7 @@ it does with no Jev at all.
 1. Install the plugin from the same marketplace as Compound V and enable it.
 2. Set the key: run `/config`, find **compound-v-vault**, and fill in **OpenRouter API key**. The field is marked
    sensitive, so Claude Code keeps it in secure storage, not in a settings file.
-3. In each repository where you want Jev, run `/compound-v-vault:egress allow` once (see Egress below).
+3. In each repository where you want Jev, run `/egress allow` once (see Egress below).
 
 Use a dedicated OpenRouter key with a credit limit set on the OpenRouter side. The vault cannot cap spending; the
 limit on the key can.
@@ -34,9 +34,9 @@ Nothing leaves the machine for a repository until you answer for it:
 
 | Command | Effect |
 |---|---|
-| `/compound-v-vault:egress allow` | Requests from this repository are sent to Jev. |
-| `/compound-v-vault:egress deny` | Nothing from this repository is sent. Consumers fall back as if the vault were absent. |
-| `/compound-v-vault:egress status` | Shows the current answer: `allow`, `deny` or `not answered`. |
+| `/egress allow` | Requests from this repository are sent to Jev. |
+| `/egress deny` | Nothing from this repository is sent. Consumers fall back as if the vault were absent. |
+| `/egress status` | Shows the current answer: `allow`, `deny` or `not answered`. |
 
 The answer is per user and per repository. It is kept in this plugin's own store (`$.store`, a file under your
 Claude Code configuration directory) under `egress:<repository real path>`. It is never written to the repository.
