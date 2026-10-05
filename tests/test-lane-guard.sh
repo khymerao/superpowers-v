@@ -393,6 +393,11 @@ echo "=== 2a. finding 78: the LONGEST worktree prefix wins ===================="
 # PROJECT ROOT by another job (a direct job's "worktree" is the checkout): a
 # Write at $WT must still resolve to job-under-test, not to the root's job.
 cp "$RUN/lane-map.json" "$RUN/lane-map.json.f78bak"
+# A real linked worktree holds a `.git` FILE at its root. The working-tree
+# boundary check must stop BELOW the claimed path, never at it: a walk that also
+# inspected $WT itself would leave every real worktree job unresolved (and so
+# unguarded) while a fixture without this file kept the suite green.
+printf 'gitdir: /nowhere\n' >"$WT/.git"
 cat >"$RUN/lane-map.json" <<JEOF
 {"run_id": "2099-01-01-sandbox",
  "agents": {},
@@ -404,6 +409,7 @@ file_case "finding 78: an out-of-lane Write at the nested worktree is denied AS 
   Write agent_unknown78 "$WT" "$WT/README.md"
 check "finding 78: the deny names job-under-test, not root-job" \
   "$(printf '%s' "$OUT" | grep -q 'job-under-test' && ! printf '%s' "$OUT" | grep -q 'root-job' && echo 1 || echo 0)"
+rm -f "$WT/.git"
 mv "$RUN/lane-map.json.f78bak" "$RUN/lane-map.json"
 
 echo "=== 2b. finding 68: a finished run's lane map claims nothing ============"
@@ -413,6 +419,19 @@ printf '{"run_id": "2099-09-08-live", "phase": "DISPATCHED", "jobs": {"review-do
 touch -t 209901010000 "$RUN_L"; touch "$RUN_T"
 file_case "a LIVE run's direct job claims the checkout: an unknown agent's out-of-lane Write at the root is denied" deny \
   Write agent_zzz "$PROJ" "$PROJ/docs/somewhere-else.md"
+# The checkout claim stops at a git working-tree boundary. A session in its OWN
+# worktree under the checkout (a `.git` file at its root, not in any lane map) is
+# another tree: it is unresolved, not the direct job. A plain subdirectory of the
+# checkout carries no `.git` and still resolves to the direct job.
+FOREIGN="$PROJ/.claude/worktrees/foreign-session"
+mkdir -p "$FOREIGN/docs"; printf 'gitdir: /nowhere\n' >"$FOREIGN/.git"
+file_case "a nested git worktree NOT in the map is not captured by the checkout's direct-job claim" allow \
+  Write agent_foreign "$FOREIGN" "$FOREIGN/docs/notes.md"
+check "...and the hook says the session is unresolved" \
+  "$([ "$(logged 'UNRESOLVED IDENTITY')" = yes ] && echo 1 || echo 0)"
+file_case "a plain subdirectory of the checkout still resolves to the direct job (out-of-lane denied)" deny \
+  Write agent_sub "$PROJ/docs" "$PROJ/docs/elsewhere.md"
+rm -rf "$FOREIGN"
 printf '{"run_id": "2099-09-08-live", "phase": "MERGED", "jobs": {"review-done": {"status": "done"}}}\n' >"$RUN_L/state.json"
 file_case "...and once that run is MERGED the same Write resolves to NO job (allowed, unresolved)" allow \
   Write agent_zzz "$PROJ" "$PROJ/docs/somewhere-else.md"

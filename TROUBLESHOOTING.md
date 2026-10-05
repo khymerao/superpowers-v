@@ -287,7 +287,9 @@ render it — read it from `state.json` or the ack.
 
 **Symptom:** `hooks/lane-guard.sh` is registered, but an obviously out-of-lane write goes through.
 
-**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`. **If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
+**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`.
+A `cwd` claim stops at a git working-tree boundary: a session in a nested worktree, submodule or repository under a claimed path is not that job, and is logged as unresolved.
+**If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
 
 **Fix:** dispatch through Engine C, which writes `lane-map.json` — each implementer registers its real worktree as its first command. Confirm the file exists and maps that worktree to the job. Check the guard's log (`$TMPDIR/compound-v-lane-guard.log`, or `$CV_LANE_GUARD_LOG`); it records every allow-because-unresolved.
 

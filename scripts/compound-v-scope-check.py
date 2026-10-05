@@ -46,9 +46,10 @@ is WHEN it is taken, not a digest:
 3. **The pipeline's own files for this job, by name** — the closed list
    ``RUN_DIR_EXEMPT_BY_NAME`` in ``compound-v-emit-workflow.py`` (``state.json``,
    ``preexisting/<id>.txt``, ``preexisting/<id>.verified.txt``,
-   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``) plus
-   the ``results/attempts/<id>.<n>.json`` family: each is shared, self-referential,
-   or written by the pipeline after the gate built its list. Exempt from THIS
+   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``,
+   ``lane-guard-unresolved.jsonl``) plus the ``results/attempts/<id>.<n>.json``
+   family: each is shared, self-referential, written by the pipeline after the gate
+   built its list, or written by ``hooks/lane-guard.sh`` and never by a job. Exempt from THIS
    check only; the authority verifies every one of them by digest.
    ``manifest.yaml`` is deliberately NOT among them: it DEFINES ``write_allowed``,
    so a by-name exemption for it would let a job widen its own lane and have both
