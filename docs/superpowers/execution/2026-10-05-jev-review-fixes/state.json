@@ -1,25 +1,55 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-05T09:58:29Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-05T10:05:00Z",
   "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
   "jobs": {
     "ui-sample": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-2",
+      "session_id": null,
+      "baseline": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "merged": {
+        "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3"
+      }
     },
     "jev-reasons-prune": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-3",
+      "session_id": null,
+      "baseline": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "merged": {
+        "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "ui-sample",
+        "jev-reasons-prune"
+      ],
+      "merged": [
+        "ui-sample",
+        "jev-reasons-prune"
+      ],
+      "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3",
+      "integrated": true
     }
   }
 }

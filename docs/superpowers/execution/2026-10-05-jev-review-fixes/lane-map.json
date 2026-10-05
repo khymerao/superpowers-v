@@ -1,0 +1,9 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-review-fixes/manifest.yaml",
+  "run_id": "2026-10-05-jev-review-fixes",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-2": "ui-sample",
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-3": "jev-reasons-prune"
+  }
+}

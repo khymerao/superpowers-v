@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-onboard.py",
+    "skills/compound-v/onboarding.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+    "diff_digest": "sha256:7a2bee418b9e61e3a09428d61b1fefb5a78744ae9389eb542a788bb05766461d",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"fd02c46eca68736f9bbddae2c7df8b2a7566a7fb\",\n  \"changed\": [\n    \"scripts/compound-v-onboard.py\",\n    \"skills/compound-v/onboarding.md\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-onboard.py\",\n    \"skills/compound-v/onboarding.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 secret-bearing files leave the detect_ui sample",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-onboard.py --selftest >/dev/null && bash tests/test-onboard-rules.sh >/dev/null && echo onboard-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-2"
+}
