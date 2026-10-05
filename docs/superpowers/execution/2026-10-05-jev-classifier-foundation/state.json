@@ -1,0 +1,61 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-05T07:45:00Z",
+  "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
+  "jobs": {
+    "record-t3": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "config-jev": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "jev-core": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "vault": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "ui-floor-onboard-jev": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "corpus": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "t3-hook-shadow": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "t3-mod-shadow": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}

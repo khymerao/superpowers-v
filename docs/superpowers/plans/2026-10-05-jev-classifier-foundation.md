@@ -66,16 +66,15 @@ and the onboarding draft (human-gated).
 | `config-jev` (B) | 1 | `scripts/compound-v-project-config.py`, `commands/v-init.md` | none |
 | `jev-core` (C) | 1 | `scripts/compound-v-jev.py`, `tests/test-jev-core.sh` | none |
 | `vault` (D) | 1 | `plugins/compound-v-vault/**`, `tests/test-vault-mod.sh` | none |
-| `ui-floor` (E1) | 1 | `scripts/compound-v-onboard.py` | none |
 | `corpus` (K) | 1 | `tests/fixtures/jev-t3-corpus.jsonl`, `tests/fixtures/README-jev-corpus.md` | none |
-| `onboard-jev` (E2) | 2 | `scripts/compound-v-onboard.py`, `skills/compound-v/onboarding.md`, `commands/v-onboard.md` | ui-floor, jev-core, vault |
+| `ui-floor-onboard-jev` (E1 then E2, one job) | 2 | `scripts/compound-v-onboard.py`, `skills/compound-v/onboarding.md`, `commands/v-onboard.md` | jev-core, vault |
 | `t3-hook-shadow` (F1) | 2 | `hooks/triage-prompt-nudge.sh`, `tests/test-native-points.sh` | record-t3, jev-core |
 | `t3-mod-shadow` (F2) | 2 | `hooks/jev-t3.tsx`, `hooks/jev-t3.test.tsx`, `hooks/hooks.json`, `types/index.d.ts`, `tests/test-jev-t3-mod.sh`, `skills/compound-v/phase-preeval.md` | jev-core, vault, config-jev |
-| `review` (H) | 3 | `.claude/agent-memory/superpowers-v-spec-reviewer/**` | all |
+| `spec-review` (H) | 3 | `.claude/agent-memory/superpowers-v-spec-reviewer/**` | all |
 | release (R) | after H, maintainer session | `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `.gitignore`, `CHANGELOG.md`, `README.md`, `AGENTS.md`, `TROUBLESHOOTING.md` | review |
 
 Shared resources and their single owner: record shape (A); config loader (B); `hooks.json` and `types/index.d.ts`
-(F2); `onboard.py` (E1 in wave 1, E2 in wave 2, never concurrently); marketplace (R). F1 and F2 meet only through the
+(F2); `onboard.py` (E1 and E2 are one job, `ui-floor-onboard-jev`, because the validator forbids two jobs on one file); marketplace (R). F1 and F2 meet only through the
 pending-descriptor contract below and are tested against it independently.
 
 ---
