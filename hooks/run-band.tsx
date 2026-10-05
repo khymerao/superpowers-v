@@ -22,21 +22,18 @@ const SPIN_MS = 500
 const SPIN_FRAMES = ['◐', '◓', '◑', '◒']
 const TABLE_MAX_JOBS = 8 // more than this and the band falls back to one line per wave
 
-// Raw colors, so the band looks the same in every theme. One meaning each.
+// The amiainative.dev palette (its CSS custom properties), one meaning each.
 const C = {
-  brand: '#5AA9FF',
-  run: '#5AA9FF',
-  done: '#4CAF7A',
-  warn: '#E0A93B',
-  bad: '#E5604D',
+  brand: '#DC02DF', // --color-magenta: the V mark
+  run: '#1195F2', // --color-blue: running
+  done: '#34D399', // --color-emerald: done
+  warn: '#FFC53D', // the site's amber: five minutes without progress
+  bad: '#FB2C36', // --color-red-500: stalled, dead, blocked
+  route: '#6565F2', // --color-violet: the backend a job runs on
+  idle: '#575868', // --color-slate: queued
 }
-const VENDOR: Record<string, string> = {
-  claude: '#D97757',
-  codex: '#C8C8C8',
-  antigravity: '#8AB4F8',
-  cursor: '#B39DDB',
-  opencode: '#E6C07B',
-}
+const GLYPH_WIDTH = 2
+const BACKEND_WIDTH = 12 // "antigravity" + 1
 
 const EMPTY: Band = { run: null, live: null, alerted: [], closing: null, error: null }
 
@@ -115,7 +112,7 @@ function route(job: HudJob): string {
   return job.effort ? `${what} · ${job.effort}` : what
 }
 
-type Look = { glyph: string; color: string | undefined; note: string; isLoud: boolean }
+type Look = { glyph: string; color: string; note: string; isLoud: boolean }
 
 /** One job's mark, color and right-hand note. `frame` animates a running job. */
 function look(job: HudJob, live: Record<string, Live> | null, frame: number): Look {
@@ -136,7 +133,7 @@ function look(job: HudJob, live: Record<string, Live> | null, frame: number): Lo
     return { glyph: SPIN_FRAMES[frame % SPIN_FRAMES.length] ?? '◐', color: isSlow ? C.warn : C.run, note, isLoud: true }
   }
 
-  return { glyph: '○', color: undefined, note: 'queued', isLoud: false }
+  return { glyph: '○', color: C.idle, note: 'queued', isLoud: false }
 }
 
 /** Why a job needs a person, or null. The key is what a toast is deduplicated on. */
@@ -336,7 +333,7 @@ export const register: Register = on => {
     if (b.run !== null) {
       const run = b.run
       const jobs = run.waves.flatMap(w => w.jobs)
-      const cell = jobs.length > 24 ? '━' : '━━'
+      const cell = jobs.length > 24 ? '▰' : '▰▰'
       const waveCount = run.waves.filter(w => w.n !== null && w.n !== '?').length
       const nameWidth = Math.min(28, Math.max(...jobs.map(j => j.id.length), 4) + 2)
       const isTable = jobs.length <= TABLE_MAX_JOBS && jobs.length + 1 <= e.props.maxRows
@@ -361,9 +358,7 @@ export const register: Register = on => {
                 const l = look(job, b.live, 0)
 
                 return (
-                  <Text color={l.color} dimColor={l.color === undefined}>
-                    {cell}
-                  </Text>
+                  <Text color={l.color}>{cell}</Text>
                 )
               })}
             </Box>
@@ -378,7 +373,7 @@ export const register: Register = on => {
         const label = wave.n === null ? '' : wave.n === '?' ? 'unplaced' : `wave ${wave.n}/${waveCount}`
         if (isTable) {
           rows.push(
-            <Box flexDirection="row">
+            <Box flexDirection="row" alignItems="flex-start">
               <Box width={10}>
                 <Text dimColor>{label}</Text>
               </Box>
@@ -388,20 +383,18 @@ export const register: Register = on => {
 
                   return (
                     <Box flexDirection="row" justifyContent="space-between" columnGap={2}>
-                      <Box flexDirection="row" columnGap={1}>
-                        <Text color={l.color} dimColor={l.color === undefined}>
-                          {l.glyph}
-                        </Text>
+                      <Box flexDirection="row">
+                        <Box width={GLYPH_WIDTH}>
+                          <Text color={l.color}>{l.glyph}</Text>
+                        </Box>
                         <Box width={nameWidth}>
                           <Text bold={l.isLoud} dimColor={!l.isLoud} wrap="truncate-end">
                             {job.id}
                           </Text>
                         </Box>
-                        {job.backend !== null && (
-                          <Text color={VENDOR[job.backend]} dimColor={!l.isLoud}>
-                            {job.backend}
-                          </Text>
-                        )}
+                        <Box width={BACKEND_WIDTH}>
+                          {job.backend !== null && <Text color={C.route}>{job.backend}</Text>}
+                        </Box>
                         {route(job) !== '' && <Text dimColor>{route(job)}</Text>}
                       </Box>
                       <Text color={l.isLoud ? l.color : undefined} dimColor={!l.isLoud}>
@@ -415,7 +408,7 @@ export const register: Register = on => {
           )
         } else {
           rows.push(
-            <Box flexDirection="row">
+            <Box flexDirection="row" alignItems="flex-start">
               <Box width={10}>
                 <Text dimColor>{label}</Text>
               </Box>
@@ -425,9 +418,7 @@ export const register: Register = on => {
 
                   return (
                     <Box flexDirection="row" columnGap={1}>
-                      <Text color={l.color} dimColor={l.color === undefined}>
-                        {l.glyph}
-                      </Text>
+                      <Text color={l.color}>{l.glyph}</Text>
                       <Text bold={l.isLoud} dimColor={!l.isLoud}>
                         {job.id}
                       </Text>

@@ -67,7 +67,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: /^gpt-6\.1-sol · medium$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^STALE · 11m$/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^wave 2\/2$/ })).toBeDefined()
-    expect(await ui.findAll({ type: 'Text', text: /^━━$/ })).toHaveLength(3)
+    expect(await ui.findAll({ type: 'Text', text: /^▰▰$/ })).toHaveLength(3)
     expect(toasts).toEqual(['Compound V · docs-skills is STALE, no progress for 11m'])
 
     // the same state again: no second toast

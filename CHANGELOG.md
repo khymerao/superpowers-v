@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.8.3] - 2026-10-05
+
+### Changed — the run band wears the project's own colours, and its columns line up
+
+- **Palette.** The band now uses the amiainative.dev colours, taken from that site's CSS custom properties:
+  magenta `#DC02DF` for the `V` mark, blue `#1195F2` running, emerald `#34D399` done, violet `#6565F2` for the
+  backend, slate `#575868` queued, amber `#FFC53D` five minutes without progress, red `#FB2C36` stalled or
+  blocked. The per-vendor colours of 3.8.2 are gone: every backend is violet.
+- **Alignment.** Seen live on the desktop surface, whose font is proportional: the wave label sat in the
+  middle of its group, and rows drifted because the status marks differ in width. The label now sits on the
+  group's first row, and the mark and the backend each have a fixed-width column.
+- **Header bar.** One `▰▰` block per job instead of a thin rule.
+
 ## [3.8.2] - 2026-10-05
 
 ### Changed — the run band is a table now, with colour and the model each job runs on
