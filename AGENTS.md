@@ -147,6 +147,7 @@ turns it off everywhere and the agents run exactly as they did before 3.5.0.
 | `/v:orchestrate <plan>` | Materialize a `manifest.yaml` from a plan + routing policy |
 | `/v:dispatch <plan\|manifest\|run-id>` | Run the autonomous pipeline (partition-review → dispatch → scope-gate → collect → review). A bare plan path still works (backward-compatible) |
 | `/v:collect <run-id>` | Re-run collect + scope-gate + review on an existing run |
+| `/v:triage` | Size one change request and write + commit the triage record: DIRECT, SCOPED or FULL, with the predicates that decided it |
 | `/v:status [run-id]` | Render `state.json` |
 | `/v:resume <run-id>` | Reconcile + re-dispatch incomplete jobs after interruption |
 | `/v:models` | Discover models per backend (`agy models`, `codex debug models`, native Claude tiers) and write the tier→model map into `.claude/compound-v.json` |

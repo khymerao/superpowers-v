@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.7.6] - 2026-10-05
+
+### Fixed — `/v:onboard` wrote an empty manifest, and `--refresh` then said "0 stale" forever (issue #21)
+
+Step 9 of `/v:onboard` gave the command `staleness --repo . --write` without `--docmap`. The flag was optional, so
+the script wrote `.onboard-manifest.json` with `docs: {}`, printed `written`, and exited 0. From then on
+`/v:onboard --refresh` iterated nothing and reported `count: 0`. One downstream repository ran two months that
+way while 19 of its 24 cited files changed. Reported by @pavloskuibida-coder, with the exact lines.
+
+- `staleness --write` now requires `--docmap` and exits 2 without it.
+- A docmap that registers no documents, or a document that cites no file, is refused and nothing is written.
+- The step 9 command in `onboarding.md` now carries `--docmap`, so a literal copy is correct.
+- `staleness` output gains `state`: `registered`, `no_manifest`, or `unregistered` (a manifest with no cited
+  file). The last two still carry `count: 0`, and the note says that this is not a clean result.
+- The session banner reports an unregistered manifest instead of staying silent.
+
+**If you onboarded before 3.7.6:** run `python3 scripts/compound-v-onboard.py staleness --repo .`. If it answers
+`state: unregistered`, your generated docs have never been checked; run `/v:onboard --refresh`.
+
+### Fixed — the banner counted stale citations and called them documents
+
+"68 architecture doc(s) stale" on this repository meant 68 changed citations across 9 documents. `staleness`
+now reports `docs_stale` beside `count`, and the banner prints the number of documents.
+
+### Changed — opencode defaults, and small corrections
+
+- opencode's default map moves to `anthropic/claude-opus-5-5` (frontier, deep) and `openai/gpt-6.1-sol`
+  (standard). Both ids are listed in models.dev, the registry opencode reads. Neither was run through
+  `opencode run`: this machine has no such provider configured in opencode.
+- `gpt-5.5`'s upgrade target is now quoted from the catalog (`gpt-6.1-sol`) instead of `gpt-5.6-sol`.
+- The Antigravity catalog note names Claude Opus/Sonnet 5.5, which `agy models` now lists, instead of 4.6.
+- `AGENTS.md` lists `/v:triage`, which its command table had missed.
+- This repository's own generated docs were re-verified against HEAD and re-registered.
+
 ## [3.7.5] - 2026-09-30
 
 ### Changed — Codex implementation moves to `gpt-6.1-sol`; review stays on Astra
