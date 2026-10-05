@@ -26,6 +26,21 @@
     "scope": "impacted",
     "selected_count": 2
   },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 237739,
+    "cache_read_input_tokens": 6257914,
+    "input_tokens": 98,
+    "measured": true,
+    "output_tokens": 18010,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a3a40115bf03049b3.jsonl",
+      "agent-a4e4686a65ad623be.jsonl",
+      "agent-ad92923d85f1809a4.jsonl"
+    ]
+  },
   "violations": [],
   "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-6"
 }
