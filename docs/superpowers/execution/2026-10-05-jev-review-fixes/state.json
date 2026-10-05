@@ -1,0 +1,25 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-05T09:58:29Z",
+  "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
+  "jobs": {
+    "ui-sample": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "jev-reasons-prune": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
