@@ -1,0 +1,70 @@
+{
+  "run_id": "2026-10-05-vault-optional-via-init",
+  "pre_eval_id": "2026-10-05T134203Z-offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de-1491",
+  "diff_digest": "sha256:aadcf2a8d1bdb5ee5635773219dd5449b52f95eb6fda6486af2d915d27ad997e",
+  "reviewer_backend": "claude-advisor",
+  "cross_model": false,
+  "reviewer_model": "claude-opus-5-5 (advisor: fable)",
+  "produced_at": "2026-10-05T14:09:22Z",
+  "review": {
+    "verdict": "endorse",
+    "summary": "I checked the sealed patch at HEAD in /Users/koristuvac/compound/superpowers-v and found no key leak, no validator break and no dead guard. Run verbatim on Claude Code 2.1.289, the two /v:init 1g probes print only `compound-v-vault@cv-dev` and `set`. The first sends nothing to stderr (2>/dev/null) and reads only `configured`, which holds option names. On every error path it prints `unknown`, `not set` or `absent`. The raw configure output was never printed. `claude plugin validate .` passes with only the CLAUDE.md warning that was already there. `claude plugin validate .claude-plugin/marketplace.json` passes. The root validation output has no vault.tsx or compound-v-vault line, so the root plugin does not absorb the nested one. CI's lockstep check selects the superpowers-v entry by name, so a second entry does not break it. The new test rows come after no early exit, need no CLI, and the first reviewer's mutations show they fail when the change is reverted. What remains are small accuracy gaps in what /v:init tells the user. It calls a vault `ready` without checking egress consent or the 2.1.287 floor. Its configure instruction is hard-coded to @procoders instead of the id the probe found. An installed but disabled vault is reported as `absent`. The README row passes vacuously when the README file is missing. None of these blocks the change.",
+    "findings": [
+      {
+        "severity": "low",
+        "category": "acceptance",
+        "claim": "/v:init reports the vault as `ready` when it is installed and its key is set. Jev still stays off in the current repository until the user runs `/egress allow` there, and Step 2 only fires for `absent` or `key not set`. A `ready` user is therefore never told about egress by /v:init.",
+        "evidence": "commands/v-init.md 1g: \"Report one of: `absent`, `installed, key not set` ..., `ready`\". The Step 2 item triggers only on \"Jev vault absent, or its key not set\". In plugins/compound-v-vault/hooks/vault.tsx, offReason returns 'egress' unless store `egress:<repo>` is 'allow' (lines 185, 240-249). The vault does surface this itself: the status line shows `Jev: off (egress)` (showStatus, line 274), and EGRESS_ASK is toasted once on the first classify (line 246). So the impact is a misleading word, not a silent failure.",
+        "recommendation": "Rename the state to `installed, key set`, or add one line to 1g/Step 5 saying Jev also needs `/egress allow` in each repository and that `/egress status` shows the current answer."
+      },
+      {
+        "severity": "low",
+        "category": "acceptance",
+        "claim": "Step 2's `key not set` branch hard-codes `/plugin configure compound-v-vault@procoders`. `configure` takes only the fully qualified id, so the printed instruction fails whenever the installed vault comes from another marketplace name.",
+        "evidence": "On this machine probe 1 printed `compound-v-vault@cv-dev`, the dev marketplace. commands/v-init.md:351 still tells the user `/plugin configure compound-v-vault@procoders`. The expert audit (docs/superpowers/expert/2026-10-05-2026-10-05-vault-as-dependency-design.md:76) records that configure \"takes only the qualified form\".",
+        "recommendation": "When probe 1 printed an id, tell the agent to use that id in the configure instruction. Keep `@procoders` only for the install line when the vault is absent."
+      },
+      {
+        "severity": "low",
+        "category": "risk",
+        "claim": "`ready` is not gated on Claude Code 2.1.287 or newer. On 2.1.285 or 2.1.286, where `claude plugin configure` exists but function-hook modules do not load, the probes can report `ready` for a vault that cannot run.",
+        "evidence": "In commands/v-init.md 1g, the only version note is that configure needs 2.1.285, and below that the state becomes `unknown`. The 2.1.287 floor appears only in Step 2's install line and in the READMEs and marketplace description. The vault is a modules-only plugin (plugins/compound-v-vault/hooks/hooks.json is `{\"modules\": [\"./vault.tsx\"]}`).",
+        "recommendation": "Add one sentence to 1g: if `claude --version` is below 2.1.287, report `installed, inert (Claude Code < 2.1.287)` instead of `ready`."
+      },
+      {
+        "severity": "low",
+        "category": "acceptance",
+        "claim": "An installed but disabled vault is reported as `absent`, so Step 2 tells the user to `/plugin install` a plugin they already have. This was confirmed independently; the first review also noted it.",
+        "evidence": "Probe 1 filters on `p.get(\"enabled\")`. `claude plugin list --json` returns disabled entries with `enabled: false` and the same id, so the step cannot tell disabled from absent and the Step 2 text offers only install.",
+        "recommendation": "Print `disabled:<id>` for a matching entry with enabled false, and have Step 2 suggest `/plugin enable <id>` in that case."
+      },
+      {
+        "severity": "low",
+        "category": "acceptance",
+        "claim": "The README `/config` test row passes vacuously when plugins/compound-v-vault/README.md is missing or renamed, and also when it mentions /config without backticks.",
+        "evidence": "tests/test-vault-mod.sh: `if grep -nE '`/config`' \"$PLUGIN/README.md\" | grep -qiE 'key|set|fill'; then bad ...; else ok ...`. On a missing file grep exits non-zero, the pipeline is false, and the else branch records `ok`.",
+        "recommendation": "Guard the row with `[ -f \"$PLUGIN/README.md\" ] || bad \"vault README missing\"`, and consider matching `/config` with or without backticks."
+      },
+      {
+        "severity": "low",
+        "category": "acceptance",
+        "claim": "Some of the changed user-facing text has no guard. Reverting the /v:init 1g section, the Step 2 item, the root README paragraph or the jev-t3.tsx comment keeps every test green, so nothing automated holds the 'never print the key' contract.",
+        "evidence": "The three new rows check only marketplace.json, superpowers-v's plugin.json dependencies and the vault README. The spec's Tests section lists only those three, so this is within spec. The first review's observation 1 covers the key-printing part.",
+        "recommendation": "Add one row that asserts v-init.md section 1g still pipes `claude plugin configure` into `python3` behind `2>/dev/null`, and that the section's Python never references `inputs`."
+      }
+    ],
+    "blind_spots_checked": [
+      "Key leak through probe 1 (`claude plugin list --json`): the entry fields are enabled, folderVersion, hasUserConfig, id, installPath, installedAt, lastUpdated, projectEnabled, readFromFolder, scope and version. None holds a value, and the filter prints only the id.",
+      "Key leak through probe 2: I ran the patch's exact filter against `compound-v-vault@cv-dev`; it printed only `set` in 0.7 s and never prompted with stdin closed. stderr is discarded, every exception path prints a fixed word, and only `configured`, a list of names, is read. Raw output was never printed. For the claim that `inputs` is masked I relied on the first review's type-only probe.",
+      "Command-line or chat exposure: Step 2 forbids asking for the key in chat, passing it on argv, or pointing the user at /config. Key entry goes through Claude Code's own masked /plugin configure dialog.",
+      "`claude plugin validate .` exits 0 with only the existing CLAUDE.md warning, and `claude plugin validate .claude-plugin/marketplace.json` passes.",
+      "Root absorption: the root validate output lists only jev-t3.tsx hooks and has no vault.tsx or compound-v-vault line, which is what tests/test-jev-t3-mod.sh asserts.",
+      "CI and release: validate.yml's lockstep check uses `.plugins[] | select(.name==\"superpowers-v\")`, so a second entry does not break it. release.yml reads only plugin.json's version.",
+      "Test early exit: test-vault-mod.sh fails rather than skips when it has no CLI, and nothing exits before the new rows. The new rows are pure Python and need no claude binary.",
+      "`/egress` naming: vault.tsx registers COMMAND_NAME 'egress', and its own usage text and EGRESS_ASK both say `/egress`, so the jev-t3.tsx comment fix is accurate.",
+      "Marketplace name: marketplace.json `name` is `procoders`, which matches every `@procoders` instruction.",
+      "projectEnabled: on this machine the user-scope vault reads enabled=true and projectEnabled=false, yet it is loaded (its MCP tool is present in this session). So `enabled` was the right field to test here. I did not test a project-level disable, because that would mean editing settings."
+    ]
+  },
+  "digest": "sha256:edc9a57b98608a06f0e2e152a702332a6f66fc08b19abfef0eae893e58c0cc6e"
+}
