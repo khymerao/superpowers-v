@@ -1,0 +1,15 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:d4f61c4ae37a54401363b2c62db9b8a5fbc0bf660618dea91a707ab5eed43a06",
+  "fan_out": 4,
+  "flags": [
+    "content:config_literal",
+    "content:legal_copy"
+  ],
+  "resolved_paths": [
+    "docs/superpowers/dogfood/2026-10-05-jev-classifier-foundation-review.md",
+    "plugins/compound-v-vault/hooks/vault.tsx",
+    "scripts/compound-v-jev.py",
+    "scripts/compound-v-onboard.py"
+  ]
+}
