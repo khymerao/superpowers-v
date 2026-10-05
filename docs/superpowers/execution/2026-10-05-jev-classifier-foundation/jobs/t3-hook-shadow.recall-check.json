@@ -1,0 +1,20 @@
+{
+  "evidence": [
+    {
+      "file": "hooks/triage-prompt-nudge.sh",
+      "reason": "test_failure",
+      "run": "2026-10-05-jev-classifier-foundation/results/t3-hook-shadow.json",
+      "status": "blocked"
+    },
+    {
+      "file": "tests/test-native-points.sh",
+      "reason": "test_failure",
+      "run": "2026-09-02-v3.4-native-first-r3/results/deletions-fixup.json",
+      "status": "blocked"
+    }
+  ],
+  "k": 2,
+  "match_count": 2,
+  "recall_check_ms": 144,
+  "verdict": "tighten"
+}

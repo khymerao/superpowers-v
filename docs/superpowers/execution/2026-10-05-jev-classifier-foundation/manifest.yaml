@@ -250,6 +250,7 @@ jobs:
   - types/index.d.ts
   - tests/test-jev-t3-mod.sh
   - skills/compound-v/phase-preeval.md
+  - tests/test-run-band-mod.sh
   read_allowed:
   - '**'
   interfaces:
@@ -257,7 +258,7 @@ jobs:
     - 'consumes the F1 descriptor, Task C (`parse`, `pair`), Task D `$.jev`, Task B `resolve_jev` (via `python3 scripts/compound-v-project-config.py <repo>`). - `session.start`: if `''jev'' in $` and `(await $.jev.status(cwd)).on` and `resolve_jev` says `t3.mode == "shadow"`, `$.env.set("CV_JEV_T3", "1")` (a non-secret capability flag); else unset it. - `classic.UserPromptSubmit`: `const res = await next(e)`; if `CV_HEADLESS_CLASSIFY=1` or no descriptor for this `(proj, sid)` → `return res`. Otherwise read the request file, `await $.jev.classify(req)`, write the response file, run `compound-v-jev.py parse --mode shadow --hook-budget-left-ms <n>` then `pair`, delete the descriptor, and `return res` **unchanged** (never touch `additionalContext`). - Every `$.process.run` is an argv array with a 30 s cap and no secrets; script paths from `$.plugin.root`. - `types/index.d.ts`: keep the existing `PluginState` block; add a local structural type for `$.jev` used through a runtime guard (`''jev''
       in $`), so the module compiles and validates with or without the vault installed.'
   acceptance:
-  - claude plugin validate . lists run-band.tsx and jev-t3.tsx and does not load plugins/compound-v-vault as part of this plugin (else BLOCKED); claude plugin test . 0 failures; tests/test-run-band-mod.sh green; the module returns the classic result deep-equal in every test.
+  - claude plugin validate . lists jev-t3.tsx as the single hooks module (Claude Code takes one per plugin; it registers run-band's hooks by import) with run-band's session.start and ui.render{component=AbovePrompt} hooks, and does not load plugins/compound-v-vault as part of this plugin (else BLOCKED); claude plugin test . 0 failures; tests/test-run-band-mod.sh green; the module returns the classic result deep-equal in every test.
   body: 'Implement Task F2: of docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md, every step in order.  Read the pre-flight audits named in this manifest''s audits block first (their §7 MUSTs bind; 1A line numbers are from 3.5.1, use the plan''s anchors). Read the spec''s ''Plan-review amendments'' section: it overrides the sections above it. Tests first: write the selftest/test rows, run and see them fail, then implement. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
 - id: spec-review
   title: Review Gate — three passes against the spec (amendments first) and AC-1..AC-6

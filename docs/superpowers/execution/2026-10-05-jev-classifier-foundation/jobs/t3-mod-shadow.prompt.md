@@ -22,6 +22,7 @@ smallest change that meets the acceptance, do it, run the checks, and return.
 - `types/index.d.ts`
 - `tests/test-jev-t3-mod.sh`
 - `skills/compound-v/phase-preeval.md`
+- `tests/test-run-band-mod.sh`
 
 ## Global constraints (binding on every job)
 
@@ -60,7 +61,7 @@ produces (what later jobs will call):
 
 ## Acceptance (your definition of done)
 
-- claude plugin validate . lists run-band.tsx and jev-t3.tsx and does not load plugins/compound-v-vault as part of this plugin (else BLOCKED); claude plugin test . 0 failures; tests/test-run-band-mod.sh green; the module returns the classic result deep-equal in every test.
+- claude plugin validate . lists jev-t3.tsx as the single hooks module (Claude Code takes one per plugin; it registers run-band's hooks by import) with run-band's session.start and ui.render{component=AbovePrompt} hooks, and does not load plugins/compound-v-vault as part of this plugin (else BLOCKED); claude plugin test . 0 failures; tests/test-run-band-mod.sh green; the module returns the classic result deep-equal in every test.
 
 Turn cap: 80 (default for tier deep; default light 30 / standard 50 / deep 80). Plan to finish inside it.
 
