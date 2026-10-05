@@ -1,0 +1,13 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:aae0c190507328e17a8bbe0be3ccbdc3fc251545b724717d00437559cfaae3e1",
+  "fan_out": 3,
+  "flags": [
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "hooks/lane-guard.sh",
+    "scripts/compound-v-emit-workflow.py",
+    "tests/test-lane-guard.sh"
+  ]
+}
