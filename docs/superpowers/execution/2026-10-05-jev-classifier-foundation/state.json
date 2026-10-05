@@ -13,8 +13,7 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "proof": "head-matches-artifact",
-        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+        "proof": "head-matches-artifact"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -28,8 +27,7 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "proof": "head-matches-artifact",
-        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+        "proof": "head-matches-artifact"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -43,8 +41,7 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "proof": "head-matches-artifact",
-        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+        "proof": "head-matches-artifact"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -66,7 +63,7 @@
         "realised_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
         "mode": "worktree",
         "integrated": true,
-        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+        "proof": "head-matches-artifact"
       },
       "baseline": "2ba0b812644e2155584ec49656cef64b3ff2343a"
     },
@@ -95,8 +92,7 @@
         "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
         "mode": "worktree",
         "integrated": true,
-        "proof": "head-matches-artifact",
-        "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac"
+        "proof": "head-matches-artifact"
       },
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
@@ -152,7 +148,7 @@
         "vault",
         "corpus"
       ],
-      "commit": "3a5a696ffc62d8c980f08ce0761093728ae596ac",
+      "commit": "03cf1e2e56cda89d9b1d04cd4442275c8ec42ed2",
       "integrated": true
     },
     "2": {
