@@ -55,6 +55,12 @@ produces (what later jobs will call):
 ## Acceptance (your definition of done)
 
 - Step 1 API confirmation recorded at the top of vault.tsx (or the job returns BLOCKED with evidence); claude plugin validate and claude plugin test (pinned 2.1.289) green; the key appears only in the fetch Authorization header in every test; hooks.json has only modules; README covers setup, egress, data classes, boundary.
+- Re-dispatch correction (attempt 2 was BLOCKED on this): `bash tests/test-run-band-mod.sh` run from the repository
+  root must pass with your plugin present. In attempt 2 its `claude plugin test .` discovered 38 tests across 2 files —
+  `plugins/compound-v-vault/hooks/vault.test.tsx` was picked up by the root plugin, and 33 failed with
+  `no implementation for command.run` — where it must discover only run-band's own 5. Fix this inside
+  `plugins/compound-v-vault/**` (where the vault's test file lives, what it is named, or whatever stops the parent
+  plugin's discovery), keep `bash tests/test-vault-mod.sh` green, and run both tests yourself before returning.
 
 Turn cap: 80 (default for tier deep; default light 30 / standard 50 / deep 80). Plan to finish inside it.
 
