@@ -5833,6 +5833,17 @@ def _commit_paths(repo_root, paths, message):
     ok, err = _stage_paths(repo_root, paths)
     if not ok:
         return None, err
+    # Decide "nothing to commit" by asking git, not by reading its message: the
+    # wording is locale-dependent and has more variants than any list kept here
+    # ("nothing added to commit but untracked files present" was missing, and a
+    # re-finalize of a wave already in HEAD halted the run). Exit 0 means the
+    # index holds no change for these paths relative to HEAD.
+    rc, _o, derr = _git(repo_root, ["diff", "--cached", "--quiet", "--"]
+                        + [p for p in paths if p])
+    if rc == 0:
+        return None, None  # already committed; idempotent, not a failure
+    if rc != 1:
+        return None, "git diff --cached failed: %s" % (derr or "").strip()[:400]
     payload = "\0".join(paths).encode("utf-8")
     try:
         proc = subprocess.Popen(
@@ -5846,7 +5857,8 @@ def _commit_paths(repo_root, paths, message):
         return None, "git commit raised: %s" % exc
     if rc != 0:
         text = (out + cerr).decode("utf-8", "replace")
-        if "nothing to commit" in text or "no changes added" in text:
+        if ("nothing to commit" in text or "no changes added" in text
+                or "nothing added to commit" in text):
             return None, None  # already committed; idempotent, not a failure
         return None, "git commit failed: %s" % text.strip()[:400]
     return _head_commit(repo_root), None
@@ -8736,6 +8748,28 @@ def selftest():
         _rc, still, _e = _git(fin_repo, ["diff", "--cached", "--name-only"])
         _check("the unrelated file is still staged, untouched",
                still.strip() == "unrelated.txt", still)
+
+        # Re-finalizing a wave whose work is already in HEAD, in a checkout with
+        # an UNTRACKED file, is idempotent. git words that case "nothing added to
+        # commit but untracked files present", which matched neither phrase the
+        # message check knew, so the re-finalize reported `git commit failed` and
+        # halted the run (2026-10-05, run jev-classifier-foundation wave 2).
+        idem_repo = os.path.join(tmp, "idem-repo")
+        _init_repo(idem_repo)
+        os.makedirs(os.path.join(idem_repo, "src"), exist_ok=True)
+        with open(os.path.join(idem_repo, "src", "landed.txt"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("the wave's work\n")
+        first, _e = _commit_paths(idem_repo, ["src/landed.txt"], "wave 2")
+        with open(os.path.join(idem_repo, "stray.txt"), "w",
+                  encoding="utf-8") as fh:
+            fh.write("untracked, belongs to nobody\n")
+        head_before = _head_commit(idem_repo)
+        sha, cerr = _commit_paths(idem_repo, ["src/landed.txt"], "wave 2 again")
+        _check("re-committing a wave already in HEAD, with an untracked file "
+               "present, is an idempotent no-op — not `git commit failed`",
+               bool(first) and sha is None and cerr is None
+               and _head_commit(idem_repo) == head_before, str(cerr))
 
         # The authority's refusal is a refusal: nothing merges, nothing commits.
         if have_yaml:
