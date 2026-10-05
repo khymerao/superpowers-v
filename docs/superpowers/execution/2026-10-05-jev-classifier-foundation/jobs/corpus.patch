@@ -1,0 +1,246 @@
+diff --git a/tests/fixtures/README-jev-corpus.md b/tests/fixtures/README-jev-corpus.md
+new file mode 100644
+index 0000000..0874db6
+--- /dev/null
++++ b/tests/fixtures/README-jev-corpus.md
+@@ -0,0 +1,154 @@
++# Jev T3 eval corpus
++
++`jev-t3-corpus.jsonl` is a synthetic set of 80 change requests shaped like the ones that reach the T3 step of
++triage. The Jev eval runs the Jev classifier over it offline and compares the answers with a human label and with
++the existing Claude classifier's label.
++
++Every request was written by hand for this file. None comes from a real project, a customer or a user, and the file
++holds no keys, tokens or passwords.
++
++## Schema
++
++One JSON object per line, with the keys in this order:
++
++| Key | Type | Meaning |
++|---|---|---|
++| `id` | string | `t3-001` to `t3-080`, unique. Ids are neutral and the lines are shuffled, so the order does not give away a category. |
++| `request` | string | The change request text, under 2,000 characters (the T3 input bound). |
++| `paths` | list of strings | Repo-relative paths the request would touch. May be empty, and a vague request may name a directory. |
++| `hints` | list of strings | Taxonomy content-pattern kinds, used as context only: `legal_copy`, `feature_flag`, `config_literal`, `shared_token`, `i18n_placeholder`. |
++| `t3_reason` | string | Why the request reached T3: `unbanded`, `demotion` or `sensitive`. |
++| `label_draft` | string | The implementer's guess: `unknown`, `user-facing-major`, `user-facing-minor` or `plumbing`. |
++| `label_source` | string | Always `implementer-draft`. |
++| `human_label` | null | Filled in by the maintainer. |
++| `claude_label` | null | Filled in by running the existing classifier. |
++
++`t3_reason` follows the paths the way the sample taxonomy in `scripts/compound-v-taxonomy.py` would route them:
++every line with a path under `src/auth/` or a `migrations/` directory is `sensitive`, and no other line is.
++`demotion` lines touch paths a taxonomy would band high (billing, payments, flags, config, theme tokens, locale
++files) where the request may be smaller than its path suggests. `unbanded` lines touch paths no band covers.
++
++## Labels
++
++`label_draft` is only the implementer's guess. It is not ground truth and the eval does not score against it.
++
++Before the eval:
++
++1. The maintainer reads each line and sets `human_label` to one of the four categories.
++2. `claude_label` is filled by the existing T3 classifier, `scripts/compound-v-classify-request.py`. In this tree
++   that means building the prompt with `--build-prompt` (the request, each path as `--path`, each hint as
++   `--taxonomy-category`), having a Claude task answer it, and reading the answer back with `--parse`.
++   The plan names a `--classify-headless` mode for this step; that mode is not in the script yet.
++
++Leave `label_draft` as it is when you fill the other two, so the draft can be compared with both.
++
++## No secrets, ever
++
++This file is committed and its text is sent to OpenRouter during the eval. Never add a real key, token, password,
++email address, customer name or internal hostname to it. Every line must pass the `SECRET_RE` pattern in
++`scripts/compound-v-memory.py` without a match. Note that a word ending in `sk` followed by a hyphen and a long
++word (for example a "task" name joined with hyphens) can match the `sk-` family, so check after any edit.
++
++## Mix
++
++20 lines per category. By `t3_reason`: 41 `unbanded`, 24 `demotion`, 15 `sensitive`.
++
++46 lines are deliberately ambiguous: the boundary is hard to call even for a careful reader. The kinds are
++minor-vs-major copy (legal text, locale files, customer emails), refactors that touch auth or billing paths,
++one-line config constants and flag defaults, migration-named tooling, and, for every `unknown` line, a request too
++vague to place.
++
++| Category | Lines | Ambiguous |
++|---|---|---|
++| `plumbing` | 20 | 8 |
++| `user-facing-minor` | 20 | 8 |
++| `user-facing-major` | 20 | 10 |
++| `unknown` | 20 | 20 |
++| Total | 80 | 46 |
++
++## Tally
++
++`-` in the last column means the line is not marked ambiguous.
++
++| id | label_draft | t3_reason | Ambiguous because |
++|---|---|---|---|
++| t3-001 | plumbing | demotion | tooling named like a migration |
++| t3-002 | plumbing | unbanded | - |
++| t3-003 | user-facing-major | sensitive | - |
++| t3-004 | user-facing-minor | unbanded | - |
++| t3-005 | user-facing-minor | unbanded | - |
++| t3-006 | user-facing-major | demotion | - |
++| t3-007 | user-facing-major | sensitive | - |
++| t3-008 | unknown | demotion | vague request on shared tokens |
++| t3-009 | user-facing-major | sensitive | refactor that changes auth behaviour |
++| t3-010 | user-facing-major | unbanded | library swap that changes visible output |
++| t3-011 | plumbing | sensitive | comment-only edit inside migrations |
++| t3-012 | unknown | demotion | vague request |
++| t3-013 | unknown | unbanded | vague request |
++| t3-014 | user-facing-minor | demotion | copy change in legal text |
++| t3-015 | user-facing-major | demotion | one-line feature flag default |
++| t3-016 | unknown | unbanded | vague request |
++| t3-017 | user-facing-minor | demotion | copy change next to sign-in |
++| t3-018 | user-facing-minor | demotion | copy change inside a locale file |
++| t3-019 | unknown | sensitive | migration or tooling, cannot tell |
++| t3-020 | plumbing | unbanded | - |
++| t3-021 | user-facing-major | sensitive | - |
++| t3-022 | user-facing-major | demotion | one-line shared config constant |
++| t3-023 | unknown | sensitive | vague request on migrations |
++| t3-024 | user-facing-minor | demotion | style change that may reach a shared token |
++| t3-025 | unknown | unbanded | vague request |
++| t3-026 | unknown | sensitive | vague request on an auth path |
++| t3-027 | plumbing | unbanded | - |
++| t3-028 | user-facing-minor | unbanded | - |
++| t3-029 | user-facing-major | sensitive | - |
++| t3-030 | user-facing-major | unbanded | copy change in legal text |
++| t3-031 | unknown | unbanded | vague request |
++| t3-032 | user-facing-major | demotion | rename of a shared design token |
++| t3-033 | plumbing | demotion | internal rewrite of a data export |
++| t3-034 | unknown | unbanded | vague request |
++| t3-035 | user-facing-minor | unbanded | - |
++| t3-036 | user-facing-minor | unbanded | - |
++| t3-037 | plumbing | demotion | test move next to feature flag definitions |
++| t3-038 | user-facing-minor | demotion | layout change in a billing path |
++| t3-039 | user-facing-major | demotion | one-line config constant |
++| t3-040 | unknown | unbanded | vague request |
++| t3-041 | unknown | unbanded | vague request |
++| t3-042 | unknown | unbanded | vague request |
++| t3-043 | user-facing-minor | unbanded | - |
++| t3-044 | user-facing-minor | unbanded | - |
++| t3-045 | user-facing-minor | unbanded | - |
++| t3-046 | unknown | unbanded | refactor or behaviour change, cannot tell |
++| t3-047 | plumbing | unbanded | - |
++| t3-048 | plumbing | sensitive | refactor that touches an auth path |
++| t3-049 | plumbing | unbanded | - |
++| t3-050 | user-facing-major | demotion | placeholder rename that looks like copy |
++| t3-051 | plumbing | sensitive | refactor that touches an auth path |
++| t3-052 | user-facing-major | unbanded | build config with visible effect |
++| t3-053 | user-facing-major | demotion | copy change in legal text |
++| t3-054 | plumbing | sensitive | - |
++| t3-055 | user-facing-minor | demotion | customer email copy, minor vs major |
++| t3-056 | plumbing | unbanded | - |
++| t3-057 | user-facing-major | sensitive | - |
++| t3-058 | user-facing-minor | unbanded | - |
++| t3-059 | user-facing-minor | unbanded | - |
++| t3-060 | plumbing | unbanded | - |
++| t3-061 | unknown | demotion | vague request on a config constant |
++| t3-062 | plumbing | unbanded | - |
++| t3-063 | unknown | sensitive | vague request on an auth path |
++| t3-064 | user-facing-minor | unbanded | - |
++| t3-065 | user-facing-major | unbanded | - |
++| t3-066 | user-facing-major | demotion | - |
++| t3-067 | user-facing-major | unbanded | - |
++| t3-068 | unknown | unbanded | vague request |
++| t3-069 | user-facing-minor | unbanded | - |
++| t3-070 | plumbing | unbanded | - |
++| t3-071 | plumbing | unbanded | - |
++| t3-072 | plumbing | demotion | refactor in a billing path |
++| t3-073 | unknown | unbanded | refactor or behaviour change, cannot tell |
++| t3-074 | unknown | demotion | vague request on feature flags |
++| t3-075 | plumbing | demotion | constant extraction in test code |
++| t3-076 | plumbing | unbanded | - |
++| t3-077 | user-facing-major | unbanded | - |
++| t3-078 | user-facing-minor | demotion | default behaviour set by a constant |
++| t3-079 | unknown | unbanded | tooling or visible change, cannot tell |
++| t3-080 | user-facing-minor | sensitive | layout change inside an auth path |
+diff --git a/tests/fixtures/jev-t3-corpus.jsonl b/tests/fixtures/jev-t3-corpus.jsonl
+new file mode 100644
+index 0000000..9c1a4e9
+--- /dev/null
++++ b/tests/fixtures/jev-t3-corpus.jsonl
+@@ -0,0 +1,80 @@
++{"id": "t3-001", "request": "The migrate-assets script under tools/ copies sample images between local dev buckets. Make it skip files that already exist at the destination so reruns are quick.", "paths": ["tools/migrate-assets.ts"], "hints": [], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-002", "request": "Add type annotations to the logging helpers so mypy passes in strict mode.", "paths": ["app/logging_utils.py", "mypy.ini"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-003", "request": "Write a migration that drops the legacy_sessions table. As far as we know nothing reads it now.", "paths": ["db/migrations/0022_drop_legacy_sessions.sql"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-004", "request": "Make the secondary button in the settings page footer use the outline style instead of solid grey.", "paths": ["src/pages/settings/SettingsFooter.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-005", "request": "Swap the 404 page illustration for the new one from the design team.", "paths": ["src/pages/NotFound.tsx", "public/images/not-found.svg"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-006", "request": "Switch the checkout from the payment provider's charges API to its payment intents API so that cards needing extra verification work.", "paths": ["src/payments/checkout.ts"], "hints": [], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-007", "request": "Add a migration that makes users.email unique, and backfill existing duplicates by appending a numeric suffix to the newer rows.", "paths": ["db/migrations/0021_unique_email.sql"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-008", "request": "Apply the design team's feedback from the review doc.", "paths": ["src/theme/tokens.ts", "src/components/"], "hints": ["shared_token"], "t3_reason": "demotion", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-009", "request": "Refactor the login handler to use the shared request validator. It is meant to behave the same, but the shared validator trims whitespace in the username and the old code did not.", "paths": ["src/auth/login.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-010", "request": "Replace the date formatting library with the built-in Intl API everywhere we format dates.", "paths": ["src/utils/date.ts", "package.json"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-011", "request": "Add a comment header to every migration file that says which release introduced it. Comments only, no SQL changes.", "paths": ["db/migrations/0012_add_orders.sql", "db/migrations/0013_order_index.sql"], "hints": [], "t3_reason": "sensitive", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-012", "request": "Revert the change from last week.", "paths": [], "hints": [], "t3_reason": "demotion", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-013", "request": "Align the API with the new spec.", "paths": ["src/api/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-014", "request": "Shorten the footer copyright line to just the year and the company name.", "paths": ["src/components/Footer.tsx"], "hints": ["legal_copy"], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-015", "request": "Turn the new_checkout feature flag on by default for every workspace.", "paths": ["src/flags/definitions.ts"], "hints": ["feature_flag"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-016", "request": "Fix the thing Sam reported with the export.", "paths": [], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-017", "request": "Change the label on the 'Sign in' button to 'Log in', on the marketing site header only.", "paths": ["src/marketing/Header.tsx"], "hints": [], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-018", "request": "Change the search box placeholder from 'Search...' to 'Search projects and people'. The string lives in the English locale file.", "paths": ["src/i18n/en.json"], "hints": ["i18n_placeholder"], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-019", "request": "Do the migration.", "paths": ["scripts/migrate.sh", "db/migrations/"], "hints": [], "t3_reason": "sensitive", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-020", "request": "Replace the hand-rolled debounce in the file watcher script with the one from our utils package.", "paths": ["scripts/watch.js"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-021", "request": "Make the OAuth callback accept the new redirect URI used by the mobile app.", "paths": ["src/auth/oauth/callback.ts", "src/config/oauth.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-022", "request": "Change the API_TIMEOUT_MS constant that the web and mobile clients share from 10000 to 3000.", "paths": ["packages/shared/src/constants.ts"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-023", "request": "Sort out the schema drift between staging and production.", "paths": ["db/migrations/", "db/schema.sql"], "hints": [], "t3_reason": "sensitive", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-024", "request": "Change the colour of the 'beta' badge on the analytics tab from blue to purple.", "paths": ["src/pages/analytics/BetaBadge.tsx"], "hints": ["shared_token"], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-025", "request": "Improve error handling everywhere.", "paths": [], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-026", "request": "Tidy up auth.", "paths": ["src/auth/"], "hints": [], "t3_reason": "sensitive", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-027", "request": "Add a CI job that runs the unit tests on Node 22 as well as Node 20, as a matrix.", "paths": [".github/workflows/ci.yml"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-028", "request": "Show a short 'Copied' confirmation when the user clicks the copy-link icon on a shared document.", "paths": ["src/pages/docs/ShareLink.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-029", "request": "Add rate limiting to the password reset endpoint: at most five requests per email address per hour, with a clear error message after that.", "paths": ["src/auth/reset.ts", "src/auth/__tests__/reset.test.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-030", "request": "Update the privacy notice in the signup flow to name the new analytics vendor.", "paths": ["src/pages/signup/PrivacyNotice.tsx"], "hints": ["legal_copy"], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-031", "request": "Make it look like the mockup.", "paths": [], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-032", "request": "Rename the design token color-primary to color-brand and update every place that uses it.", "paths": ["src/theme/tokens.ts", "src/components/Button.tsx", "src/components/Link.tsx"], "hints": ["shared_token"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-033", "request": "Rewrite the CSV export's inner loop to stream rows instead of building one big array in memory. The exported bytes must stay identical, which the existing golden-file test checks.", "paths": ["src/export/csv.ts", "src/export/__tests__/csv.test.ts"], "hints": [], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-034", "request": "Clean up the settings stuff, it is a mess.", "paths": [], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-035", "request": "Change the empty-state text on the projects page from 'Nothing here yet' to 'No projects yet - create one to get started'.", "paths": ["src/pages/projects/EmptyState.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-036", "request": "Sort the country dropdown on the profile form alphabetically instead of in insertion order.", "paths": ["src/pages/profile/CountrySelect.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-037", "request": "Move the feature flag registry tests into a second test file because the first one is too long. The flag definitions themselves are not touched.", "paths": ["src/flags/__tests__/registry.test.ts", "src/flags/__tests__/registry-defaults.test.ts"], "hints": ["feature_flag"], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-038", "request": "Right-align the column headers for the numeric columns in the invoices table.", "paths": ["src/pages/billing/InvoicesTable.tsx"], "hints": [], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-039", "request": "Change the default of the MAX_UPLOAD_MB constant from 25 to 100.", "paths": ["src/config/limits.ts"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-040", "request": "Can you look at the billing page? Something is off.", "paths": ["src/pages/billing/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-041", "request": "Make the dashboard faster.", "paths": ["src/pages/dashboard/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-042", "request": "Rework the onboarding.", "paths": ["src/pages/onboarding/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-043", "request": "Replace the spinner on the search page with the skeleton loader the dashboard already uses.", "paths": ["src/pages/search/SearchResults.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-044", "request": "Make the avatar in the top bar round instead of square.", "paths": ["src/components/TopBar/Avatar.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-045", "request": "Close the keyboard shortcut help dialog when the user presses Escape.", "paths": ["src/components/ShortcutHelp.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-046", "request": "Refactor utils.", "paths": ["src/utils/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-047", "request": "Update the local setup section of the README to mention the new make target.", "paths": ["README.md", "Makefile"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-048", "request": "Split the session middleware into two modules, one for cookie parsing and one for session lookup. Pure move: keep every export re-exported from the old path so imports do not change.", "paths": ["src/auth/session.ts", "src/auth/session-cookie.ts", "src/auth/session-lookup.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-049", "request": "Add a pre-commit hook that runs prettier on staged files.", "paths": [".husky/pre-commit", "package.json"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-050", "request": "Rename the {count} placeholder to {n} in the notification plural strings, in every locale file.", "paths": ["src/i18n/en.json", "src/i18n/de.json", "src/i18n/fr.json"], "hints": ["i18n_placeholder"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-051", "request": "Extract the token-refresh retry loop in the auth client into its own function so it can be unit tested on its own. Same retry count, same backoff, same errors thrown.", "paths": ["src/auth/client.ts", "src/auth/__tests__/client.test.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-052", "request": "Drop support for Internet Explorer 11: remove the polyfills and update the browserslist file.", "paths": [".browserslistrc", "src/polyfills.ts"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-053", "request": "Change the checkout terms checkbox text from 'I agree' to 'I agree to the Terms and the Refund Policy'.", "paths": ["src/pages/checkout/TermsCheckbox.tsx"], "hints": ["legal_copy"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-054", "request": "Add unit tests for the password hashing wrapper that cover empty input and non-ASCII input. Do not change the wrapper itself.", "paths": ["src/auth/__tests__/hash.test.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-055", "request": "Fix the typo 'recieve' in the subject line of the order confirmation email.", "paths": ["src/emails/templates/order-confirmation.hbs"], "hints": [], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-056", "request": "Raise the TypeScript target from ES2019 to ES2020 in the tsconfig used by the build scripts only.", "paths": ["tsconfig.scripts.json"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-057", "request": "Encrypt stored webhook signing values at rest, and add a migration that re-encrypts the existing rows.", "paths": ["src/webhooks/store.ts", "db/migrations/0023_encrypt_webhook_signing.sql"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-058", "request": "Add a tooltip that says 'Export as CSV' to the export icon in the reports toolbar.", "paths": ["src/pages/reports/Toolbar.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-059", "request": "Increase the padding on the notification toast so the close icon does not touch the edge.", "paths": ["src/components/Toast/Toast.module.css"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-060", "request": "Pin the dev container base image to a digest instead of the floating tag.", "paths": [".devcontainer/Dockerfile"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-061", "request": "Update the config like we discussed in standup.", "paths": ["config/default.json"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-062", "request": "Move the ESLint setup to the flat config format and fix the two rules that were renamed in the new major version. No source files should change apart from lint suppressions.", "paths": ["eslint.config.js", "package.json"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-063", "request": "Revisit how we store tokens.", "paths": ["src/auth/storage.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-064", "request": "Show the file size next to each attachment name in the ticket sidebar.", "paths": ["src/pages/tickets/AttachmentList.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-065", "request": "Add a public REST endpoint that lists a workspace's members together with their email addresses.", "paths": ["src/api/routes/members.ts"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-066", "request": "Change the refund window from 14 days to 30 days, both in the text on the order page and in the check the API enforces.", "paths": ["src/pages/orders/RefundInfo.tsx", "src/api/refunds.ts"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-067", "request": "Let users download all their data as JSON from the account page, including uploaded files, for data-portability requests.", "paths": ["src/pages/account/ExportData.tsx", "src/api/export.ts"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-068", "request": "Handle the edge case in the importer.", "paths": ["src/import/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-069", "request": "Truncate long project names in the sidebar with an ellipsis and show the full name on hover.", "paths": ["src/components/Sidebar/ProjectItem.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-070", "request": "Fix the flaky snapshot test for the date picker by freezing the clock in the test setup.", "paths": ["src/components/DatePicker/__tests__/DatePicker.test.tsx", "jest.setup.ts"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-071", "request": "Delete the Storybook stories for the two components we removed last quarter.", "paths": ["src/components/OldBanner.stories.tsx", "src/components/LegacyTabs.stories.tsx"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-072", "request": "Rename the helper formatCurrencyValue to formatMoney across the billing module. Identifier rename only; the output string and rounding must stay exactly as they are.", "paths": ["src/billing/format.ts", "src/billing/invoice.ts", "src/billing/__tests__/format.test.ts"], "hints": [], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-073", "request": "Port the notifications module to the new framework.", "paths": ["src/notifications/"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-074", "request": "Change the flags so the beta stuff works for the new customer.", "paths": ["src/flags/definitions.ts"], "hints": ["feature_flag"], "t3_reason": "demotion", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-075", "request": "Turn the hard-coded 30 in the test helper's wait loop into a named constant TEST_POLL_LIMIT.", "paths": ["tests/helpers/wait.ts"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-076", "request": "Add a CODEOWNERS entry so the platform team is asked to review changes under infra/.", "paths": [".github/CODEOWNERS"], "hints": [], "t3_reason": "unbanded", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-077", "request": "Change the session cookie to SameSite=Strict.", "paths": ["src/server/cookies.ts"], "hints": [], "t3_reason": "unbanded", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-078", "request": "Change the default sort of the activity feed from oldest first to newest first.", "paths": ["src/pages/activity/ActivityFeed.tsx"], "hints": ["config_literal"], "t3_reason": "demotion", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-079", "request": "Update dependencies.", "paths": ["package.json", "package-lock.json"], "hints": [], "t3_reason": "unbanded", "label_draft": "unknown", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
++{"id": "t3-080", "request": "On the login page, move the 'Forgot password?' link below the password field instead of above it.", "paths": ["src/auth/pages/LoginForm.tsx"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-minor", "label_source": "implementer-draft", "human_label": null, "claude_label": null}

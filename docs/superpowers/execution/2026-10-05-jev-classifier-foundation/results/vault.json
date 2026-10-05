@@ -1,0 +1,45 @@
+{
+  "blocked": true,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "plugins/compound-v-vault/.claude-plugin/plugin.json",
+    "plugins/compound-v-vault/README.md",
+    "plugins/compound-v-vault/hooks/hooks.json",
+    "plugins/compound-v-vault/hooks/vault.test.tsx",
+    "plugins/compound-v-vault/hooks/vault.tsx",
+    "plugins/compound-v-vault/types/index.d.ts",
+    "tests/test-vault-mod.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+    "diff_digest": "sha256:526b7e683d593cfc61ada67d86f8571e00795e18cf8255bf552ffa3644fbca71",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4bd5c495ad217f8d6267815655a3e89afbb8c994\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.claude-plugin/plugin.json\",\n    \"plugins/compound-v-vault/README.md\",\n    \"plugins/compound-v-vault/hooks/hooks.json\",\n    \"plugins/compound-v-vault/hooks/vault.test.tsx\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/types/index.d.ts\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/**\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+    "verdict": "pass"
+  },
+  "retries": [
+    {
+      "attempt": 1,
+      "job": "vault",
+      "stage": "implement",
+      "wait_ms": 2000
+    }
+  ],
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "blocked",
+  "summary": "Task D \u2014 plugin compound-v-vault",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'\nbash tests/test-vault-mod.sh",
+    "exit_code": 127,
+    "failures": [
+      "bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'"
+    ],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-15"
+}

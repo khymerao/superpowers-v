@@ -1,31 +1,47 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-05T07:45:00Z",
+  "phase": "BLOCKED",
+  "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
     "record-t3": {
-      "status": "pending",
+      "status": "blocked",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2",
+      "session_id": null,
+      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
     },
     "config-jev": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-3",
+      "session_id": null,
+      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
     },
     "jev-core": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-4",
+      "session_id": null,
+      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
     },
     "vault": {
-      "status": "pending",
+      "status": "blocked",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-15",
+      "session_id": null,
+      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "retries": [
+        {
+          "stage": "implement",
+          "job": "vault",
+          "attempt": 1,
+          "wait_ms": 2000
+        }
+      ],
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
     },
     "ui-floor-onboard-jev": {
       "status": "pending",
@@ -34,10 +50,12 @@
       "session_id": null
     },
     "corpus": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-6",
+      "session_id": null,
+      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
     },
     "t3-hook-shadow": {
       "status": "pending",
@@ -57,5 +75,21 @@
       "worktree": null,
       "session_id": null
     }
-  }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "record-t3",
+        "config-jev",
+        "jev-core",
+        "vault",
+        "corpus"
+      ],
+      "merged": [],
+      "commit": "fbc37d578401fa106f0e1971439b7b8a17c9b95b",
+      "integrated": false
+    }
+  },
+  "blocked_reason": "wave 1 refused: record-t3, config-jev",
+  "blocked_at": "2026-10-05T07:44:02Z"
 }

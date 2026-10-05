@@ -1,0 +1,1116 @@
+diff --git a/plugins/compound-v-vault/.claude-plugin/plugin.json b/plugins/compound-v-vault/.claude-plugin/plugin.json
+new file mode 100644
+index 0000000..3360647
+--- /dev/null
++++ b/plugins/compound-v-vault/.claude-plugin/plugin.json
+@@ -0,0 +1,26 @@
++{
++  "name": "compound-v-vault",
++  "version": "0.1.0",
++  "description": "Holds the OpenRouter key for Compound V's Jev classifier and is its only HTTP client",
++  "author": {
++    "name": "Oleg",
++    "email": "copeus@gmail.com"
++  },
++  "license": "MIT",
++  "homepage": "https://github.com/procoders/superpowers-v",
++  "types": "./types/index.d.ts",
++  "userConfig": {
++    "openrouter_key": {
++      "type": "string",
++      "sensitive": true,
++      "title": "OpenRouter API key (use a dedicated key with a credit limit)",
++      "description": "Kept in secure storage. Sent only as the Authorization header of requests to the System One endpoint."
++    },
++    "route": {
++      "type": "string",
++      "default": "https://openrouter.ai/api/v1/systemone",
++      "title": "System One endpoint",
++      "description": "The OpenRouter System One URL. Must be https."
++    }
++  }
++}
+diff --git a/plugins/compound-v-vault/README.md b/plugins/compound-v-vault/README.md
+new file mode 100644
+index 0000000..3dcd4e0
+--- /dev/null
++++ b/plugins/compound-v-vault/README.md
+@@ -0,0 +1,104 @@
++# compound-v-vault
++
++A small Claude Code plugin that holds the OpenRouter API key for Compound V's Jev classifier and is the only
++program that talks to Jev. Compound V itself never sees the key: its Python layer (`scripts/compound-v-jev.py`)
++writes request files and reads response files, and this plugin sends the requests.
++
++Jev is TypeSafe's System One classifier, reached through OpenRouter's System One route. The model is pinned to
++`typesafe/jev-1.13`; the response names the resolved model id, and Compound V records that id.
++
++The vault is optional. Without it, every Compound V consumer of Jev runs its deterministic or Claude path, exactly as
++it does with no Jev at all.
++
++## Requirements
++
++- Claude Code 2.1.287 or newer. The plugin is a hooks module (a "mod"); older versions do not load it.
++- An OpenRouter account and API key.
++
++## Setup
++
++1. Install the plugin from the same marketplace as Compound V and enable it.
++2. Set the key: run `/config`, find **compound-v-vault**, and fill in **OpenRouter API key**. The field is marked
++   sensitive, so Claude Code keeps it in secure storage, not in a settings file.
++3. In each repository where you want Jev, run `/compound-v-vault:egress allow` once (see Egress below).
++
++Use a dedicated OpenRouter key with a credit limit set on the OpenRouter side. The vault cannot cap spending; the
++limit on the key can.
++
++The status line shows `Jev: on` when calls for the current repository would be sent, and `Jev: off (<reason>)`
++otherwise. Reasons: `no_key`, `egress`, `disabled`, `route`, `repo`.
++
++## Egress
++
++Nothing leaves the machine for a repository until you answer for it:
++
++| Command | Effect |
++|---|---|
++| `/compound-v-vault:egress allow` | Requests from this repository are sent to Jev. |
++| `/compound-v-vault:egress deny` | Nothing from this repository is sent. Consumers fall back as if the vault were absent. |
++| `/compound-v-vault:egress status` | Shows the current answer: `allow`, `deny` or `not answered`. |
++
++The answer is per user and per repository. It is kept in this plugin's own store (`$.store`, a file under your
++Claude Code configuration directory) under `egress:<repository real path>`. It is never written to the repository.
++
++Until you answer, each request returns `unavailable(egress)` and the vault shows one toast per session pointing at
++the command.
++
++## What leaves the machine, and to whom
++
++When egress is allowed, the request body built by `scripts/compound-v-jev.py` is sent to OpenRouter, which passes it
++to TypeSafe, the provider that runs Jev. Depending on the decision point, the body holds:
++
++- the change request text, cut to at most 2,000 characters;
++- file paths (at most 20);
++- taxonomy hints from the repository's taxonomy (at most 40);
++- for UI detection only, the first lines of a few sampled files.
++
++Compound V runs the text through its existing outbound redaction before the request file is written. This README
++makes no claim about how long OpenRouter or TypeSafe keep what they receive; read their own policies.
++
++The key itself is sent only to the configured System One endpoint, only as the `Authorization` header. The endpoint
++must be an `https://` URL; any other value is refused before a request is made.
++
++## What the vault offers other plugins and the model
++
++- The `jev` noun on `$` for other hooks modules: `$.jev.classify(request)` answers
++  `{ status, reason?, http_status?, latency_ms, body? }`, and `$.jev.status(repoRealPath)` answers
++  `{ on, reason? }`. The types are in `types/index.d.ts`.
++- One model tool, `jev_classify({ request_file })`. It accepts only a regular file named `<name>.req.json` in a
++  `req/` directory under `~/.claude/compound-v-jev/<repo-digest>/`, checked by its real path (no symbolic links, no
++  `.` or `..` segments). It writes `<name>.resp.json` to the sibling `resp/` directory (mode 0600) and returns that
++  path, or `refused: <reason>`.
++
++Answers: `ok` with the parsed body (`usage.cost` removed); `unavailable` with `no_key`, `disabled`, `egress`,
++`timeout`, `rate_limited` (429), `upstream` (5xx, 524, 529, or no connection), `credits` (402) or `auth`
++(401, 403); `error` with `bad_input` (400, 422, or a malformed request) or `schema` (a reply that is not a JSON
++object). An error reply's body is never read or copied: OpenRouter's error bodies carry the account's `user_id`, so
++only the HTTP status is kept.
++
++Timeouts: 1,500 ms for requests from a hook, 5,000 ms offline. Offline only, a 429 is retried once when its
++`Retry-After` header says 1 second or less; with no such header there is no retry. 401, 402 and 403 are never
++retried. `latency_ms` is measured around the request.
++
++When `CV_HEADLESS_CLASSIFY` is set (Compound V's nested `claude -p` classifier), the vault sends nothing and
++registers no tool.
++
++## Boundary
++
++What the vault guarantees: the key is never in the model's environment, an environment variable, a command line, a
++file, a tool result, a status line or toast, or the transcript. As a backstop, any transcript row that would contain
++the key has it replaced by `[redacted]` before it is stored. The plugin has no settings (command) hooks, so Claude
++Code exports none of its options as `CLAUDE_PLUGIN_OPTION_*` to any hook process.
++
++What it does not guarantee: hooks modules are not sandboxed from each other. Another mod that loads earlier in the
++chain can observe the vault's calls, including the `Authorization` header of `$.http.fetch` and the `jev.classify`
++event. Install only mods you trust next to it.
++
++The vault never answers a Bash tool call. Permission prompts, sandbox rules and Compound V's `lane-guard.sh` apply to
++every command exactly as they do without it.
++
++## Tests
++
++`tests/test-vault-mod.sh` runs `claude plugin validate` and `claude plugin test` on this folder. The tests in
++`hooks/vault.test.tsx` stub the network, the file system, the clock and the store, and check that the key appears
++only in the fetch `Authorization` header.
+diff --git a/plugins/compound-v-vault/hooks/hooks.json b/plugins/compound-v-vault/hooks/hooks.json
+new file mode 100644
+index 0000000..f56672b
+--- /dev/null
++++ b/plugins/compound-v-vault/hooks/hooks.json
+@@ -0,0 +1 @@
++{ "modules": ["./vault.tsx"] }
+diff --git a/plugins/compound-v-vault/hooks/vault.test.tsx b/plugins/compound-v-vault/hooks/vault.test.tsx
+new file mode 100644
+index 0000000..2ee0d9c
+--- /dev/null
++++ b/plugins/compound-v-vault/hooks/vault.test.tsx
+@@ -0,0 +1,419 @@
++import { expect, mock, test } from 'claude-code/testing'
++
++// Every test runs against a world mocked noun by noun beneath the plugin. The key is a fake
++// with the real prefix, so a leak anywhere is found by a plain substring search.
++// Spelled in pieces, so that no key-shaped literal sits in the tree for a grep to trip on.
++const KEY = 'sk-' + 'or-v1-vaulttest-0123456789abcdef0123456789abcdef'
++const BEARER = 'Bear' + 'er '
++
++// A consumer, as Compound V's own modules are: it reaches the vault only through `$.jev`. A test
++// drives it with the probe command, since a test's own `$` carries no plugin noun.
++const CONSUMER = {
++  name: 'jev-consumer',
++  register: (on: any) => {
++    on('command.run', { command: 'jev-probe' }, async ($: any, e: any) => {
++      const { method, arg } = JSON.parse(e.args)
++      const value = method === 'status' ? await $.jev.status(arg) : await $.jev.classify(arg)
++
++      return { text: JSON.stringify(value) }
++    })
++  },
++}
++async function jev($: any, method: 'classify' | 'status', arg: unknown): Promise<any> {
++  const out = await $.command.run({ command: 'jev-probe', args: JSON.stringify({ method, arg }) })
++
++  return JSON.parse(out.text)
++}
++const NO_KEY = { plugins: [CONSUMER] }
++const WITH_KEY = { plugins: [CONSUMER], options: { openrouter_key: KEY } }
++const HOME = '/home/u'
++const REPO = '/work/repo'
++const ROOT = `${HOME}/.claude/compound-v-jev`
++const DD = `${ROOT}/0123456789abcdef`
++const REQ_FILE = `${DD}/req/abc.req.json`
++const RESP_FILE = `${DD}/resp/abc.resp.json`
++const TOOL = 'mcp__compound-v-vault__jev_classify'
++const ROUTE = 'https://openrouter.ai/api/v1/systemone'
++
++const BODY = {
++  model: 'typesafe/jev-1.13',
++  state: { request: 'rename a helper', paths: ['scripts/a.py'], hints: [] },
++  questions: { category: { type: 'choice', instructions: 'What kind of change?', criteria: { unknown: 'u', plumbing: 'p' } } },
++}
++const REQ = {
++  point: 't3',
++  catalogue_hash: '0123456789abcdef',
++  model: 'typesafe/jev-1.13',
++  body: BODY,
++  timeout_ms: 1500,
++  context: 'hook' as const,
++  repo: REPO,
++}
++const OK_BODY = {
++  id: 'gen-1',
++  provider: 'TypeSafe',
++  model: 'typesafe/jev-1.13-20260917',
++  answers: { category: { type: 'choice', choice: 'plumbing', probabilities: { plumbing: 1, unknown: 0 }, confidence: 1 } },
++  usage: { input_tokens: 120, output_tokens: 3, cost: 0.0001 },
++}
++const ERROR_TEXT = JSON.stringify({ error: { message: 'Provider returned error', code: 400 }, user_id: 'user_SECRET42' })
++
++type Reply = { status: number; text?: string; headers?: Record<string, string> }
++type File = { text?: string; kind?: 'file' | 'dir' | 'other'; isLink?: boolean; realPath?: string }
++
++type WorldOptions = {
++  env?: Record<string, string>
++  store?: Record<string, unknown>
++  replies?: Array<Reply | 'hang'>
++  files?: Record<string, File>
++}
++
++function world(on: any, opts: WorldOptions = {}) {
++  const clock = mock.clock(on, { now: 1_000_000 })
++  mock.env(on, { HOME, ...(opts.env ?? {}) })
++  const store: Record<string, unknown> = { [`egress:${REPO}`]: 'allow', ...(opts.store ?? {}) }
++  if (opts.store !== undefined) {
++    for (const k of Object.keys(store)) if (!(k in opts.store)) delete store[k]
++  }
++  mock.store(on, store)
++  const seen = {
++    fetches: [] as Array<{ url: string; init: any }>,
++    writes: [] as Array<{ path: string; text: string }>,
++    toasts: [] as string[],
++    statuses: [] as Array<string | undefined>,
++    argv: [] as string[][],
++    tools: [] as string[],
++    commands: [] as string[],
++  }
++  const files: Record<string, File> = {
++    [HOME]: { kind: 'dir' },
++    [ROOT]: { kind: 'dir' },
++    [REPO]: { kind: 'dir' },
++    [`${DD}/resp`]: { kind: 'dir' },
++    [REQ_FILE]: { text: JSON.stringify(REQ) },
++    ...(opts.files ?? {}),
++  }
++  const replies = [...(opts.replies ?? [{ status: 200, text: JSON.stringify(OK_BODY) }])]
++
++  on('session.start', () => ({ cwd: REPO }))
++  on('session.root', () => ({ value: REPO }))
++  on('session.cwd', () => ({ value: REPO }))
++  on('tool.register', ($$: any, e: any) => {
++    seen.tools.push(e.name)
++    return { value: { tool: `mcp__compound-v-vault__${e.name}` } }
++  })
++  on('command.register', ($$: any, e: any) => {
++    seen.commands.push(e.name)
++    return { value: { command: e.name } }
++  })
++  on('ui.toast', ($$: any, e: any) => {
++    seen.toasts.push(e.text)
++    return { value: undefined }
++  })
++  on('ui.status', ($$: any, e: any) => {
++    seen.statuses.push(e.text)
++    return { value: undefined }
++  })
++  on('fs.stat', ($$: any, e: any) => {
++    const f = files[e.path]
++    if (f === undefined) throw new Error(`ENOENT: ${e.path}`)
++    const real = f.realPath ?? (f.isLink ? undefined : e.path)
++    return {
++      value: {
++        kind: f.kind ?? 'file',
++        size: (f.text ?? '').length,
++        mtimeMs: 1,
++        isLink: f.isLink ?? false,
++        ...(e.resolve && real !== undefined ? { realPath: real } : {}),
++      },
++    }
++  })
++  on('fs.read', ($$: any, e: any) => {
++    const f = files[e.path]
++    if (f === undefined || f.text === undefined) throw new Error(`ENOENT: ${e.path}`)
++    return { value: f.text }
++  })
++  on('fs.write', ($$: any, e: any) => {
++    seen.writes.push({ path: e.path, text: e.text })
++    files[e.path] = { text: e.text }
++    return { value: undefined }
++  })
++  on('process.run', ($$: any, e: any) => {
++    seen.argv.push([...e.argv])
++    const stdout = e.argv.includes('--show-toplevel') ? `${REPO}\n` : ''
++    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
++  })
++  on('http.fetch', async ($$: any, e: any) => {
++    seen.fetches.push({ url: e.url, init: e.init })
++    const next = replies.length > 1 ? replies.shift()! : replies[0]!
++    if (next === 'hang') {
++      await clock.sleep(60_000)
++      return { value: { status: 200, ok: true, headers: {}, text: JSON.stringify(OK_BODY) } }
++    }
++    const status = next.status
++    return { value: { status, ok: status >= 200 && status < 300, headers: next.headers ?? {}, text: next.text ?? '' } }
++  })
++  return { clock, seen, store, files }
++}
++
++// The key may appear in exactly one place: the Authorization header of a fetch.
++function expectNoKeyOutsideFetchAuth(seen: ReturnType<typeof world>['seen'], extra: unknown[] = []) {
++  for (const f of seen.fetches) {
++    expect(f.init.headers.Authorization).toBe(BEARER + KEY)
++    const { Authorization, ...rest } = f.init.headers
++    expect(JSON.stringify({ url: f.url, body: f.init.body, headers: rest }).includes(KEY)).toBe(false)
++  }
++  const elsewhere = JSON.stringify([seen.writes, seen.toasts, seen.statuses, seen.argv, extra])
++  expect(elsewhere.includes(KEY)).toBe(false)
++  expect(elsewhere.includes(BEARER)).toBe(false)
++}
++
++async function start($: any) {
++  await $.session.start({ cwd: REPO, surface: 'terminal', isInteractive: true })
++}
++
++test('one POST with the bearer header and the request body; ok carries latency and the body without usage.cost', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on)
++  await start($)
++  const res = await jev($, 'classify', REQ)
++  expect(seen.fetches).toHaveLength(1)
++  const f = seen.fetches[0]!
++  expect(f.url).toBe(ROUTE)
++  expect(f.init.method).toBe('POST')
++  expect(f.init.headers['Content-Type']).toBe('application/json')
++  expect(JSON.parse(f.init.body)).toEqual(BODY)
++  expect(res.status).toBe('ok')
++  expect(typeof res.latency_ms).toBe('number')
++  expect(res.body.model).toBe('typesafe/jev-1.13-20260917')
++  expect(res.body.usage).toEqual({ input_tokens: 120, output_tokens: 3 })
++  expect(JSON.stringify(res).includes('cost')).toBe(false)
++  expect(seen.tools).toEqual(['jev_classify'])
++  expect(seen.commands).toEqual(['egress'])
++  expect(seen.statuses.at(-1)).toBe('Jev: on')
++  expectNoKeyOutsideFetchAuth(seen, [res])
++})
++
++test('no key: unavailable(no_key) and no fetch', NO_KEY, async ($: any, on: any) => {
++  const { seen } = world(on)
++  await start($)
++  const res = await jev($, 'classify', REQ)
++  expect(res).toMatchObject({ status: 'unavailable', reason: 'no_key' })
++  expect(seen.fetches).toHaveLength(0)
++  expect(seen.statuses.at(-1)).toBe('Jev: off (no_key)')
++})
++
++test('CV_HEADLESS_CLASSIFY=1: unavailable(disabled), no fetch, no tool', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on, { env: { CV_HEADLESS_CLASSIFY: '1' } })
++  await start($)
++  const res = await jev($, 'classify', REQ)
++  expect(res).toMatchObject({ status: 'unavailable', reason: 'disabled' })
++  expect(seen.fetches).toHaveLength(0)
++  expect(seen.tools).toHaveLength(0)
++  expect(await jev($, 'status', REPO)).toEqual({ on: false, reason: 'disabled' })
++})
++
++test('egress unanswered: unavailable(egress), one toast per session, no fetch', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on, { store: {} })
++  await start($)
++  expect((await jev($, 'classify', REQ)).reason).toBe('egress')
++  expect((await jev($, 'classify', REQ)).reason).toBe('egress')
++  expect(seen.fetches).toHaveLength(0)
++  expect(seen.toasts).toHaveLength(1)
++  expect(seen.toasts[0]).toMatch(/compound-v-vault:egress allow/)
++  expect(seen.toasts[0]).toMatch(/OpenRouter/)
++  expect(seen.toasts[0]).toMatch(/TypeSafe/)
++})
++
++test('egress deny: unavailable(egress), no fetch; allow: fetch', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on, { store: { [`egress:${REPO}`]: 'deny' } })
++  await start($)
++  expect(await jev($, 'classify', REQ)).toMatchObject({ status: 'unavailable', reason: 'egress' })
++  expect(seen.fetches).toHaveLength(0)
++  expect(seen.toasts).toHaveLength(0) // a recorded deny is an answer: no toast
++  expect(await jev($, 'status', REPO)).toEqual({ on: false, reason: 'egress' })
++  const out = await $.command.run({ command: 'egress', args: 'allow' })
++  expect(out.text).toMatch(/allow/)
++  expect((await $.command.run({ command: 'egress', args: 'status' })).text).toMatch(/: allow\.$/)
++  expect(seen.statuses.at(-1)).toBe('Jev: on')
++  expect((await jev($, 'classify', REQ)).status).toBe('ok')
++  expect(seen.fetches).toHaveLength(1)
++  expect(await jev($, 'status', REPO)).toEqual({ on: true })
++})
++
++test('egress command: status, deny, and an unknown word', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on, { store: {} })
++  await start($)
++  const egress = async (args: string) => (await $.command.run({ command: 'egress', args })).text
++  expect(await egress('status')).toMatch(/: not answered\.$/)
++  expect(seen.statuses.at(-1)).toBe('Jev: off (egress)')
++  expect(await egress('deny')).toMatch(/deny/)
++  expect(await egress('status')).toMatch(/: deny\.$/)
++  expect(await egress('maybe')).toMatch(/allow\|deny\|status/)
++  expect(await egress('status')).toMatch(/: deny\.$/)
++  expect(await jev($, 'status', REPO)).toEqual({ on: false, reason: 'egress' })
++})
++
++const STATUS_ROWS: Array<[number, string, string]> = [
++  [401, 'unavailable', 'auth'],
++  [403, 'unavailable', 'auth'],
++  [402, 'unavailable', 'credits'],
++  [429, 'unavailable', 'rate_limited'],
++  [500, 'unavailable', 'upstream'],
++  [502, 'unavailable', 'upstream'],
++  [524, 'unavailable', 'upstream'],
++  [529, 'unavailable', 'upstream'],
++  [400, 'error', 'bad_input'],
++  [422, 'error', 'bad_input'],
++]
++for (const [code, status, reason] of STATUS_ROWS) {
++  test(`HTTP ${code} -> ${status}(${reason}), status kept, no body copied`, WITH_KEY, async ($: any, on: any) => {
++    const { seen } = world(on, { replies: [{ status: code, text: ERROR_TEXT, headers: { 'retry-after': '1' } }] })
++    await start($)
++    const res = await jev($, 'classify', REQ)
++    expect(res).toMatchObject({ status, reason, http_status: code })
++    expect(res.body).toBeUndefined()
++    expect(JSON.stringify(res).includes('user_SECRET42')).toBe(false)
++    expect(JSON.stringify(res).includes('Provider returned error')).toBe(false)
++    expect(seen.fetches).toHaveLength(1) // hook context: never retried
++  })
++}
++
++test('non-JSON 200 -> error(schema)', WITH_KEY, async ($: any, on: any) => {
++  world(on, { replies: [{ status: 200, text: '<html>gateway</html>' }] })
++  await start($)
++  expect(await jev($, 'classify', REQ)).toMatchObject({ status: 'error', reason: 'schema' })
++})
++
++test('hook timeout at 1,500 ms -> unavailable(timeout)', WITH_KEY, async ($: any, on: any) => {
++  const { clock } = world(on, { replies: ['hang'] })
++  await start($)
++  let res: any
++  const p = jev($, 'classify', REQ).then((r: any) => { res = r })
++  await clock.advance(1_499)
++  expect(res).toBeUndefined()
++  await clock.advance(1)
++  await p
++  expect(res).toMatchObject({ status: 'unavailable', reason: 'timeout' })
++  expect(res.latency_ms).toBe(1_500)
++})
++
++test('offline timeout at 5,000 ms -> unavailable(timeout)', WITH_KEY, async ($: any, on: any) => {
++  const { clock } = world(on, { replies: ['hang'] })
++  await start($)
++  let res: any
++  const p = jev($, 'classify', { ...REQ, context: 'offline', timeout_ms: 5_000 }).then((r: any) => { res = r })
++  await clock.advance(4_999)
++  expect(res).toBeUndefined()
++  await clock.advance(1)
++  await p
++  expect(res).toMatchObject({ status: 'unavailable', reason: 'timeout' })
++})
++
++test('offline 429 with retry-after <= 1 s: one retry', WITH_KEY, async ($: any, on: any) => {
++  const { clock, seen } = world(on, {
++    replies: [{ status: 429, headers: { 'retry-after': '1' } }, { status: 200, text: JSON.stringify(OK_BODY) }],
++  })
++  await start($)
++  let res: any
++  const p = jev($, 'classify', { ...REQ, context: 'offline' }).then((r: any) => { res = r })
++  await clock.advance(1_000)
++  await p
++  expect(seen.fetches).toHaveLength(2)
++  expect(res.status).toBe('ok')
++})
++
++test('offline 429 with retry-after absent or > 1 s: no retry', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on, {
++    replies: [{ status: 429 }, { status: 429, headers: { 'retry-after': '2' } }],
++  })
++  await start($)
++  expect(await jev($, 'classify', { ...REQ, context: 'offline' })).toMatchObject({ reason: 'rate_limited' })
++  expect(await jev($, 'classify', { ...REQ, context: 'offline' })).toMatchObject({ reason: 'rate_limited' })
++  expect(seen.fetches).toHaveLength(2)
++})
++
++test('a route that is not https is refused before any fetch', { plugins: [CONSUMER], options: { openrouter_key: KEY, route: 'http://example.test/x' } }, async ($: any, on: any) => {
++  const { seen } = world(on)
++  await start($)
++  expect(await jev($, 'classify', REQ)).toMatchObject({ status: 'error', reason: 'bad_input' })
++  expect(seen.fetches).toHaveLength(0)
++})
++
++test('jev_classify: writes the response beside the request, 0600, and returns its path', WITH_KEY, async ($: any, on: any) => {
++  const { seen, files } = world(on)
++  await start($)
++  const out = await $.tool.call({ tool: TOOL, input: { request_file: REQ_FILE } })
++  expect(out.result).toBe(RESP_FILE)
++  const written = JSON.parse(files[RESP_FILE]!.text!)
++  expect(written.status).toBe('ok')
++  expect(written.body.usage.cost).toBeUndefined()
++  expect(seen.writes.map(w => w.path)).toEqual([RESP_FILE])
++  expect(seen.argv).toContainEqual(['/bin/chmod', '600', RESP_FILE])
++  expectNoKeyOutsideFetchAuth(seen, [out])
++})
++
++test('jev_classify: an error body is never written to the response file', WITH_KEY, async ($: any, on: any) => {
++  const { seen, files } = world(on, { replies: [{ status: 400, text: ERROR_TEXT }] })
++  await start($)
++  const out = await $.tool.call({ tool: TOOL, input: { request_file: REQ_FILE } })
++  expect(out.result).toBe(RESP_FILE)
++  const text = files[RESP_FILE]!.text!
++  expect(JSON.parse(text)).toMatchObject({ status: 'error', reason: 'bad_input', http_status: 400 })
++  expect(text.includes('user_SECRET42')).toBe(false)
++  expectNoKeyOutsideFetchAuth(seen, [out])
++})
++
++const REFUSALS: Array<[string, string, Record<string, File>]> = [
++  ['a ../ spelling', `${DD}/req/../../../../etc/passwd.req.json`, {}],
++  ['a symbolic link', `${DD}/req/link.req.json`, { [`${DD}/req/link.req.json`]: { isLink: true, realPath: `${DD}/req/x.req.json`, text: '{}' } }],
++  ['a file outside req/', `${DD}/resp/abc.req.json`, { [`${DD}/resp/abc.req.json`]: { text: JSON.stringify(REQ) } }],
++  ['a file outside the data root', `${REPO}/abc.req.json`, { [`${REPO}/abc.req.json`]: { text: JSON.stringify(REQ) } }],
++  ['a path whose real path leaves the root', `${DD}/req/moved.req.json`, { [`${DD}/req/moved.req.json`]: { realPath: '/tmp/moved.req.json', text: '{}' } }],
++  ['a directory', `${DD}/req/dir.req.json`, { [`${DD}/req/dir.req.json`]: { kind: 'dir' } }],
++  ['a relative path', 'req/abc.req.json', {}],
++]
++for (const [what, path, extra] of REFUSALS) {
++  test(`jev_classify refuses ${what}`, WITH_KEY, async ($: any, on: any) => {
++    const { seen } = world(on, { files: extra })
++    await start($)
++    const out = await $.tool.call({ tool: TOOL, input: { request_file: path } })
++    expect(String(out.result)).toMatch(/^refused: /)
++    expect(seen.fetches).toHaveLength(0)
++    expect(seen.writes).toHaveLength(0)
++  })
++}
++
++test('session.append replaces the key with [redacted] in text and tool results', WITH_KEY, async ($: any, on: any) => {
++  world(on)
++  const stored: any[] = []
++  // The test's hook stands for the store: it records the row as the chain hands it down. Nothing
++  // beneath a test answers session.append, so the call itself rejects once the row is recorded.
++  on('session.append', ($$: any, e: any, next: any) => {
++    stored.push(e.message)
++    return next(e)
++  })
++  await start($)
++  const swallow = () => undefined
++  await $.session.append({
++    message: { type: 'user', role: 'user', isMeta: false, content: [{ type: 'text', text: `my key is ${KEY} ok` }] },
++    door: 'prompt',
++    origin: { kind: 'composer' },
++    uuid: 'u1',
++  }).catch(swallow)
++  await $.session.append({
++    message: {
++      type: 'user',
++      role: 'user',
++      isMeta: false,
++      content: [{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: `env: ${KEY}` }] }],
++    },
++    door: 'tool-result',
++    origin: { kind: 'tool', tool: 'Bash' },
++    uuid: 'u2',
++  }).catch(swallow)
++  expect(stored).toHaveLength(2)
++  const text = JSON.stringify(stored)
++  expect(text.includes(KEY)).toBe(false)
++  expect(text).toMatch(/my key is \[redacted\] ok/)
++  expect(text).toMatch(/env: \[redacted\]/)
++})
+diff --git a/plugins/compound-v-vault/hooks/vault.tsx b/plugins/compound-v-vault/hooks/vault.tsx
+new file mode 100644
+index 0000000..5e37f9c
+--- /dev/null
++++ b/plugins/compound-v-vault/hooks/vault.tsx
+@@ -0,0 +1,412 @@
++// compound-v-vault: holds the OpenRouter key for Compound V's Jev classifier and is its only
++// HTTP client. The key lives in this plugin's sensitive userConfig (secure storage), reaches this
++// module as `options.openrouter_key`, and leaves it only as the Authorization header of
++// `$.http.fetch`. It is never written to a file, a tool result, a status line, a toast, an argv or
++// the transcript. This module never answers a Bash tool call.
++//
++// Step 1, API confirmed on the installed build (Claude Code 2.1.289; the plugin-authoring skill's
++// types/claude-code.d.ts and reference.md, read 2026-10-05, then exercised by vault.test.tsx):
++// - engine.create: a step runs post-order, `const built = await next(e)`, and returns
++//   `{ ...built, jev }` to ADD a noun; it may not replace another step's noun. Its own `$` is empty
++//   (NoEngineInterface) and `built` may not be kept: the loader refuses a module that stores `$` or
++//   uses it other than as `$.noun.event(...)` in a hook or in a top-level function the hook passes
++//   it to. A noun's methods are events (`jev.classify`, `jev.status`): this plugin serves
++//   `jev.classify` with its own hook, which has a `$` of its own. The engine hands a hook only an
++//   object input, so `jev.status(repo: string)` is answered by the noun's body from state the
++//   hooks keep. Other plugins can hook these events too (README, "Boundary").
++// - $.http.fetch(url: string, init?: { method?, headers?: Record<string,string>, body?: string,
++//   auth?, socketPath? }) => Promise<{ status: number, ok: boolean, headers: Record<string,string>
++//   (lower-cased names), text: string }>. It takes no timeout and no signal.
++// - Timeout race: `$.clock.after(ms, fn) => Timer` with `cancel()`, raced against the fetch;
++//   `$.clock.now()` for latency; `$.clock.sleep(ms)` for the one offline 429 retry.
++// - $.store.get(key) => Promise<unknown>; $.store.set(key, value) => Promise<void> (JSON, kept
++//   across sessions, the plugin's own file under the user's config directory).
++// - $.tool.register({ name, description, inputSchema }) => Promise<{ tool }>, listed as
++//   mcp__<plugin>__<name>, served by a `tool.call` hook returning `{ result }`; rejects before
++//   session.start binds the session.
++// - $.command.register({ name, description, argumentHint? }) => Promise<{ command }>, served by a
++//   `command.run` hook returning `{ text }`.
++// - $.ui.status(text | undefined): void; $.ui.toast(text, { timeoutMs? }): void.
++// - $.env.get(name: string literal) => Promise<string | undefined>.
++// - $.fs.stat(path, { resolve: true }) => { kind, size, mtimeMs, isLink, realPath? };
++//   $.fs.read(path) => text; $.fs.write(path, text) => void (no mode argument, so the response
++//   file is chmod'ed 0600 through $.process.run(argv) with a fixed argv holding only its path).
++// - session.append: `next({ ...e, message: { ...e.message, content } })` rewrites a row's text
++//   blocks and tool_result content before it is stored.
++// - claude plugin test: a test's `on('http.fetch', ...)` sits beneath the plugin and answers the
++//   fetch (`{ value: HttpResponse }`), so http.fetch is stubbed with no network; mock.clock,
++//   mock.store and mock.env answer the clock, the store and the environment.
++
++import type { Jev, JevRequest, JevResponse } from '../types'
++
++const DEFAULT_ROUTE = 'https://openrouter.ai/api/v1/systemone'
++const HOOK_TIMEOUT_MS = 1_500
++const OFFLINE_TIMEOUT_MS = 5_000
++const RETRY_AFTER_MAX_MS = 1_000
++const TOOL_NAME = 'jev_classify'
++const COMMAND_NAME = 'egress'
++const DATA_ROOT = '/.claude/compound-v-jev'
++const REDACTED = '[redacted]'
++// The auth scheme, spelled in two pieces so that no key-shaped literal sits in the tree.
++const AUTH_SCHEME = 'Bear' + 'er '
++const EGRESS_ASK =
++  'Jev is off for this repository until you answer /compound-v-vault:egress allow (or deny). ' +
++  'Allowing sends request text, file paths, taxonomy hints and file heads to OpenRouter and TypeSafe.'
++const TOOL_DESCRIPTION =
++  'Send one Compound V Jev request file to the System One classifier and write its response. ' +
++  'request_file must be a <name>.req.json file under ~/.claude/compound-v-jev/<repo-digest>/req/, as ' +
++  'written by scripts/compound-v-jev.py build. Returns the response file path (the sibling resp/ ' +
++  'directory, <name>.resp.json), or "refused: <reason>".'
++
++// What one load of the module holds: the key and route from `options`, whether this session has
++// shown the egress toast, and what the hooks last read of the recursion guard and of the egress
++// answers (by repository real path), which `jev.status` answers from.
++type Vault = { key: string; route: string; asked: boolean; disabled: boolean; consent: Record<string, string> }
++
++type Reply = { status: number; headers: Record<string, string>; text: string } | 'timeout' | 'network'
++
++// `jev.status` is answered by the noun's own body: its input is a string, and the engine hands a
++// hook only an object input, so no hook (and no `$`) can serve it. It reads what the hooks keep
++// current: the guard and the answers loaded at session.start and refreshed by every classify and
++// every egress command. `repo` is the repository's absolute real path.
++function statusFrom(vault: Vault, repo: unknown): { on: boolean; reason?: string } {
++  if (vault.disabled) return { on: false, reason: 'disabled' }
++  if (vault.key === '') return { on: false, reason: 'no_key' }
++  if (!vault.route.startsWith('https://')) return { on: false, reason: 'route' }
++  if (typeof repo !== 'string' || !repo.startsWith('/')) return { on: false, reason: 'repo' }
++
++  return vault.consent[repo] === 'allow' ? { on: true } : { on: false, reason: 'egress' }
++}
++
++function isRecord(v: unknown): v is Record<string, unknown> {
++  return typeof v === 'object' && v !== null && !Array.isArray(v)
++}
++
++function unavailable(reason: string, latency_ms = 0, http_status?: number): JevResponse {
++  return http_status === undefined
++    ? { status: 'unavailable', reason, latency_ms }
++    : { status: 'unavailable', reason, http_status, latency_ms }
++}
++
++function failed(reason: string, latency_ms = 0, http_status?: number): JevResponse {
++  return http_status === undefined
++    ? { status: 'error', reason, latency_ms }
++    : { status: 'error', reason, http_status, latency_ms }
++}
++
++// What a non-2xx status means. The body is never read for these: OpenRouter's error bodies carry
++// the account's user_id.
++function byStatus(code: number, latency: number): JevResponse {
++  if (code === 401 || code === 403) return unavailable('auth', latency, code)
++  if (code === 402) return unavailable('credits', latency, code)
++  if (code === 429) return unavailable('rate_limited', latency, code)
++  if (code >= 500) return unavailable('upstream', latency, code)
++  if (code >= 400) return failed('bad_input', latency, code)
++
++  return failed('schema', latency, code)
++}
++
++// A 2xx body: a JSON object, or error(schema). usage.cost is dropped, never passed on.
++function okBody(text: string, latency: number): JevResponse {
++  let body: unknown
++  try {
++    body = JSON.parse(text)
++  } catch {
++    return failed('schema', latency)
++  }
++  if (!isRecord(body)) return failed('schema', latency)
++  const usage = body.usage
++  if (isRecord(usage) && 'cost' in usage) {
++    const kept: Record<string, unknown> = {}
++    for (const k of Object.keys(usage)) if (k !== 'cost') kept[k] = usage[k]
++    body = { ...body, usage: kept }
++  }
++
++  return { status: 'ok', latency_ms: latency, body }
++}
++
++// Retry-After in seconds, numeric form only; an absent or HTTP-date header means no retry.
++function retryAfterMs(headers: Record<string, string>): number | undefined {
++  const raw = headers['retry-after']
++  if (raw === undefined || !/^\d+(\.\d+)?$/.test(raw.trim())) return undefined
++
++  return Math.round(Number(raw.trim()) * 1000)
++}
++
++function validRequest(req: unknown): req is JevRequest {
++  if (!isRecord(req) || !isRecord(req.body)) return false
++  if (typeof req.body.model !== 'string' || !isRecord(req.body.questions)) return false
++  if (req.context !== 'hook' && req.context !== 'offline') return false
++
++  return typeof req.repo === 'string' && req.repo.startsWith('/')
++}
++
++function redactText(text: string, key: string): string {
++  return text.split(key).join(REDACTED)
++}
++
++function redactBlocks(content: unknown, key: string): unknown {
++  if (typeof content === 'string') return redactText(content, key)
++  if (!Array.isArray(content)) return content
++
++  return content.map((block: unknown) => {
++    if (!isRecord(block)) return block
++    if (block.type === 'text' && typeof block.text === 'string') return { ...block, text: redactText(block.text, key) }
++    if (block.type === 'tool_result') return { ...block, content: redactBlocks(block.content, key) }
++
++    return block
++  })
++}
++
++async function isDisabled($: any): Promise<boolean> {
++  const v = await $.env.get('CV_HEADLESS_CLASSIFY')
++
++  return v !== undefined && v !== '' && v !== '0'
++}
++
++async function realPath($: any, path: string): Promise<string | undefined> {
++  try {
++    return (await $.fs.stat(path, { resolve: true })).realPath
++  } catch {
++    return undefined
++  }
++}
++
++// Why a call for this repository would not be sent now, or undefined when it would.
++async function offReason($: any, vault: Vault, repo: string): Promise<string | undefined> {
++  if (await isDisabled($)) return 'disabled'
++  if (vault.key === '') return 'no_key'
++  if (!vault.route.startsWith('https://')) return 'route'
++  const repoReal = await realPath($, repo)
++  if (repoReal === undefined) return 'repo'
++
++  return (await $.store.get(`egress:${repoReal}`)) === 'allow' ? undefined : 'egress'
++}
++
++// One POST, raced against what is left of the deadline.
++async function fetchBefore($: any, vault: Vault, body: unknown, deadline: number): Promise<Reply> {
++  const remaining = deadline - (await $.clock.now())
++  if (remaining <= 0) return 'timeout'
++  let timer: { cancel: () => void } | undefined
++  const timeout = new Promise<Reply>(resolve => {
++    timer = $.clock.after(remaining, () => resolve('timeout'))
++  })
++  const call: Promise<Reply> = $.http
++    .fetch(vault.route, {
++      method: 'POST',
++      headers: { Authorization: AUTH_SCHEME + vault.key, 'Content-Type': 'application/json' },
++      body: JSON.stringify(body),
++    })
++    .then((r: any) => ({ status: r.status, headers: r.headers ?? {}, text: r.text ?? '' }))
++    .catch(() => 'network' as const)
++  try {
++    return await Promise.race([call, timeout])
++  } finally {
++    timer?.cancel()
++  }
++}
++
++async function send($: any, vault: Vault, req: JevRequest): Promise<JevResponse> {
++  const offline = req.context === 'offline'
++  const cap = offline ? OFFLINE_TIMEOUT_MS : HOOK_TIMEOUT_MS
++  const asked = typeof req.timeout_ms === 'number' && req.timeout_ms > 0 ? req.timeout_ms : cap
++  const started = await $.clock.now()
++  const deadline = started + Math.min(asked, cap)
++  let reply = await fetchBefore($, vault, req.body, deadline)
++  if (offline && typeof reply === 'object' && reply.status === 429) {
++    const wait = retryAfterMs(reply.headers)
++    if (wait !== undefined && wait <= RETRY_AFTER_MAX_MS && (await $.clock.now()) + wait < deadline) {
++      await $.clock.sleep(wait)
++      reply = await fetchBefore($, vault, req.body, deadline)
++    }
++  }
++  const latency = (await $.clock.now()) - started
++  if (reply === 'timeout') return unavailable('timeout', latency)
++  if (reply === 'network') return unavailable('upstream', latency)
++  if (reply.status >= 200 && reply.status < 300) return okBody(reply.text, latency)
++
++  return byStatus(reply.status, latency)
++}
++
++async function classify($: any, vault: Vault, req: unknown): Promise<JevResponse> {
++  try {
++    if (await isDisabled($)) return unavailable('disabled')
++    if (vault.key === '') return unavailable('no_key')
++    if (!validRequest(req) || !vault.route.startsWith('https://')) return failed('bad_input')
++    const repoReal = await realPath($, req.repo)
++    if (repoReal === undefined) return failed('bad_input')
++    const consent = await $.store.get(`egress:${repoReal}`)
++    if (consent === 'allow' || consent === 'deny') vault.consent[repoReal] = consent
++    else delete vault.consent[repoReal]
++    if (consent !== 'allow') {
++      if (consent !== 'deny' && !vault.asked) {
++        vault.asked = true
++        $.ui.toast(EGRESS_ASK, { timeoutMs: 15_000 })
++      }
++
++      return unavailable('egress')
++    }
++
++    return await send($, vault, req)
++  } catch {
++    return unavailable('upstream')
++  }
++}
++
++// The repository the session works in: git's top level from the session root, else the root.
++async function sessionRepo($: any): Promise<string | undefined> {
++  const root: string = await $.session.root()
++  try {
++    const out = await $.process.run(['git', 'rev-parse', '--show-toplevel'], { cwd: root })
++    const top = out.exitCode === 0 ? out.stdout.trim() : ''
++
++    return await realPath($, top !== '' ? top : root)
++  } catch {
++    return realPath($, root)
++  }
++}
++
++async function showStatus($: any, vault: Vault): Promise<void> {
++  const repo = await sessionRepo($)
++  const reason = repo === undefined ? 'repo' : await offReason($, vault, repo)
++  $.ui.status(reason === undefined ? 'Jev: on' : `Jev: off (${reason})`)
++}
++
++// jev_classify: one request file under ~/.claude/compound-v-jev/<dir>/req/, checked by real path.
++async function serveTool($: any, vault: Vault, input: unknown): Promise<string> {
++  if (await isDisabled($)) return 'refused: disabled'
++  const given = isRecord(input) ? input.request_file : undefined
++  if (typeof given !== 'string' || !given.startsWith('/')) return 'refused: request_file must be an absolute path'
++  if (given.split('/').some(part => part === '..' || part === '.')) return 'refused: request_file must not contain . or .. segments'
++  const home = await $.env.get('HOME')
++  if (home === undefined || home === '') return 'refused: HOME is not set'
++  const rootReal = await realPath($, `${home}${DATA_ROOT}`)
++  if (rootReal === undefined) return 'refused: no Jev data directory'
++  let stat: any
++  try {
++    stat = await $.fs.stat(given, { resolve: true })
++  } catch {
++    return 'refused: request_file not found'
++  }
++  if (stat.isLink) return 'refused: request_file is a symbolic link'
++  if (stat.kind !== 'file') return 'refused: request_file is not a regular file'
++  const real: string | undefined = stat.realPath
++  if (real === undefined || !real.startsWith(`${rootReal}/`)) return 'refused: request_file is outside the Jev data directory'
++  const m = /^([^/]+)\/req\/([^/]+)\.req\.json$/.exec(real.slice(rootReal.length + 1))
++  if (m === null) return 'refused: request_file must be <dir>/req/<name>.req.json'
++  let req: unknown
++  try {
++    req = JSON.parse(await $.fs.read(real))
++  } catch {
++    return 'refused: request_file is not JSON'
++  }
++  const res = await classify($, vault, req)
++  const respPath = `${rootReal}/${m[1]}/resp/${m[2]}.resp.json`
++  await $.fs.write(respPath, JSON.stringify(res))
++  try {
++    await $.process.run(['/bin/chmod', '600', respPath])
++  } catch {
++    // The resp/ directory is 0700 already; a failed chmod leaves the file reachable only through it.
++  }
++
++  return respPath
++}
++
++async function egressCommand($: any, vault: Vault, args: string): Promise<string> {
++  const word = args.trim().toLowerCase()
++  const repo = await sessionRepo($)
++  if (repo === undefined) return 'Jev egress: no repository found for this session.'
++  const storeKey = `egress:${repo}`
++  if (word === 'allow' || word === 'deny') {
++    await $.store.set(storeKey, word)
++    vault.consent[repo] = word
++    await showStatus($, vault)
++
++    return word === 'allow'
++      ? `Jev egress: allow for ${repo}. Jev requests from it go to OpenRouter (TypeSafe System One).`
++      : `Jev egress: deny for ${repo}. Nothing from it is sent to Jev.`
++  }
++  if (word === 'status' || word === '') {
++    const v = await $.store.get(storeKey)
++    const answer = v === 'allow' || v === 'deny' ? v : 'not answered'
++
++    return `Jev egress for ${repo}: ${answer}.`
++  }
++
++  return 'Usage: /compound-v-vault:egress allow|deny|status'
++}
++
++async function startSession($: any, vault: Vault): Promise<void> {
++  vault.asked = false
++  vault.disabled = await isDisabled($)
++  vault.consent = {}
++  for (const k of await $.store.keys()) {
++    if (!k.startsWith('egress:')) continue
++    const v = await $.store.get(k)
++    if (v === 'allow' || v === 'deny') vault.consent[k.slice('egress:'.length)] = v
++  }
++  if (!vault.disabled) {
++    await $.tool.register({
++      name: TOOL_NAME,
++      description: TOOL_DESCRIPTION,
++      inputSchema: {
++        type: 'object',
++        properties: { request_file: { type: 'string', description: 'Absolute path of the request file' } },
++        required: ['request_file'],
++        additionalProperties: false,
++      },
++    })
++    await $.command.register({
++      name: COMMAND_NAME,
++      description: 'Allow, deny or show whether Jev requests may leave this machine for this repository',
++      argumentHint: 'allow|deny|status',
++    })
++  }
++  await showStatus($, vault)
++}
++
++export function register(on: any, options: Record<string, unknown> = {}) {
++  const vault: Vault = {
++    key: typeof options.openrouter_key === 'string' ? options.openrouter_key.trim() : '',
++    route: typeof options.route === 'string' && options.route !== '' ? options.route : DEFAULT_ROUTE,
++    asked: false,
++    disabled: false,
++    consent: {},
++  }
++  // The noun as engine.create adds it. `classify` is an event this plugin serves with its own
++  // `jev.classify` hook (a hook has a `$`); its body here answers only when no hook does.
++  const noun: Jev = {
++    classify: async () => unavailable('no_vault'),
++    status: async (repo: string) => statusFrom(vault, repo),
++  }
++
++  on('engine.create', async ($: any, e: any, next: any) => {
++    const built = await next(e)
++
++    return { ...built, jev: noun }
++  })
++
++  on('jev.classify', async ($: any, e: any) => ({ value: await classify($, vault, e) }))
++
++  on('session.start', async ($: any, e: any, next: any) => {
++    const started = await next(e)
++    await startSession($, vault)
++
++    return started
++  })
++
++  on('tool.call', { tool: 'mcp__compound-v-vault__jev_classify' }, async ($: any, e: any) => ({
++    result: await serveTool($, vault, e.input),
++  }))
++
++  on('command.run', { command: COMMAND_NAME }, async ($: any, e: any) => ({
++    text: await egressCommand($, vault, e.args ?? ''),
++  }))
++
++  // Backstop: a row that would store the key stores [redacted] in its place.
++  on('session.append', ($: any, e: any, next: any) => {
++    if (vault.key.length < 8 || !JSON.stringify(e.message?.content ?? '').includes(vault.key)) return next(e)
++
++    return next({ ...e, message: { ...e.message, content: redactBlocks(e.message.content, vault.key) } })
++  })
++}
+diff --git a/plugins/compound-v-vault/types/index.d.ts b/plugins/compound-v-vault/types/index.d.ts
+new file mode 100644
+index 0000000..dc89bba
+--- /dev/null
++++ b/plugins/compound-v-vault/types/index.d.ts
+@@ -0,0 +1,45 @@
++// The contract of the compound-v-vault plugin: the `jev` noun it adds to `$`.
++// Self-contained (no import, no reference), as a plugin noun's contract must be.
++
++/**
++ * One System One request, as `scripts/compound-v-jev.py build` writes it to a request file.
++ * `body` is sent to OpenRouter as is; every other field stays on this machine.
++ */
++export type JevRequest = {
++  point: string
++  catalogue_hash: string
++  model: string
++  body: { model: string; state: unknown; questions: Record<string, unknown> }
++  timeout_ms: number
++  context: 'hook' | 'offline'
++  repo: string
++}
++
++/**
++ * What the vault answers for one request, and what it writes to a response file.
++ * `body` is present only on `ok`; it is OpenRouter's JSON with `usage.cost` removed.
++ * A non-2xx answer carries `http_status` and never any part of the error body.
++ */
++export type JevResponse = {
++  status: 'ok' | 'unavailable' | 'error'
++  reason?: string
++  http_status?: number
++  latency_ms: number
++  body?: unknown
++}
++
++/**
++ * The vault's noun on `$`: the only HTTP client for Jev.
++ */
++export type Jev = {
++  /** Sends one request to the System One route and maps the answer; never rejects. */
++  classify: (req: JevRequest) => Promise<JevResponse>
++  /** Whether a call for this repository would be sent now, and why not when it would not. */
++  status: (repo: string) => Promise<{ on: boolean; reason?: string }>
++}
++
++declare module 'claude-code' {
++  interface EngineInterface {
++    jev: Jev
++  }
++}
+diff --git a/tests/test-vault-mod.sh b/tests/test-vault-mod.sh
+new file mode 100644
+index 0000000..d31a4b8
+--- /dev/null
++++ b/tests/test-vault-mod.sh
+@@ -0,0 +1,67 @@
++#!/usr/bin/env bash
++# The compound-v-vault plugin (plugins/compound-v-vault): the engine's own validator must accept the
++# manifest, the `jev` noun contract and the hooks module, the module must hook engine.create,
++# session.start and session.append, the plugin must carry no settings (command) hooks, and its tests
++# must pass. Those tests stub the network and check that the key appears only in the fetch
++# Authorization header.
++#
++# `claude plugin validate` and `claude plugin test` need no login. A local `claude` is used when it
++# is new enough (function hooks: Claude Code >= 2.1.287); otherwise a pinned CLI is fetched with npx,
++# which is what CI does. No CLI and no npx is a FAILURE, not a skip: a guard that silently checks
++# nothing is the v2.14.1 false-green.
++set -uo pipefail
++cd "$(dirname "$0")/.." || exit 1
++
++PIN="2.1.289"
++PLUGIN="plugins/compound-v-vault"
++ge() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$2" ]; }
++
++CLAUDE=()
++if command -v claude >/dev/null 2>&1; then
++  v="$(claude --version 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' || true)"
++  if [ -n "$v" ] && ge "$v" "2.1.287"; then CLAUDE=(claude); fi
++fi
++if [ "${#CLAUDE[@]}" -eq 0 ]; then
++  command -v npx >/dev/null 2>&1 || { echo "FAIL no claude >= 2.1.287 and no npx to fetch one"; exit 1; }
++  CLAUDE=(npx -y "@anthropic-ai/claude-code@$PIN")
++fi
++
++pass=0; fail=0
++ok()  { echo "PASS $1"; pass=$((pass + 1)); }
++bad() { echo "FAIL $1"; fail=$((fail + 1)); }
++
++out="$("${CLAUDE[@]}" plugin validate "$PLUGIN" 2>&1)"; rc=$?
++hooks_line="$(printf '%s\n' "$out" | grep -E 'vault\.tsx hooks: ' || true)"
++if [ "$rc" -eq 0 ] && [ -n "$hooks_line" ]; then
++  ok "plugin validate accepts the manifest and the module"
++else
++  bad "plugin validate (rc=$rc)"; printf '%s\n' "$out" | tail -15
++fi
++for h in engine.create session.start session.append jev.classify 'tool.call{tool=mcp__compound-v-vault__jev_classify}' 'command.run{command=egress}'; do
++  printf '%s' "$hooks_line" | grep -qF "$h" && ok "the module hooks $h" || bad "the module does not hook $h"
++done
++printf '%s' "$out" | grep -qF 'declares on $: $.jev' \
++  && ok "the types contract declares the jev noun" || bad "the jev noun contract line is missing"
++
++# hooks.json names one module and nothing else: no settings hook, so no CLAUDE_PLUGIN_OPTION_* export
++# of the sensitive key reaches any hook process.
++keys="$(python3 -B -c 'import json, sys; print(",".join(sorted(json.load(open(sys.argv[1])))))' "$PLUGIN/hooks/hooks.json" 2>&1)"
++[ "$keys" = "modules" ] && ok "hooks.json holds only modules" || bad "hooks.json keys: $keys"
++
++out="$("${CLAUDE[@]}" plugin test "$PLUGIN" 2>&1)"; rc=$?
++if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qE '^ *0 fail' && printf '%s' "$out" | grep -qE '^ *[1-9][0-9]* pass'; then
++  ok "plugin test: $(printf '%s' "$out" | grep -E '^ *[0-9]+ pass' | tr -s ' ')"
++else
++  bad "plugin test (rc=$rc)"; printf '%s\n' "$out" | tail -25
++fi
++
++# No key-shaped literal anywhere in the plugin folder (the tests spell their fake key in pieces).
++prefix="sk-""or-"
++if grep -rn -- "$prefix" "$PLUGIN" >/dev/null 2>&1; then
++  bad "a key-shaped literal is in $PLUGIN"; grep -rn -- "$prefix" "$PLUGIN" | head -5
++else
++  ok "no key-shaped literal in $PLUGIN"
++fi
++
++echo "tests/test-vault-mod.sh: $pass passed, $fail failed"
++[ "$fail" -eq 0 ]

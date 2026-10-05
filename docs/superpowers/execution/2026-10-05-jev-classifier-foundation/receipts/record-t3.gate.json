@@ -1,0 +1,64 @@
+{
+  "baseline_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+  "diff_digest": "sha256:04858303d57f17f7f282f1c12aefb8f8537a390e7864f5f591ee7128d41790d6",
+  "exit_code": 0,
+  "job_id": "record-t3",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/record-t3.patch",
+  "patch_paths": [
+    "schemas/pre-eval-record.schema.json",
+    "scripts/compound-v-preeval.py"
+  ],
+  "patch_sha256": "sha256:04858303d57f17f7f282f1c12aefb8f8537a390e7864f5f591ee7128d41790d6",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4bd5c495ad217f8d6267815655a3e89afbb8c994\",\n  \"changed\": [\n    \"schemas/pre-eval-record.schema.json\",\n    \"scripts/compound-v-preeval.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-preeval.py\",\n    \"schemas/pre-eval-record.schema.json\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "schemas/pre-eval-record.schema.json",
+      "scripts/compound-v-preeval.py"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
+        "output_tail": "[stderr] Traceback (most recent call last):\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 3476, in <module>\n    sys.exit(main(sys.argv))\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 1763, in main\n    return _selftest()\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 2283, in _selftest\n    d_plumb[\"t3_demotion\"][\"from\"] == {\"difficulty\": \"high\", \"impact\": \"high\"}\nKeyError: 't3_demotion'",
+        "rc": 1,
+        "status": "fail",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'",
+        "output_tail": "[stderr] Traceback (most recent call last):\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 3476, in <module>\n    sys.exit(main(sys.argv))\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 1763, in main\n    return _selftest()\n  File \"/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2/scripts/compound-v-preeval.py\", line 2283, in _selftest\n    d_plumb[\"t3_demotion\"][\"from\"] == {\"difficulty\": \"high\", \"impact\": \"high\"}\nKeyError: 't3_demotion'",
+        "rc": 1,
+        "status": "fail",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'"
+    ],
+    "merge_blocked": true,
+    "passed": false,
+    "phase": "test_floor",
+    "reasons": [
+      "tier-1: configured tests failed (rc=1): bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
+      "tier-1: configured tests failed (rc=1): bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'"
+    ],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2"
+}
