@@ -45,3 +45,30 @@ Sources: [mods overview](https://code.claude.com/docs/en/plugins/mods/overview),
 ### Key hygiene (OpenRouter)
 
 - Set a credit limit on every key. OpenRouter is a GitHub secret-scanning partner and emails on detected exposure (no auto-revoke stated) ([OpenRouter auth](https://openrouter.ai/docs/api_reference/authentication)).
+
+## Updated 2026-10-05 - plugin dependencies (vault-as-dependency audit)
+
+Keeping a secret in a separate plugin and declaring that plugin as a dependency changes the secret-holder's lifecycle as follows.
+
+### Dependency lifecycle matrix
+
+| Action on the dependent | Effect on the dependency | Source |
+|---|---|---|
+| Install | Installed and enabled at the same scope. The success message lists it | [install](https://code.claude.com/docs/en/plugins/install) |
+| Enable | Its installed but disabled dependencies are enabled. Fails if one isn't installed, is blocked by policy, or is `false` at a higher scope | [cli-reference](https://code.claude.com/docs/en/plugins/cli-reference) |
+| Disable the dependency | Refused while a dependent is enabled. If it is set `false` in a settings file anyway, the dependent stays disabled with `Dependency "<dep>" is disabled` | install; [troubleshooting](https://code.claude.com/docs/en/plugins/troubleshooting) |
+| Uninstall | The dependency stays until `claude plugin prune` or `uninstall --prune`. Prune never removes a plugin the user installed explicitly | install; cli-reference |
+| Uninstall the dependency (last scope) | Deletes its stored options **and secrets** and its data directory | cli-reference |
+| Update (new version declares a new dependency) | Installed by `claude plugin update` + `/reload-plugins`, by auto-update, by re-running install, or by `marketplace add` | [dependencies](https://code.claude.com/docs/en/plugins/dependencies) |
+| `defaultEnabled: false` on the dependency | Ignored: "A plugin that an enabled plugin depends on starts enabled regardless" | [manifest reference](https://code.claude.com/docs/en/plugins-reference) |
+| Org policy blocks the dependency | The dependent cannot be installed | troubleshooting |
+
+### Rules
+
+- A bare name resolves in the dependent's own marketplace. Other marketplaces need `allowCrossMarketplaceDependenciesOn` in the root marketplace (dependencies page).
+- A version range on a relative-path dependency resolves against `<name>--v<version>` git tags of the marketplace repository. With no matching tag, the install uses the current copy and checks the range at load time (dependencies page).
+- `--plugin-dir`: the dependent stops loading unless the dependency is also loaded with `--plugin-dir` or installed. Passing a parent folder loads its child plugins only when the parent is not itself a plugin (2.1.265+) (dependencies page).
+- A pinned `version` is the cache key. A new `dependencies` entry reaches existing users only after the version string changes. Auto-update is off by default for third-party marketplaces ([loading](https://code.claude.com/docs/en/plugins/loading)).
+- Where a **dependency's** sensitive option gets entered: the docs promise the dialog only for the plugin being installed. Shell `claude plugin install` never prompts. The reliable path is `/plugin configure <dep>@<marketplace>` (qualified id only), or `claude plugin configure <dep>@<mkt> --values-stdin` (≥ 2.1.285). VS Code and Desktop: open bug [#89749](https://github.com/anthropics/claude-code/issues/89749) (2026-08-26) (troubleshooting; cli-reference).
+- `claude plugin validate` does not resolve dependencies. They fail only at install or load time.
+- If the marketplace entry `version` differs from the plugin's `plugin.json`, validate warns ("plugin.json wins"), and `--strict` turns that into a failure ([marketplace reference](https://code.claude.com/docs/en/plugins/marketplace-reference)).
