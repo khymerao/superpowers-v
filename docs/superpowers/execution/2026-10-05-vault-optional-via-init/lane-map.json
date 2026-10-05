@@ -1,8 +1,0 @@
-{
-  "agents": {},
-  "manifest": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-vault-optional-via-init/manifest.yaml",
-  "run_id": "2026-10-05-vault-optional-via-init",
-  "worktrees": {
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_ad948416-5d3-2": "vault-optional"
-  }
-}
