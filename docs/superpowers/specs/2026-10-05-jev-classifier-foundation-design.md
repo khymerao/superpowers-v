@@ -24,7 +24,9 @@ This revision supersedes the first draft (commit b2d3165); see "Pre-flight amend
    It calls Jev with `$.http.fetch`; the key never leaves the Claude Code process. Python never
    holds the key. The mod never answers a Bash tool call on the model's behalf.
 5. **Approach:** A + floor C. Deterministic signals always run; Jev only strengthens them.
-6. **T3 active policy (revised after pre-flight):** asymmetric. A stricter Jev answer decides
+6. **T3 active policy: deferred to spec 1.5 (plan review, 2026-10-05).** Spec 1 ships T3 in
+   `off|shadow` only; the policy below is the candidate for spec 1.5 and is decided on the first eval
+   report. See "Plan-review amendments". Candidate policy, asymmetric. A stricter Jev answer decides
    at once. A demoting Jev answer at `p ≥ θ_demote` gives a *provisional* tier at once and is
    confirmed by the existing Claude classifier at `/v:orchestrate` bind, before the manifest
    freezes; the stricter answer wins on disagreement. A demoting answer below `θ_demote` falls
@@ -246,8 +248,8 @@ Egress consent is not here (it is per user, C2). `/v:init` gains the `jev` block
 1. Without the vault, triage, `detect_ui` (beyond the extended floor) and onboarding behave exactly
    as today.
 2. With the vault and `t3.mode: shadow`, every T3 records both answers; the decision is unchanged.
-3. With `t3.mode: active`, a non-demoting confident Jev answer skips the nested `claude -p`; a
-   demoting one is provisional until confirmed at bind; `latency_ms` is recorded.
+3. (Moved to spec 1.5.) Spec 1: `t3.mode` accepts only `off|shadow`; `active` is coerced to `shadow`
+   with a warning.
 4. The key appears in no file, transcript row, command line, Python process or env var
    (vault test + grep test).
 5. `eval --t3` produces the report with intervals and the pinned model id.
@@ -264,6 +266,32 @@ Python key-free; asymmetric T3 with bind confirmation; per-option descriptions a
 pinned model; full error taxonomy; 32k budget; per-directory onboarding requests; `detect_ui` bool
 contract kept and `.html` dropped from the floor; outbound redaction; prospective calibration with
 intervals; egress consent per user.
+
+## Plan-review amendments (2026-10-05, Fable review, maintainer accepted)
+
+These override the sections above where they differ.
+
+1. **Scope cut.** In the committed records every T3 consultation was a demotion (`demotion`/`sensitive`
+   answered `plumbing`). Under the candidate policy every such case is provisional and Claude still runs at bind,
+   so `active` saves no Claude call on the observed distribution. Spec 1 therefore ships: vault, key-free Python
+   layer, record `t3` block, T3 **shadow**, the eval, the deterministic `detect_ui` floor, and Jev for `detect_ui`
+   and onboarding. Deferred to spec 1.5: `active`, `provisional`, `t3-decide`, `confirm`, successor records
+   (`supersedes`), the model-drift gate, the bind step in `/v:orchestrate`.
+2. **Eval on a committed corpus.** `tests/fixtures/jev-t3-corpus.jsonl`: 60-100 T3-shaped requests (synthetic
+   or consented, no secrets), each labelled by the Claude classifier and by a human. `eval --t3` runs over it
+   offline through `jev_classify`; shadow pairs are a second, growing source. The report adds a probability
+   histogram and the share of hard 0/1 answers; if most answers are 0/1, spec 1.5 gates on agreement plus zero
+   strictness inversions, not on a threshold.
+3. **Durable local data.** Shadow pairs and any stored request text live in `~/.claude/compound-v-jev/<repo-digest>/`
+   (dir 0700, files 0600), not `$TMPDIR`; retention 30 days, pruned by `compound-v-jev.py` on each write.
+   `jev-calls.jsonl` moves to the same directory (not tracked, not indexed by V-memory).
+4. **Record `t3` block** gains `category` and drops `provisional` (spec 1.5 re-adds it).
+5. **Config:** `confidence_min` per point (`t3`, `detect_ui`, `onboard`); `t3.calibrated_model` (unused until 1.5,
+   recorded in reports).
+6. **`detect_ui` Jev:** one Noul over the whole sample ("does any of these files render user-facing UI?"), not one
+   Noul per file by index.
+7. **Hook safety:** the hook never stops before today's Claude path; the mod never replaces another hook's
+   `additionalContext`; shadow returns the classic result untouched.
 
 ## Out of scope (spec 2)
 
