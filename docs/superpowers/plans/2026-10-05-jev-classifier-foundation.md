@@ -510,13 +510,26 @@ Interfaces below, never by reading unmerged code.
   the vault, how to read `jev-calls.jsonl`, how to run `eval --t3`). Run the full CI locally. Commit
   `v3.9.0 Jev classifier foundation and the compound-v-vault plugin`.
 
-## Live probe dependency
+## Live probe (run by the maintainer, 2026-10-05)
 
-The route (`/api/v1/systemone`) and the response shape are doc-derived until the maintainer runs
-`/Users/koristuvac/compound/jev-probe.py` (outside the repo, key read without echo, result in
-`jev-probe-result.json`). The route is a vault `userConfig` default and the parser tolerates unknown keys, so a
-different finding changes one default and possibly the `parse` field names in Task C; dispatch waits for the
-probe result only if it shows a different answer shape.
+`jev-probe.py` (outside the repo) made 9 calls through OpenRouter. Verified, and binding on Tasks C and D:
+
+- Route `POST https://openrouter.ai/api/v1/systemone` answers 200; `/api/alpha/decisions` was not needed.
+- Request shape as planned: `{model, state, questions: {<name>: {type, instructions, criteria}}}`.
+- Choice answer: `{type: "choice", choice, probabilities: {label: p}, confidence}`; Noul answer:
+  `{type: "noul", noul: p}`. Top level adds `model`, `usage {input_tokens, output_tokens, cost}`, `id`,
+  `provider: "TypeSafe"`.
+- Both `typesafe/jev-1.13` and `~typesafe/jev-latest` resolved to `typesafe/jev-1.13-20260917`; record this
+  resolved id, not the requested one.
+- The server does not preserve the order of keys in `probabilities`; parse by label, never by position.
+- On the clear test case the probabilities were exactly 0 and 1; `confidence_min`/`theta_demote` must therefore
+  come from the eval, and the eval must include ambiguous requests.
+- Measured latency on that machine: 268-657 ms per call (first call slowest). The 1,500 ms hook timeout holds.
+- No rate-limit or `Retry-After` headers were returned on success; the retry rule's "absent header = no retry"
+  applies.
+- A 400 error body is `{"error": {"message", "code"}, "user_id": ...}`. `parse` and the vault MUST NOT copy any
+  part of an error body (it carries the account's `user_id`) into telemetry, files or tool results; record only
+  the status class.
 
 ## Self-review
 
