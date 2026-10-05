@@ -1,0 +1,275 @@
+diff --git a/.claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md b/.claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md
+index 57ea2dd..7b28fc0 100644
+--- a/.claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md
++++ b/.claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md
+@@ -56,3 +56,13 @@ At `triage.tier: FULL` with a declared, non-empty `impacted_map`, the derived de
+ match each entry of the job's `files_changed` against the map yourself. `full_command` is owed only
+ for a changed path matching **no** rule. Demanding it of a job whose every path matched is a review
+ error. Run it at run level anyway for the integration pass.
++
++## Closed enums split across two jobs
++
++From run `2026-10-05-jev-classifier-foundation`. Re-verify before relying on it.
++
++When one job emits a status or reason literal and another job parses it against its own tuple, each side's tests
++pass alone and the seam still drifts. The vault plugin emitted `unavailable('no_key')`; the Python parser's
++`UNAVAILABLE_REASONS` had no `no_key` and silently rewrote it to `upstream`. Check every such seam by listing
++the literals on the producing side (`grep -o "unavailable('[a-z_]*')"` or the equivalent) and diffing them
++against the consumer's tuple, then feed one unknown value through the parser to see what it does with it.
+diff --git a/docs/superpowers/dogfood/2026-10-05-jev-classifier-foundation-review.md b/docs/superpowers/dogfood/2026-10-05-jev-classifier-foundation-review.md
+new file mode 100644
+index 0000000..72d0204
+--- /dev/null
++++ b/docs/superpowers/dogfood/2026-10-05-jev-classifier-foundation-review.md
+@@ -0,0 +1,251 @@
++# Review Gate: run 2026-10-05-jev-classifier-foundation
++
++Reviewer: `superpowers-v:spec-reviewer`, job `spec-review`, direct isolation, baseline `e4b3168` (HEAD at review).
++Scope reviewed: every code change of the run, `git diff b299eb8..HEAD` outside `docs/superpowers/execution/`:
++wave 1 (`a037981`, `3a5a696`: record-t3, config-jev, jev-core, vault, corpus), `17c6d91` (ui-floor-onboard-jev),
++`873b5c2` (t3-hook-shadow, t3-mod-shadow), and `719c027` (the run-band test lane change). Spec read amendments first
++(`docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md`, "Plan-review amendments" overrides), then
++the plan's Tasks A-F2 and Task H. The checks below were run by the script kept at the scratchpad path
++`.../scratchpad/verify.sh`, writing only under a sandbox `HOME`; outputs are quoted from its run.
++
++## Recall
++
++- V-memory block in the dispatch prompt: eight rows, all from this run's own spec and recon. Used for orientation
++  only; every claim below is re-verified against HEAD. One row cites `docs/superpowers/memory/jev-calls.jsonl`,
++  which the plan-review amendment 3 moved out of the repository; HEAD agrees (no such file is tracked).
++- Reviewer memory (`verifying-acceptance-criteria.md`): two leads applied. Run each AC instead of reading its
++  selftest, and build the audit MUST table explicitly, because no gate reads the audits. The second lead produced
++  finding 1 below.
++- No directive was found in any memory file or recalled row.
++
++## SPEC
++
++### Requirement coverage (amendments first)
++
++| Requirement | Implemented in | Status |
++|---|---|---|
++| A1 scope cut: no `active`, `provisional`, `t3-decide`, `confirm`, `supersedes` | `grep` of the diff finds none as features; config coerces `active` | ok |
++| A2 committed corpus, 60-100 rows | `tests/fixtures/jev-t3-corpus.jsonl`: 80 rows, 80 unique ids, 20 per label, max request 194 chars, `SECRET_RE` hits 0 | ok |
++| A3 data in `~/.claude/compound-v-jev/<digest>/`, 0700/0600, 30-day prune | `scripts/compound-v-jev.py:221` `data_dir`, `:271` `prune`; probe below | ok (see finding 3) |
++| A4 record `t3` block with `category`, no `provisional` | `schemas/pre-eval-record.schema.json:187`; preeval selftest | ok |
++| A5 `confidence_min` per point, `t3.calibrated_model` | `scripts/compound-v-project-config.py` `resolve_jev` | ok |
++| A6 one Noul over the whole UI sample | `scripts/compound-v-onboard.py:1168` `_ui_sample`, one request | ok |
++| A7 hook never stops before today's path; shadow returns result untouched | `hooks/triage-prompt-nudge.sh` hand-off after the decision; `hooks/jev-t3.tsx:309-316` | ok |
++| C1 key-free Python layer, no network | `scripts/compound-v-jev.py` imports: stdlib only, no `urllib`/`http`/`socket` | ok |
++| C2 vault is the only HTTP client, key only in the fetch header | `plugins/compound-v-vault/hooks/vault.tsx:199`; `hooks.json` holds only `modules` | ok |
++| C4 floor: WordPress, templates, SwiftUI, PHP markup; `.html` not a signal | `scripts/compound-v-onboard.py:412` `detect_ui_reason`; AC-6 below | ok |
++| C5 one layer request per top-level directory, adds rows only | `scripts/compound-v-onboard.py:1327` `_jev_layer_rows`; selftest rows | ok |
++
++### Audit MUST table
++
++| Audit | Constraint | Status |
++|---|---|---|
++| Expert 1 / Arch 8 | never answer `tool.call` for a repo-writing command | ok: the vault registers one tool (`jev_classify`) and one command; no Bash answer |
++| Expert 2 / Lib 3 | key never exported as `CLAUDE_PLUGIN_OPTION_*` to Compound V hooks | ok: separate plugin, no settings hooks (`tests/test-vault-mod.sh` "hooks.json holds only modules") |
++| Expert 4 / Arch 9 | honour `CV_HEADLESS_CLASSIFY` in nested sessions | ok: `vault.tsx:164,235`, `jev-t3.tsx:56,258`, both tested |
++| Expert 6 / Arch 11 | C4 sample excludes Layer A globs **and secret-bearing names (`wp-config.php`, `.env*`, `*secret*`, `*credential*`, `config/*.php`)** | **FAIL, finding 1** |
++| Expert 7 | consent names OpenRouter and TypeSafe, data classes, no zero-retention claim | ok: `plugins/compound-v-vault/README.md:50-58` |
++| Expert 8 / Lib 7 | 402 -> `credits`, no retry; 429 retry only offline with `Retry-After` <= 1 s | ok: `vault.tsx:101-108`, vault tests |
++| Expert 9 | 32,000-token budget | ok: `compound-v-jev.py` `TOKEN_BUDGET`, selftest "bad state is bad_input" |
++| Expert 11 / Lib 9 | resolved model id in telemetry and report | ok: probe below records `typesafe/jev-1.13-20260917` |
++| Expert 12-13 | Wilson interval, `3/n` rule, wording perturbation | ok: AC-5 below; `3/n` covered by selftest row `compound-v-jev.py:1218` |
++| Lib 2 | every `$.process.run` an argv array | ok: `jev-t3.tsx:92,227,285`; `vault.tsx:262,309` |
++| Lib 5-6 | Choice as `criteria` in insertion order; parse `answers.<name>`, ignore unknown keys | ok: jev-core tests "options kept in safety order", "parse choice" |
++| Lib 10 / Arch 18 | Python 3.9, stdlib, `--selftest` literal | ok: CI sweep in the full suite ran it |
++| Lib (MUST NOT) | no `usage.cost` printed | ok: dropped in `vault.tsx:120-124` and `compound-v-jev.py`; probe telemetry has no `cost` |
++| Expert 3 / Lib 8 | gate on Claude Code >= 2.1.287 | ok structurally: older CLIs ignore `modules`; README line 15 states it |
++
++### Departures in t3-mod-shadow, judged against the spec
++
++1. **One module per plugin.** `hooks/hooks.json` lists only `./jev-t3.tsx`, which calls run-band's `register`
++   first (`jev-t3.tsx:291-294`). The plan wanted both modules listed; the runtime refuses that. The run band's
++   hooks are still registered and validated (`tests/test-jev-t3-mod.sh` "jev-t3.tsx registers the run band's
++   hooks", "plugin validate accepts jev-t3.tsx with the band's hooks and classic.UserPromptSubmit"), and
++   `CV_DISABLED_HOOKS=run-band` still gates the band (`hooks/run-band.tsx:218-225`). Accepted.
++2. **`tests/test-run-band-mod.sh:30` widened** to `(run-band|jev-t3)\.tsx hooks: session.start, ui.render...`.
++   It still requires both run-band hooks to be reported and the plugin test to pass; only the module name it
++   is reported under changed, which the runtime decides. Not a weakened gate. Accepted.
++3. **Vault check by guarded call.** `$.jev.status` inside try/catch (`jev-t3.tsx:45-54`) instead of `'jev' in $`.
++   Same contract: no vault means `null` and no config process. Tested by "no $.jev: CV_JEV_T3 is unset and the
++   classic result passes through untouched". Accepted.
++4. **`CV_JEV_T3` set in `classic.UserPromptSubmit`**, before `next(e)`, rather than in `session.start`. The
++   installed API documents `$.env.set` as "Sets the variable for this process and everything it starts after", so
++   the classic hooks started by `next(e)` see it; the test "vault on and t3.mode shadow: CV_JEV_T3=1 is set before
++   the hooks beneath run" pins the order. It is also refreshed per prompt, so a mid-session egress answer counts.
++   Accepted. Not verified live: no vault with a real key was run in this review.
++
++### Job acceptance and over-build
++
++Each job's narrow acceptance is met by its tests (all green below). The `t3-mod-shadow` acceptance in
++`manifest.yaml` was read as it stands: it names `jev-t3.tsx` as the single hooks module that registers run-band's
++hooks by import, which is what shipped. No over-build found: nothing from the spec's
++"Out of scope (spec 2)" list or the spec 1.5 deferrals is present. Recorded, not counted as a defect: spec C2 put
++egress consent in `userConfig.egress`; the plan's Task D interface replaced it with `$.store` plus
++`/compound-v-vault:egress`, and the code follows the plan. Both keep consent per user and default to "ask".
++
++## QUALITY
++
++### Code quality, regression, reward-hack scan
++
++- Removed lines across every changed file were read (`git diff b299eb8..HEAD`, `^-` lines). In
++  `tests/test-native-points.sh` the four removed `run_nudge` lines were moved into arrays so the flagged replay
++  sends the same requests; no assertion was removed, loosened or skipped. No scorer or grader was edited.
++- Docs: no added line over 200 characters outside code and tables in the six changed docs.
++- No fabricated metric: `latency_ms` is measured by the vault; the eval report shows no cost word (grep count 0);
++  `usage.cost` is dropped.
++- shellcheck findings in `tests/test-native-points.sh:209` (SC2181) predate the run (the baseline file has the
++  same line); the other info-level SC2015 notes are in test files the AC-1 command does not cover.
++
++### Task H checks
++
++1. Grep of the run diff for `sk-or-`, `Bearer`, `openrouter_key`, `user_id` outside `plugins/compound-v-vault`:
++
++   ```text
++   $ git diff b299eb8..HEAD -- . ':!plugins/compound-v-vault' ':!docs/superpowers/execution' \
++       | grep -nE '^\+.*(sk-or-|Bearer|openrouter_key|user_id)'
++   4289:+if grep -nE 'sk-or-|Bearer|openrouter_key|user_id' hooks/jev-t3.tsx; then
++   ```
++
++   The one hit is the guard test itself in `tests/test-jev-t3-mod.sh`. No key, header or error-body field.
++2. No network imports in `compound-v-jev.py`:
++
++   ```text
++   $ grep -nE '^\s*(import|from)\s+(urllib|http|socket|ssl|requests|ftplib|smtplib|asyncio)\b' scripts/compound-v-jev.py
++   (none)
++   ```
++
++3. Hook output byte-identical with and without `CV_JEV_T3` (`bash tests/test-native-points.sh`, 148 passed, 0 failed):
++
++   ```text
++   PASS JEV SHADOW: T3 case 1 prints byte-identical output with CV_JEV_T3=1
++   PASS JEV SHADOW: T3 case 2 prints byte-identical output with CV_JEV_T3=1
++   PASS JEV SHADOW: T3 case 3 prints byte-identical output with CV_JEV_T3=1
++   PASS JEV SHADOW: T3 case 4 prints byte-identical output with CV_JEV_T3=1
++   PASS JEV SHADOW: a refused build leaves the output byte-identical
++   PASS PLANTED FAILURE: a context line changed under CV_JEV_T3 is caught by the comparison
++   ```
++
++4. No request text in any `$.process.run` argv:
++
++   ```text
++   $ grep -n 'process.run\|const argv' hooks/jev-t3.tsx
++   92:  const argv = ['python3', '-B', `${$.plugin.root}/scripts/${script}`, ...args]
++   93:  const { exitCode, stdout } = await $.process.run(argv, { timeoutMs: PROCESS_TIMEOUT_MS })
++   227:  await $.process.run(['/bin/chmod', '600', respFile], { timeoutMs: PROCESS_TIMEOUT_MS })
++   285:    await $.process.run(['/bin/rm', '-f', pending.path], { timeoutMs: PROCESS_TIMEOUT_MS })
++   ```
++
++   `args` are file paths, the project path and three tokens checked against `^[A-Za-z0-9._-]+$`
++   (`jev-t3.tsx:209-213`). The vault runs only `git rev-parse --show-toplevel` and `chmod 600 <path>`.
++5. Nothing Jev-related under the repository except code, tests and corpus: `git ls-files` has no `jev-calls`,
++   `shadow-pairs` or `compound-v-jev/` path; `find` for `*.req.json`, `*.resp.json`, `pending-*.json`,
++   `calls.jsonl`, `shadow-pairs.jsonl` outside `.git` finds none after the full suite ran; the native-points row
++   "JEV SHADOW: nothing Jev-related is written under the project" and the jev-core row "nothing written under the
++   repository" pass.
++
++## INTEGRATION
++
++### Acceptance criteria, run on the merged tree
++
++| AC | Evidence | Status |
++|---|---|---|
++| AC-1 | full suite, floor, shellcheck (below) | ok |
++| AC-2 | shadow round trip (below) plus `hooks/jev-t3.test.tsx` "descriptor present: one classify, then parse and pair in order, result deep-equal" | ok (not run live against OpenRouter) |
++| AC-3 | config probe (below) | ok |
++| AC-4 | Task H check 1; `tests/test-vault-mod.sh` 13/13 incl. "no key-shaped literal"; vault plugin test 32 pass | ok |
++| AC-5 | eval probe (below) | ok |
++| AC-6 | detect-ui probe (below) | ok |
++
++**AC-1.** The manifest's `full_command`, run without stopping at the first failure so every failure would show:
++
++```text
++$ for s in scripts/compound-v-*.py (with --selftest) ...; for t in tests/*.sh ...   (prints FAIL <name> on a failure)
++suite-done
++bash -c   159.09s user 80.83s system 76% cpu 5:13.01 total
++exit=0
++```
++
++No `FAIL` line. Floor: `/usr/bin/python3 -B scripts/lint-frontmatter.py .` -> `All frontmatter clean`.
++`shellcheck hooks/*.sh scripts/compound-v-*.sh` (0.11.0) -> exit 0. Mod suites run with output:
++`tests/test-jev-t3-mod.sh` 14 passed, `tests/test-run-band-mod.sh` 4 passed, `tests/test-vault-mod.sh` 13 passed,
++`tests/test-jev-core.sh` "all jev-core tests pass".
++
++**AC-2** (sandbox `HOME`; build, a vault-shaped response file, `parse --mode shadow`, `pair`):
++
++```text
++build: {"status": "ok", "request_file": ".../.claude/compound-v-jev/432d1bd32e1b32f4/req/b191d5....req.json"}
++parse: {"status": "ok", "point": "t3", "answers": {"category": {"type": "choice", "answer": "user-facing-minor", ...}},
++        "latency_ms": 412, "model": "typesafe/jev-1.13-20260917", "catalogue_hash": "eb9299a0d6b1ebf5"}
++pair: {"status": "ok"}
++shadow-pairs.jsonl: {"ts": "...", "request_file": ".../req/b191d5....req.json", "claude_category": "user-facing-minor",
++                     "backend": "claude", "t3_reason": "unbanded"}
++request text in calls/pairs: 0 / 0     cost in calls: 0
++drwx------ <data dir>   -rw------- shadow-pairs.jsonl   -rw------- calls.jsonl   -rw------- <req file>
++expected digest 432d1bd32e1b32f4; dir digest 432d1bd32e1b32f4
++```
++
++The hook half (descriptor written only with the flag, output unchanged) is Task H check 3 plus
++"PASS JEV SHADOW: a decided T3 (case 1) leaves pending-<sha256(proj|sid)>.json in the data dir".
++
++**AC-3:**
++
++```text
++{"jev.t3": {"mode": "shadow", "confidence_min": 0.8, "calibrated_model": null},
++ "warnings": ["jev.t3.mode 'active' is not available until spec 1.5; using 'shadow'"]}
++{"jev.t3.mode": "shadow", "warnings": ["jev.t3.mode must be one of ('off', 'shadow'); using default 'shadow'"]}
++```
++
++**AC-5** (`eval --t3 --prepare --corpus tests/fixtures/jev-t3-corpus.jsonl`, then fake vault answers, then
++`--report`): 320 request files (80 items x original, reversed, two wordings); report has n = 80, a Wilson table
++per reference, strictness inversions with a Wilson interval, order and wording flip rates, latency p50/p95, a
++10-bin probability histogram, "167/320 answers (0.522) have a maximum probability of exactly 0 or 1", the
++resolved model id, and a cost-word count of 0. The zero-inversion `3/n` wording is selftest row
++`compound-v-jev.py:1218` ("eval zero inversions reports 3/n").
++
++**AC-6:**
++
++```text
++wp: ui deterministic:wordpress-theme
++wp (no --reason): ui
++docs: no-ui none
++docs (no --reason): no-ui
++wp (git): ui deterministic:wordpress-theme
++```
++
++### Seams
++
++- F1 -> F2 descriptor contract: seven keys, `pending-<sha256(proj|sid)>.json`, 0600, checked on both sides
++  (native-points "the descriptor has the seven contract keys"; `jev-t3.tsx:154-166`). Holds.
++- C -> D request/response files: `req/` and `resp/` siblings with the same base name on both sides. Holds.
++- **D -> C status reasons: mismatch, finding 2.**
++- B -> F2 config: `jev-t3.tsx:104-110` reads `jev.enabled` and `jev.t3.mode` from the resolver's CLI output. Holds.
++
++## Verdict
++
++**ISSUES.** PASS 1 SPEC: ISSUES (finding 1). PASS 2 QUALITY: ISSUES (finding 3, a retention rule). PASS 3 INTEGRATION: ISSUES
++(finding 2). Build and tests green; AC-1 to AC-6 met on the fixtures run here.
++
++1. **CONSTRAINT_VIOLATION (PASS 1, high).** Expert audit MUST-6 requires the `detect_ui` Jev sample to exclude
++   secret-bearing names (`wp-config.php`, `.env*`, `*secret*`, `*credential*`, `config/*.php`).
++   `scripts/compound-v-onboard.py:1168-1200` (`_ui_sample`) excludes only `.env`, `*.pem`, `*.key`, `.github/**`,
++   Layer A globs and `scan_secrets` hits; the plan's Task E2 had already narrowed the list. Probe: a git repo
++   holding `wp-config.php`, `config/database.php`, `lib/credentials.php` and `lib/math.php` (floor `no-ui none`);
++   `jev-requests --point detect_ui` built one request whose state holds all four files, and the three planted
++   passwords (`DB_PASSWORD`, `AUTH_KEY`, `$api_secret` values) are present in the request file. After egress
++   consent the vault would send them to OpenRouter. Fix: exclude those names in `_ui_sample`, with a selftest row
++   that fails when the exclusion is removed.
++2. **INTEGRATION_MISMATCH (PASS 3, medium).** The vault answers `unavailable(no_key)` (`vault.tsx:236`; plan
++   Task D), but `compound-v-jev.py:59-60` `UNAVAILABLE_REASONS` has no `no_key` (the spec's table says `auth`), so
++   `parse` turns it into `upstream`. Probe: response `{"status":"unavailable","reason":"no_key"}` -> parse
++   `{"status": "unavailable", "reason": "upstream", ...}`, and `calls.jsonl` records `"reason": "upstream"`. A
++   missing key is logged as a provider outage in telemetry and in the eval report's outcome counts. Fix: agree
++   on one reason on both sides, with a test that feeds the vault's own reason set through `parse`.
++3. **CONSTRAINT_VIOLATION (PASS 2, low).** Global constraint and amendment 3: local Jev data has 30-day retention,
++   pruned on write. The `pending-*.json` descriptors in that directory are not covered by the prune
++   (`compound-v-jev.py:271-302` prunes only the two jsonl files, `req/` and `resp/`). An orphaned descriptor
++   (hook wrote it, the module never consumed it) stays forever, and `jev-t3.tsx:175-179` reads only the first 50
++   `pending-*` names in sorted order, so enough orphans make later descriptors invisible and shadow stops
++   silently. Fix: prune `pending-*.json` with the same cutoff, with a test row.
++
++Not verified in this review: a live call through the vault with a real key, and the module running inside a
++real Claude Code session; both are covered only by `claude plugin test` stubs.
