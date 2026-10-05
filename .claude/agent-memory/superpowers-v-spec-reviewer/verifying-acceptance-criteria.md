@@ -56,3 +56,13 @@ At `triage.tier: FULL` with a declared, non-empty `impacted_map`, the derived de
 match each entry of the job's `files_changed` against the map yourself. `full_command` is owed only
 for a changed path matching **no** rule. Demanding it of a job whose every path matched is a review
 error. Run it at run level anyway for the integration pass.
+
+## Closed enums split across two jobs
+
+From run `2026-10-05-jev-classifier-foundation`. Re-verify before relying on it.
+
+When one job emits a status or reason literal and another job parses it against its own tuple, each side's tests
+pass alone and the seam still drifts. The vault plugin emitted `unavailable('no_key')`; the Python parser's
+`UNAVAILABLE_REASONS` had no `no_key` and silently rewrote it to `upstream`. Check every such seam by listing
+the literals on the producing side (`grep -o "unavailable('[a-z_]*')"` or the equivalent) and diffing them
+against the consumer's tuple, then feed one unknown value through the parser to see what it does with it.
