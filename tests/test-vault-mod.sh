@@ -11,6 +11,7 @@
 # nothing is the v2.14.1 false-green.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
+REPO_ROOT="$PWD"
 
 PIN="2.1.289"
 PLUGIN="plugins/compound-v-vault"
@@ -82,6 +83,29 @@ if grep -rn -- "$prefix" "$PLUGIN" >/dev/null 2>&1; then
 else
   ok "no key-shaped literal in $PLUGIN"
 fi
+
+# Optional vault: the marketplace lists it, in lockstep with its own manifest; superpowers-v does not depend on it.
+mk_check="$(python3 -B - "$REPO_ROOT" <<'PY'
+import json, os, sys
+root = sys.argv[1]
+mk = json.load(open(os.path.join(root, ".claude-plugin", "marketplace.json")))
+entry = next((p for p in mk.get("plugins", []) if p.get("name") == "compound-v-vault"), None)
+if entry is None:
+    print("no marketplace entry"); raise SystemExit
+src = os.path.normpath(os.path.join(root, entry.get("source", "")))
+mf = os.path.join(src, ".claude-plugin", "plugin.json")
+if not os.path.isfile(mf):
+    print("source has no plugin.json"); raise SystemExit
+pj = json.load(open(mf))
+if pj.get("name") != entry.get("name") or pj.get("version") != entry.get("version"):
+    print("name/version mismatch"); raise SystemExit
+sv = json.load(open(os.path.join(root, ".claude-plugin", "plugin.json")))
+deps = json.dumps(sv.get("dependencies", []))
+print("ok" if "compound-v-vault" not in deps else "superpowers-v depends on the vault")
+PY
+)"
+if [ "$mk_check" = ok ]; then ok "marketplace lists the vault in lockstep; superpowers-v does not depend on it"; else bad "vault marketplace entry: $mk_check"; fi
+if grep -nE '`/config`' "$PLUGIN/README.md" | grep -qiE 'key|set|fill'; then bad "vault README still sends the key to /config"; else ok "vault README does not send the key to /config"; fi
 
 echo "tests/test-vault-mod.sh: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

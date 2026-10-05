@@ -112,7 +112,7 @@ async function isShadowConfigured($: EngineInterface, proj: string): Promise<boo
 /**
  * CV_JEV_T3=1 when the vault noun is present, Jev is on for this project and the committed config
  * resolves `jev.t3.mode` to `shadow`; unset otherwise. The config verdict is read once per project
- * per load; the vault's answer is asked every time, so `/compound-v-vault:egress allow` given
+ * per load; the vault's answer is asked every time, so `/egress allow` given
  * mid-session counts from the next prompt.
  */
 async function refreshFlag($: JevT3Engine, cwd: unknown): Promise<void> {

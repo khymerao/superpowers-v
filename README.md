@@ -18,6 +18,10 @@ Every write is checked against the files that worker was allowed to touch, and a
 /plugin install superpowers-v@procoders
 ```
 
+**Jev is optional.** The `compound-v-vault` plugin holds an OpenRouter key for Jev, TypeSafe's System One classifier; without it nothing changes.
+`/v:init` offers it: `/plugin install compound-v-vault@procoders` (Claude Code 2.1.287 or newer), then `/plugin configure compound-v-vault@procoders`
+to set the key, then `/egress allow` in each repository.
+
 **Other model CLIs are optional.** Install and log into them and Compound V picks them up; without them it runs Claude-only.
 
 - **Codex** (≥ 0.156.1, for the gpt-6 family): `npm i -g @openai/codex` → `codex login`

@@ -15,6 +15,16 @@
         "name": "Oleg",
         "email": "copeus@gmail.com"
       }
+    },
+    {
+      "name": "compound-v-vault",
+      "description": "Optional key holder for Compound V's Jev classifier: keeps the OpenRouter key in secure storage and is the only program that calls Jev. Inert without a key. Needs Claude Code 2.1.287 or newer.",
+      "version": "0.1.0",
+      "source": "./plugins/compound-v-vault",
+      "author": {
+        "name": "Oleg",
+        "email": "copeus@gmail.com"
+      }
     }
   ]
 }

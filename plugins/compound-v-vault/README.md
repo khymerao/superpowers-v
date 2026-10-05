@@ -17,9 +17,12 @@ it does with no Jev at all.
 
 ## Setup
 
-1. Install the plugin from the same marketplace as Compound V and enable it.
-2. Set the key: run `/config`, find **compound-v-vault**, and fill in **OpenRouter API key**. The field is marked
-   sensitive, so Claude Code keeps it in secure storage, not in a settings file.
+1. Install it with `/plugin install compound-v-vault@procoders`, from the same marketplace as Compound V, or let
+   `/v:init` offer it.
+2. Enter the key with `/plugin configure compound-v-vault@procoders` (Claude Code 2.1.285 or newer); the install
+   dialog may also ask for it. The field is marked sensitive, so Claude Code keeps it in secure storage, not in a
+   settings file, and you type it into Claude Code's own masked field, never into the chat.
+   It is not listed in `/config`, by design: sensitive options never are.
 3. In each repository where you want Jev, run `/egress allow` once (see Egress below).
 
 Use a dedicated OpenRouter key with a credit limit set on the OpenRouter side. The vault cannot cap spending; the
