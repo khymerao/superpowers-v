@@ -100,6 +100,17 @@ The **parent harness** then runs **ONE `light`-tier Task** (Sonnet, **never Haik
 
 Since 3.4.1 the `UserPromptSubmit` hook can finish Tier-3 itself, without a Task and without handing the turn back: `compound-v-classify-request.py --classify-headless` answers the same prompt from a bounded nested `claude -p` (Sonnet — **never Haiku**), falling back to the read-only codex route and then to `unknown`. `/v:triage` documents that as the default route and the Task route as the fallback. Nothing about this section's contract changes — same prompt, same enum, same fail-closed direction — only who runs it.
 
+**Jev in shadow (spec 1).** When the separate `compound-v-vault` plugin is installed and on for the repository, and the
+committed `.claude/compound-v.json` resolves `jev.t3.mode` to `shadow`, the plugin's hooks module (`hooks/jev-t3.tsx`)
+sets `CV_JEV_T3=1` before the `UserPromptSubmit` hook runs. After a decided T3 consultation the hook leaves a pending
+descriptor in the Jev data directory, `~/.claude/compound-v-jev/<repo-digest>/`. Once the hook has answered, the module
+sends the descriptor's request file to Jev through the vault, writes the response file, runs `compound-v-jev.py parse
+--mode shadow` and `pair`, and deletes the descriptor. The pair of answers is appended to `shadow-pairs.jsonl` and the
+call's metadata to `calls.jsonl` in that directory; both are pruned after 30 days and nothing is written under the
+repository. Shadow never changes a decision: the hook's output, the triage tier and the record are what they would be
+without Jev, and the module returns the hook's result unchanged whatever Jev answers. Without the vault, or with
+`t3.mode: off`, the flag is unset and nothing above runs.
+
 ---
 
 ## 4. Phase P — lifecycle & commit ordering (parent-owned; NO run_id yet)

@@ -33,6 +33,41 @@ export type Band = {
   error: string | null
 }
 
+/**
+ * What `hooks/jev-t3.tsx` uses of the `jev` noun the separate compound-v-vault plugin adds to `$`.
+ * A local structural copy, deliberately NOT declared on `EngineInterface`: the vault is optional,
+ * so the module reaches the noun only through a guarded call (`$.jev.status(...)` inside try/catch,
+ * which throws without the vault; the engine refuses an `'jev' in $` test) and compiles and
+ * validates with or without the vault installed.
+ */
+export type JevT3Noun = {
+  classify: (req: unknown) => Promise<JevT3Response>
+  status: (repo: string) => Promise<{ on: boolean; reason?: string }>
+}
+
+/** The vault's answer for one request, as it is written to the response file. */
+export type JevT3Response = {
+  status: 'ok' | 'unavailable' | 'error'
+  reason?: string
+  http_status?: number
+  latency_ms: number
+  body?: unknown
+}
+
+/**
+ * The pending descriptor `hooks/triage-prompt-nudge.sh` leaves in the Jev data directory after a
+ * decided T3 consultation, when `CV_JEV_T3=1`: `pending-<digest>.json`, read and deleted by the module.
+ */
+export type JevT3Descriptor = {
+  pre_eval_id: string
+  request_file: string
+  t3_reason: string
+  claude_category: string
+  backend: string
+  proj: string
+  sid: string
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'superpowers-v': { band: Band | null }

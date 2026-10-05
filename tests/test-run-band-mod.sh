@@ -27,8 +27,10 @@ ok()  { echo "PASS $1"; pass=$((pass + 1)); }
 bad() { echo "FAIL $1"; fail=$((fail + 1)); }
 
 out="$("${CLAUDE[@]}" plugin validate . 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -q 'run-band.tsx hooks: session.start, ui.render{component=AbovePrompt}'; then
-  ok "plugin validate accepts the module and names its two hooks"
+# hooks.json takes one module per plugin, so run-band's hooks may be reported under the module that
+# imports its `register` (jev-t3.tsx) rather than under run-band.tsx itself.
+if [ "$rc" -eq 0 ] && printf '%s' "$out" | grep -qE '(run-band|jev-t3)\.tsx hooks: session\.start, ui\.render\{component=AbovePrompt\}'; then
+  ok "plugin validate accepts the module and names run-band's two hooks"
 else
   bad "plugin validate (rc=$rc)"; printf '%s\n' "$out" | tail -15
 fi

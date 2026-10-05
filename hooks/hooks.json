@@ -125,5 +125,5 @@
       }
     ]
   },
-  "modules": ["./run-band.tsx"]
+  "modules": ["./jev-t3.tsx"]
 }
