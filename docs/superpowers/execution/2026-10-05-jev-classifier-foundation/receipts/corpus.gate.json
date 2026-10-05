@@ -1,0 +1,63 @@
+{
+  "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+  "diff_digest": "sha256:6873c022a397480c2c117c0f733602d4304bec54b22d678483c32362a15e9715",
+  "exit_code": 0,
+  "job_id": "corpus",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/corpus.patch",
+  "patch_paths": [
+    "tests/fixtures/README-jev-corpus.md",
+    "tests/fixtures/jev-t3-corpus.jsonl"
+  ],
+  "patch_sha256": "sha256:6873c022a397480c2c117c0f733602d4304bec54b22d678483c32362a15e9715",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"tests/fixtures/README-jev-corpus.md\",\n    \"tests/fixtures/jev-t3-corpus.jsonl\"\n  ],\n  \"allowed\": [\n    \"tests/fixtures/jev-t3-corpus.jsonl\",\n    \"tests/fixtures/README-jev-corpus.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "tests/fixtures/README-jev-corpus.md",
+      "tests/fixtures/jev-t3-corpus.jsonl"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B -c \"import json;[json.loads(l) for l in open(\\\"tests/fixtures/jev-t3-corpus.jsonl\\\") if l.strip()]\" && echo corpus-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+        "output_tail": "FAIL tests/test-engine-c-contract.sh",
+        "rc": 1,
+        "status": "fail",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 1 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)",
+      "unmapped: tests/fixtures/README-jev-corpus.md matched no `when` glob \u2014 unknown blast radius resolves to full_command, never to nothing",
+      "scope: labelled `full` \u2014 full_command was added for an unmapped path at this tier, so the whole suite is what ran"
+    ],
+    "failures": [
+      "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'"
+    ],
+    "merge_blocked": true,
+    "passed": false,
+    "phase": "test_floor",
+    "reasons": [
+      "tier-1: configured tests failed (rc=1): bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'"
+    ],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-6"
+}

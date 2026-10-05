@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-init.md",
+    "scripts/compound-v-project-config.py"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "diff_digest": "sha256:203b3753d337a61f086d498fa5309092272ade2de342d35148a70fec0a78f166",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"commands/v-init.md\",\n    \"scripts/compound-v-project-config.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-project-config.py\",\n    \"commands/v-init.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task B \u2014 jev config resolver and /v:init seed",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\n/usr/bin/python3 -B scripts/compound-v-project-config.py --selftest",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-3"
+}

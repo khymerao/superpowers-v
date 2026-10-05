@@ -1,0 +1,60 @@
+{
+  "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+  "diff_digest": "sha256:5f63e2df3117ec75a866c813dcf29598752073047a63b9a550d23f79d55f1f87",
+  "exit_code": 0,
+  "job_id": "record-t3",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/record-t3.patch",
+  "patch_paths": [
+    "schemas/pre-eval-record.schema.json",
+    "scripts/compound-v-preeval.py"
+  ],
+  "patch_sha256": "sha256:5f63e2df3117ec75a866c813dcf29598752073047a63b9a550d23f79d55f1f87",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"schemas/pre-eval-record.schema.json\",\n    \"scripts/compound-v-preeval.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-preeval.py\",\n    \"schemas/pre-eval-record.schema.json\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "schemas/pre-eval-record.schema.json",
+      "scripts/compound-v-preeval.py"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
+        "rc": 1,
+        "status": "fail",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'"
+    ],
+    "merge_blocked": true,
+    "passed": false,
+    "phase": "test_floor",
+    "reasons": [
+      "tier-1: configured tests failed (rc=1): bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'"
+    ],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-2"
+}
