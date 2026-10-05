@@ -67,7 +67,7 @@ Inventory the ground truth, write nothing:
 - **Existing instruction files** (treat per the cardinal rule above), stack, git remote origin.
 - **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo .` → `ui` / `no-ui`.
   This is the only thing that decides whether the DESIGN.md branch runs (step 9 / §DESIGN below).
-- **Operations / Deployment signals** via `python3 scripts/compound-v-onboard.py detect-ops
+- **Operations / Deployment signals** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ops
   --repo . --json` → `{signals_found, ci_cd[], containers[], deploy[]}`. Inventories CI/CD
   (`.github/workflows/*`, `.gitlab-ci.yml`, `.circleci/config.yml`, `Jenkinsfile`,
   `azure-pipelines.yml`, `.travis.yml`, `bitbucket-pipelines.yml`), container/infra

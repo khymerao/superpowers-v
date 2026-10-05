@@ -434,9 +434,10 @@ def _ops_category(rel: str):
 
 
 def detect_ops(repo: str) -> dict:
-    """Inventory CI/CD + container/infra + deploy files. Walks the filesystem (excluding VENDOR_DIRS)
-    so it works on non-git trees too. Reads only filenames (os.walk, no file contents), so the
-    hardened bounded-read path (_open_regular/_read_bounded) does not apply here.
+    """Inventory CI/CD + container/infra + deploy files. Iterates `_repo_files(repo)`: git-tracked
+    files, so gitignored secrets (`*.tfvars`, `.terraform/`, `.venv/`) never become cited signals,
+    with an os.walk fallback (excluding VENDOR_DIRS) for non-git trees. Reads only filenames, never
+    file contents, so the hardened bounded-read path (_open_regular/_read_bounded) does not apply here.
 
     `signals_found` is True iff at least one KNOWN signal matched. Its falsity means "no signals
     found" — NOT a verdict that the project has no ops layer. The signal list is a fixed accelerator
@@ -444,13 +445,10 @@ def detect_ops(repo: str) -> dict:
     an OPEN QUESTION the gate must surface ("no explicit ops files — if this project deploys, point
     me at it"), never a confident "no ops". An incomplete scan must never read as a clean one."""
     found = {"ci_cd": [], "containers": [], "deploy": []}
-    for dirpath, dirnames, filenames in os.walk(repo):
-        dirnames[:] = [d for d in dirnames if d not in VENDOR_DIRS]
-        for fn in filenames:
-            rel = os.path.relpath(os.path.join(dirpath, fn), repo).replace(os.sep, "/")
-            cat = _ops_category(rel)
-            if cat:
-                found[cat].append(rel)
+    for rel in _repo_files(repo):
+        cat = _ops_category(rel)
+        if cat:
+            found[cat].append(rel)
     for k in ("ci_cd", "containers", "deploy"):
         found[k].sort()
     found["signals_found"] = any(found[k] for k in ("ci_cd", "containers", "deploy"))
@@ -1834,7 +1832,7 @@ def _selftest() -> int:
         shutil.rmtree(d5, ignore_errors=True)
     check("detect_ui false on bare", detect_ui(tempfile.mkdtemp()) is False)
 
-    # detect_ops: CI/CD + container + deploy inventory (walks fs, not git — selftest dirs aren't repos).
+    # detect_ops: CI/CD + container + deploy inventory (non-git tree ⇒ _repo_files' os.walk fallback).
     d5b = tempfile.mkdtemp()
     try:
         os.makedirs(os.path.join(d5b, ".github", "workflows"))
@@ -1848,6 +1846,23 @@ def _selftest() -> int:
         check("detect_ops finds deploy fly.toml", "fly.toml" in r_ops["deploy"])
     finally:
         shutil.rmtree(d5b, ignore_errors=True)
+    # Git tree ⇒ only TRACKED files are signals. A gitignored `infra/terraform.tfvars` (often holds
+    # credentials) and `.terraform/` must never be listed, or EXTRACT would read and cite them.
+    d5g = tempfile.mkdtemp()
+    try:
+        _sp.run(["git", "-C", d5g, "init", "-q"], check=True)
+        os.makedirs(os.path.join(d5g, "infra", ".terraform"))
+        with open(os.path.join(d5g, ".gitignore"), "w") as fh: fh.write("*.tfvars\n.terraform/\n")
+        with open(os.path.join(d5g, "infra", "main.tf"), "w") as fh: fh.write("terraform {}\n")
+        with open(os.path.join(d5g, "infra", "terraform.tfvars"), "w") as fh: fh.write("db_password = \"x\"\n")
+        with open(os.path.join(d5g, "infra", ".terraform", "mod.tf"), "w") as fh: fh.write("\n")
+        _sp.run(["git", "-C", d5g, "add", "-A"], check=True)
+        r_g = detect_ops(d5g)
+        check("detect_ops lists tracked infra/main.tf", "infra/main.tf" in r_g["containers"])
+        check("detect_ops skips gitignored tfvars and .terraform/",
+              not any(p.endswith(".tfvars") or "/.terraform/" in p for p in r_g["containers"]))
+    finally:
+        shutil.rmtree(d5g, ignore_errors=True)
     # Bare tree ⇒ signals_found False. This is "no signals found" (an open question for the gate),
     # never a "no ops layer" verdict — a bespoke deployer would match nothing yet still exist.
     d5c = detect_ops(tempfile.mkdtemp())
