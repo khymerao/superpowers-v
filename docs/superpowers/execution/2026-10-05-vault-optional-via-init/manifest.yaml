@@ -33,7 +33,7 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: .claude-plugin/marketplace.json
-    run: bash -c 'jq empty .claude-plugin/marketplace.json && bash tests/test-vault-mod.sh >/dev/null && echo mk-ok'
+    run: bash -c 'jq empty .claude-plugin/marketplace.json && bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mk-ok'
   - when: tests/test-vault-mod.sh
     run: bash tests/test-vault-mod.sh
   - when: hooks/*.tsx

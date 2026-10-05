@@ -47,3 +47,9 @@ Leads only - re-verify each against the current tree before citing it as a findi
   `tests/test-transcript-watch.sh` / `test-usage-workflow.sh` only use the emit-workflow path as a string.
 - **`RUN_DIR_EXEMPT_BY_NAME` is enumerated in prose** in `scripts/compound-v-scope-check.py`'s docstring
   (~:47 and ~:353). A job adding an entry to the list in emit-workflow leaves that docstring stale unless it owns it.
+- **`claude plugin validate .` also validates `.claude-plugin/marketplace.json`** (first line of its output,
+  seen 2026-10-05 on 2.1.289), so `tests/test-run-band-mod.sh` and `tests/test-jev-t3-mod.sh` (both require rc 0)
+  are drivers of marketplace.json. An impacted_map entry for marketplace.json that runs only `jq` + one test
+  misses them unless another changed file (e.g. `hooks/*.tsx`) pulls them in.
+- **Co-change marketplace.json -> plugin.json / CHANGELOG.md (~100% / ~97%)** is release-driven (release
+  commits dominate support). For a "no version bump" run it is an expected WARN, not an omission.
