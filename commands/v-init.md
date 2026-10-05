@@ -572,6 +572,13 @@ was, in those two fields).
     "token_cap": 20000,
     "remember": {}
   },
+  "jev": {
+    "enabled": true,
+    "model": "typesafe/jev-1.13",
+    "t3":        { "mode": "shadow", "confidence_min": 0.8, "calibrated_model": null },
+    "detect_ui": { "mode": "active", "confidence_min": 0.8 },
+    "onboard":   { "mode": "active", "confidence_min": 0.8 }
+  },
   "models": {
     "balanced": {
       "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
@@ -687,6 +694,15 @@ identically to `balanced`. Only `cost-aware.claude.standard` differs: `sonnet`, 
   DIRECT auto-route class (Iron Invariant #4 as amended in v3.0, plus #5: membership in that class is
   decided by the scorer's mechanically checkable predicates against the repo-local impact taxonomy,
   never by a config value and never by model judgement). Do not re-implement these rules inline; call the loader.
+- **`jev`** (defaults exactly the block above) = how Compound V may use the Jev classifier. This is
+  **committed team policy only.** The OpenRouter key and each user's egress consent live in the
+  `compound-v-vault` plugin and **never** go in this file; do not add a key, a token or a consent
+  field here. `t3.mode` is `off` or `shadow`, and in shadow Jev never changes the triage decision.
+  `active` is not available until spec 1.5, and the loader turns it back into `shadow` with a warning.
+  `detect_ui.mode` and `onboard.mode` are `off` or `active`. Each `confidence_min` is a number above
+  0 and at most 1. `t3.calibrated_model` is unused until spec 1.5 and defaults to `null`. The shared loader
+  (`resolve_jev` in `scripts/compound-v-project-config.py`) coerces every bad value to its default
+  and returns a warning, and a `jev` value that is not an object makes `load_project_config` raise.
 - **`models` — SEED the default per-stance tier→model map (exactly the block above)** so
   intent-based routing resolves out of the box even with no further setup. The map is
   **per-stance** — shape `{<stance>: {<backend>: {<tier>: model}}}`. Only the `claude`
