@@ -32,3 +32,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
   entry, seen 2026-10-05). A job adding a new mod must make it the single module and import the
   existing `hooks/run-band.tsx` `register`, so `tests/test-run-band-mod.sh` (its grep of the
   validator's per-module hooks line) becomes a shared resource of any new-mod job - that job must own it.
+- **Cross-script tests outside a job's impacted_map.** `tests/test-onboard-rules.sh` drives
+  `scripts/compound-v-onboard.py` via CLI, and `tests/test-native-points.sh` stubs `scripts/compound-v-jev.py`
+  (seen 2026-10-05). An impacted_map that runs only the script's `--selftest` misses them; only the
+  full_command at merge catches a break. Grep `tests/*.sh` for the script name before trusting impacted scope.

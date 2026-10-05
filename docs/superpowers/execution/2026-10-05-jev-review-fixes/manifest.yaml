@@ -35,9 +35,9 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: scripts/compound-v-onboard.py
-    run: /usr/bin/python3 -B scripts/compound-v-onboard.py --selftest
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-onboard.py --selftest >/dev/null && bash tests/test-onboard-rules.sh >/dev/null && echo onboard-ok'
   - when: scripts/compound-v-jev.py
-    run: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo jev-ok'
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo jev-ok'
   - when: tests/test-jev-core.sh
     run: bash tests/test-jev-core.sh
   - when: skills/**/*.md
