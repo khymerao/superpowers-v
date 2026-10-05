@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-05T13:49:40Z",
+  "pre_eval_id": "2026-10-05T134203Z-offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de-1491",
+  "jobs": {
+    "vault-optional": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
