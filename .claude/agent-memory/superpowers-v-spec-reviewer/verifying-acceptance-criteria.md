@@ -57,6 +57,17 @@ match each entry of the job's `files_changed` against the map yourself. `full_co
 for a changed path matching **no** rule. Demanding it of a job whose every path matched is a review
 error. Run it at run level anyway for the integration pass.
 
+## Code quoted in a plan is still code under review
+
+From run `2026-10-05-jev-review-fixes`. Re-verify before relying on it.
+
+A plan can carry finished code that the implementer copies verbatim, and every gate then passes, because the tests
+check what the plan asked for, not how it runs. That run's content filter (`_CRED_ASSIGN_RE` in
+`scripts/compound-v-onboard.py`, used by `_ui_sample`) had an unbounded character-class star on both sides of a name
+alternation and went quadratic on a long run of that class inside the bounded read. The check: time any new
+content-filter regex on one line made only of its own character class, at the reader's cap (`UI_READ_CAP`), against
+the base version of the same function. Plan-supplied code gets the same quality pass as code the implementer wrote.
+
 ## Closed enums split across two jobs
 
 From run `2026-10-05-jev-classifier-foundation`. Re-verify before relying on it.
