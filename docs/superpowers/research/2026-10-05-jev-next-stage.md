@@ -64,6 +64,20 @@ None of that evidence exists yet:
   `CLAUDE_CODE_EXECPATH`, or `"$CLAUDE_CODE_EXECPATH" --version`), falling back to `claude --version` only when that
   variable is unset; pin it with a test row.
 
+## Confirmed by the maintainer (2026-10-05)
+
+Jev does not work in the Claude desktop app's Code tab at all: the vault loads and shows
+`Jev: off (no_key)`, so the module never receives the key the CLI stored. The terminal `claude` works with the same key.
+Whether the cause is the bundled 2.1.286 or the app process not reading the CLI's keychain entry is not settled.
+Decided direction (do not store the key in a file or an env var; that defeats the vault):
+
+1. `/v:init` 1g detects a desktop host (`CLAUDE_CODE_ENTRYPOINT=claude-desktop`) and reports
+   `installed, inert in the desktop app — use Jev from a terminal claude`, instead of `installed, key set`.
+2. The version gate reads the running host (`CLAUDE_CODE_EXECPATH`), not `claude --version`.
+3. The vault README states the desktop limitation in one sentence.
+4. Optionally, an issue for Anthropic: the desktop app does not pass a plugin's `sensitive` `userConfig` to its
+   function-hooks module, and offers no `/plugin configure` to set it in place.
+
 ## Open items that are not features
 
 - The lane-guard and re-finalize fixes reach live sessions only after a release (version bump, CHANGELOG,
