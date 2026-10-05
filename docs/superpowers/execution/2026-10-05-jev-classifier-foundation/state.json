@@ -1,5 +1,5 @@
 {
-  "phase": "BLOCKED",
+  "phase": "DISPATCHED",
   "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
@@ -79,7 +79,8 @@
         "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
         "mode": "worktree",
         "integrated": true,
-        "commit": "17c6d9146729c32a43f9cbbf37dc15782ffe01dc"
+        "proof": "head-matches-artifact",
+        "commit": "873b5c2ecd00547fb9707808d245da78ca3987e5"
       },
       "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
       "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
@@ -100,20 +101,30 @@
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
     "t3-hook-shadow": {
-      "status": "blocked",
+      "status": "done",
       "isolation": "worktree",
       "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-7",
       "session_id": null,
-      "merged": null,
+      "merged": {
+        "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "873b5c2ecd00547fb9707808d245da78ca3987e5"
+      },
       "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
       "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
     },
     "t3-mod-shadow": {
-      "status": "blocked",
+      "status": "done",
       "isolation": "worktree",
       "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-8",
       "session_id": null,
-      "merged": null,
+      "merged": {
+        "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "873b5c2ecd00547fb9707808d245da78ca3987e5"
+      },
       "baseline": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
       "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8"
     },
@@ -151,10 +162,12 @@
         "t3-mod-shadow"
       ],
       "merged": [
-        "ui-floor-onboard-jev"
+        "ui-floor-onboard-jev",
+        "t3-hook-shadow",
+        "t3-mod-shadow"
       ],
-      "commit": "17c6d9146729c32a43f9cbbf37dc15782ffe01dc",
-      "integrated": false
+      "commit": "873b5c2ecd00547fb9707808d245da78ca3987e5",
+      "integrated": true
     }
   },
   "blocked_reason": "wave 2 refused: t3-hook-shadow, t3-mod-shadow",

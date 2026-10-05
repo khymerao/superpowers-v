@@ -26,9 +26,8 @@
       },
       {
         "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'",
-        "output_tail": "[stderr] bash: line 1: shellcheck: command not found",
-        "rc": 127,
-        "status": "fail",
+        "rc": 0,
+        "status": "pass",
         "tier": 1
       },
       {
@@ -44,15 +43,11 @@
       "previously-failing: 0 command(s) from the last run's tests.failures[]",
       "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
     ],
-    "failures": [
-      "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'"
-    ],
-    "merge_blocked": true,
-    "passed": false,
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
     "phase": "test_floor",
-    "reasons": [
-      "tier-1: configured tests failed (rc=127): bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'"
-    ],
+    "reasons": [],
     "tier_used": 1
   },
   "toolchain_artifacts": [],

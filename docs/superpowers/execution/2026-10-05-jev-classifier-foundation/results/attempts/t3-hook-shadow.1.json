@@ -1,5 +1,5 @@
 {
-  "blocked": false,
+  "blocked": true,
   "exit_code": 0,
   "failure_class": null,
   "files_changed": [
@@ -16,12 +16,14 @@
   },
   "retry_after_seconds": 0,
   "session_id": "",
-  "status": "success",
+  "status": "blocked",
   "summary": "Task F1 \u2014 T3 shadow descriptor in the hook",
   "tests": {
     "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'\nbash tests/test-native-points.sh",
-    "exit_code": 0,
-    "failures": [],
+    "exit_code": 127,
+    "failures": [
+      "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'"
+    ],
     "scope": "impacted",
     "selected_count": 3
   },
