@@ -26,8 +26,8 @@
       },
       {
         "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
-        "rc": 1,
-        "status": "fail",
+        "rc": 0,
+        "status": "pass",
         "tier": 1
       },
       {
@@ -43,15 +43,11 @@
       "previously-failing: 0 command(s) from the last run's tests.failures[]",
       "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
     ],
-    "failures": [
-      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'"
-    ],
-    "merge_blocked": true,
-    "passed": false,
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
     "phase": "test_floor",
-    "reasons": [
-      "tier-1: configured tests failed (rc=1): bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'"
-    ],
+    "reasons": [],
     "tier_used": 1
   },
   "toolchain_artifacts": [],

@@ -1,5 +1,5 @@
 {
-  "blocked": false,
+  "blocked": true,
   "exit_code": 0,
   "failure_class": null,
   "files_changed": [
@@ -16,12 +16,14 @@
   },
   "retry_after_seconds": 0,
   "session_id": "",
-  "status": "success",
+  "status": "blocked",
   "summary": "Task K \u2014 synthetic T3 corpus",
   "tests": {
     "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B -c \"import json;[json.loads(l) for l in open(\\\"tests/fixtures/jev-t3-corpus.jsonl\\\") if l.strip()]\" && echo corpus-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
-    "exit_code": 0,
-    "failures": [],
+    "exit_code": 1,
+    "failures": [
+      "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'"
+    ],
     "scope": "full",
     "selected_count": 3
   },

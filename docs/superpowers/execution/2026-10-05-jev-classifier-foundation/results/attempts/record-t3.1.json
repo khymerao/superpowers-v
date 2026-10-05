@@ -1,5 +1,5 @@
 {
-  "blocked": false,
+  "blocked": true,
   "exit_code": 0,
   "failure_class": null,
   "files_changed": [
@@ -16,12 +16,14 @@
   },
   "retry_after_seconds": 0,
   "session_id": "",
-  "status": "success",
+  "status": "blocked",
   "summary": "Task A \u2014 record t3 block and --request-file",
   "tests": {
     "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'\nbash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'",
-    "exit_code": 0,
-    "failures": [],
+    "exit_code": 1,
+    "failures": [
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'"
+    ],
     "scope": "impacted",
     "selected_count": 3
   },
