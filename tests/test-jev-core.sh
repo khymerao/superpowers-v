@@ -101,6 +101,35 @@ keys="$("$PY" -B -c 'import json,sys; print(",".join(sorted(json.loads(open(sys.
 if [ "$keys" = "answer,catalogue_hash,hook_budget_left_ms,latency_ms,mode,model,point,probs,status,ts" ]; then pass "telemetry keys exact"; else fail "telemetry keys: $keys"; fi
 if grep -q 'Rename the build flag' "$DD/calls.jsonl"; then fail "state text in telemetry"; else pass "no state text in telemetry"; fi
 
+# 6b. contract: every reason the vault can send survives parse unchanged. The reason literals are
+# read from vault.tsx itself, so a reason added there without a matching entry here fails. The
+# `function unavailable(reason` and `function failed(reason` definitions do not match `\b<fn>\('`.
+VAULT="$ROOT/plugins/compound-v-vault/hooks/vault.tsx"
+reasons="$("$PY" -B - "$VAULT" <<'PYEOF'
+import re, sys
+src = open(sys.argv[1]).read()
+for fn, status in (("unavailable", "unavailable"), ("failed", "error")):
+    found = sorted(set(re.findall(r"\b%s\('([a-z_]+)'" % fn, src)))
+    if not found:
+        print("NONE %s" % status)
+    for r in found:
+        print("%s %s" % (status, r))
+PYEOF
+)"
+if printf '%s\n' "$reasons" | grep -q '^NONE'; then fail "contract: no reason literals found in vault.tsx"; fi
+n=0
+while read -r st rs; do
+  [ -n "$st" ] || continue
+  [ "$st" = "NONE" ] && continue
+  printf '{"status": "%s", "reason": "%s", "latency_ms": 1}' "$st" "$rs" >"$DD/resp/$B.resp.json"
+  out="$("$PY" -B "$SCRIPT" parse --response-file "$DD/resp/$B.resp.json" --repo "$REPO" --mode shadow)"
+  got="$(jget "$out" 'd["status"] + " " + d.get("reason", "")')"
+  if [ "$got" = "$st $rs" ]; then n=$((n + 1)); else fail "contract: vault $st($rs) parsed as '$got'"; fi
+done <<EOF
+$reasons
+EOF
+if [ "$n" -gt 0 ]; then pass "contract: $n vault reasons survive parse unchanged"; else fail "contract: no vault reason checked"; fi
+
 # 7. an error body carrying the account id is never copied; 402 maps to unavailable(credits).
 cat >"$T/work/err.resp.json" <<EOF
 {"status": "error", "http_status": 402, "latency_ms": 80,

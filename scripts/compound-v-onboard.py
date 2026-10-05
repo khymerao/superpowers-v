@@ -1067,6 +1067,38 @@ _UI_SAMPLE_RANK = (
     (".php", ".js", ".mjs", ".ts", ".py", ".rb", ".go", ".java", ".kt", ".cs", ".dart", ".ex",
      ".rs", ".swift"),
 )
+# Basenames that hold credentials in common frameworks; with the rules in `_secret_named` they keep a
+# file out of the detect_ui sample before it is read.
+_SECRET_BASENAMES = ("wp-config.php", "settings.py", "local_settings.py", "configuration.php", "env.php")
+# A credential-looking name (quoted or bare) assigned a quoted literal of 4+ characters. `SECRET_RE`
+# only knows vendor token families, so a `DB_PASSWORD`-style value passes it; this catches that shape.
+_CRED_ASSIGN_RE = re.compile(
+    r"""(?ix)
+    ["']?[a-z0-9_.-]*(?:password|passwd|pwd|secret|api_?key|auth_?key|token)[a-z0-9_.-]*["']?
+    \s*(?:=>|=|:|,)\s*
+    (?P<q>["'])(?:(?!(?P=q)).){4,}(?P=q)
+    """)
+
+
+def _secret_named(path):
+    """True when a path's NAME alone marks it secret-bearing: these are skipped before any read.
+    Case-insensitive: `.env*`, the `_SECRET_BASENAMES`, any `.php` basename containing `settings`, any
+    path containing `secret` or `credential`, and any path with a directory component named `config`."""
+    low = path.lower()
+    parts = low.split("/")
+    base = parts[-1]
+    if base.startswith(".env") or base in _SECRET_BASENAMES:
+        return True
+    if base.endswith(".php") and "settings" in base:
+        return True
+    if "secret" in low or "credential" in low:
+        return True
+    return "config" in parts[:-1]
+
+
+def _has_credential_assignment(text):
+    """True when a bounded read assigns a quoted literal of 4+ chars to a credential-looking name."""
+    return _CRED_ASSIGN_RE.search(text) is not None
 # Layer -> (difficulty_band, impact_band). The ONE place a Jev layer becomes bands; `unknown` (and
 # any label not listed) produces no row.
 _LAYER_BANDS = {
@@ -1166,9 +1198,13 @@ def _glob_match(path, glob):
 
 
 def _ui_sample(repo):
-    """≤ 12 files × ≤ 20 lines for the detect_ui question, deterministic order. Excluded: `.env`,
-    `*.pem`, `*.key`, `.github/**`, vendored or generated files, anything a sensitive glob matches,
-    and any file `scan_secrets` flags in its bounded read."""
+    """≤ 12 files × ≤ 20 lines for the detect_ui question, deterministic order. Excluded: `.env*`,
+    `*.pem`, `*.key`, `.github/**`, vendored or generated files, files whose names look secret-bearing
+    (`_secret_named`: credential basenames, `*settings*.php`, a `config` directory, `secret` or
+    `credential` in the path; checked before any read), anything a sensitive glob matches, any file
+    `scan_secrets` flags in its bounded read, and any file whose bounded read assigns a quoted literal
+    to a password-, secret-, key- or token-like name (`_has_credential_assignment`). These rules leave
+    out files that look secret-bearing; a secret in a file none of them catches can still be sampled."""
     files = sorted(_repo_files(repo))
     sens = _sensitive_globs(repo, files)
     ranked = []
@@ -1177,7 +1213,7 @@ def _ui_sample(repo):
         base = low.rsplit("/", 1)[-1]
         if base == ".env" or low.endswith((".env", ".pem", ".key")) or low.startswith(".github/"):
             continue
-        if _exclude_reason(f):
+        if _secret_named(f) or _exclude_reason(f):
             continue
         rank = next((i for i, exts in enumerate(_UI_SAMPLE_RANK) if low.endswith(exts)), None)
         if rank is None:
@@ -1195,7 +1231,9 @@ def _ui_sample(repo):
         text = data.decode("utf-8", "replace")
         if scan_secrets(text):
             continue
-        head = "\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])
+        if _has_credential_assignment(text):
+            continue
+        head ="\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])
         out.append({"path": f, "head": head})
     return out
 
@@ -2541,6 +2579,61 @@ def _selftest() -> int:
               and detect_ui_reason(rj, rdir) == (True, "deterministic:.tsx"))
     finally:
         shutil.rmtree(rj, ignore_errors=True)
+
+    # Secret-bearing files leave the detect_ui sample. The planted values are DB_PASSWORD-style literals
+    # SECRET_RE does not match, and no PHP probe has HTML outside `<?php`, so the floor stays no-ui and a
+    # request is really built. Every file is committed: once anything is tracked, untracked files are
+    # invisible to the sample.
+    check("ui sample: _secret_named is name-only and case-insensitive",
+          _secret_named("Config/App.JS") is True and _secret_named("WP-CONFIG.PHP") is True
+          and _secret_named(".env.local") is True and _secret_named("lib/math.php") is False)
+    check("ui sample: a credential assignment omits the file (lib/db.py)",
+          _has_credential_assignment("db_password = 'plant-db-0005'") is True
+          and _has_credential_assignment("x = 1") is False
+          and _has_credential_assignment("token: ''") is False)
+    rp = tempfile.mkdtemp()
+    rw_base = tempfile.mkdtemp()
+    try:
+        _plants = {
+            "wp-config.php": "<?php\ndefine('DB_PASSWORD', 'plant-wp-0001');\n",
+            "config/database.php": "<?php\nreturn ['password' => 'plant-cfg-0002'];\n",
+            "config/database.js": "module.exports = { password: 'plant-js-0003' };\n",
+            "config/settings.py": "PASSWORD = 'plant-py-0004'\n",
+            "app/settings.py": "DEBUG = True\n",
+            "lib/credentials.php": "<?php\n$x = 1;\n",
+            "lib/secret_store.py": "x = 1\n",
+            "web/configuration.php": "<?php\n$x = 1;\n",
+            "lib/db.py": "db_password = 'plant-db-0005'\n",
+        }
+        for rel, body in _plants.items():
+            _touch(rp, rel, body)
+        _touch(rp, "lib/math.php", "<?php\nfunction add($a, $b) { return $a + $b; }\n")
+        _set_jev_cfg(rp, {"enabled": True, "detect_ui": {"mode": "active"}})
+        _penv = dict(os.environ)
+        _penv.update({"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@e.com",
+                      "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@e.com",
+                      "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull})
+        for argv in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "probe"]):
+            _sp.run(["git", "-C", rp] + argv, env=_penv, check=True,
+                    stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        check("ui sample: secret-named files are skipped (wp-config, config/ dir any ext, settings, "
+              "credentials, secret)",
+              [f["path"] for f in _ui_sample(rp)] == ["lib/math.php"])
+        reqs_p = jev_requests(rp, "detect_ui")["request_files"]
+        req_text = ""
+        if len(reqs_p) == 1:
+            with open(reqs_p[0], encoding="utf-8") as fh:
+                req_text = fh.read()
+        check("jev detect_ui: the request exists, holds lib/math.php, and none of the planted values",
+              len(reqs_p) == 1 and "lib/math.php" in req_text and "plant-" not in req_text
+              and not any(rel in req_text for rel in _plants))
+        rw = os.path.join(rw_base, "copy")
+        shutil.copytree(rp, rw, ignore=shutil.ignore_patterns(".git"))
+        check("ui sample: the os.walk path applies the same rules",
+              not _git_tracked(rw) and [f["path"] for f in _ui_sample(rw)] == ["lib/math.php"])
+    finally:
+        shutil.rmtree(rp, ignore_errors=True)
+        shutil.rmtree(rw_base, ignore_errors=True)
 
     rl = tempfile.mkdtemp()
     try:

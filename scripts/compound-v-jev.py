@@ -32,6 +32,7 @@ import json
 import math
 import os
 import re
+import stat
 import sys
 import tempfile
 import time
@@ -56,8 +57,8 @@ PAIRS_FILE = "shadow-pairs.jsonl"
 EVAL_MANIFEST = "eval-t3.json"
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
 
-UNAVAILABLE_REASONS = ("no_vault", "disabled", "egress", "timeout", "rate_limited", "upstream",
-                       "credits", "auth")
+UNAVAILABLE_REASONS = ("no_vault", "disabled", "no_key", "egress", "timeout", "rate_limited",
+                       "upstream", "credits", "auth")
 ERROR_REASONS = ("schema", "bad_input")
 
 # Key-shaped strings that must never be written or printed. Spelled in pieces so that this file
@@ -269,7 +270,11 @@ def _replace_private(path, text):
 
 
 def prune(dd, now=None):
-    """Drop jsonl lines and req/resp files older than RETENTION_S. Unparseable lines go too."""
+    """Drop jsonl lines and req/resp files older than RETENTION_S. Unparseable lines go too.
+
+    Also removes regular pending-*.json descriptors (left by the T3 hook in the data dir root)
+    older than the cutoff. It never follows or removes a symlink among them.
+    """
     cutoff = (_now() if now is None else now) - RETENTION_S
     for name in (CALLS_FILE, PAIRS_FILE):
         path = os.path.join(dd, name)
@@ -298,6 +303,21 @@ def prune(dd, now=None):
         except OSError:
             continue
         if st.st_mtime < cutoff and not os.path.isdir(path):
+            with contextlib.suppress(OSError):
+                os.unlink(path)
+    try:
+        names = os.listdir(dd)
+    except OSError:
+        names = []
+    for n in names:
+        if not (n.startswith("pending-") and n.endswith(".json")):
+            continue
+        path = os.path.join(dd, n)
+        try:
+            st = os.lstat(path)
+        except OSError:
+            continue
+        if stat.S_ISREG(st.st_mode) and st.st_mtime < cutoff:
             with contextlib.suppress(OSError):
                 os.unlink(path)
 
@@ -1175,6 +1195,28 @@ def _selftest():
         rc, out, raw = _run_cli(["pair", "--request-file", sf, "--claude-category", "plumbing", "--backend", "claude",
                                  "--t3-reason", "demotion", "--repo", repo])
         check("pair refuses a request file outside req/", out == {"status": "error", "reason": "bad_input"})
+
+        # -- pruning stale T3 descriptors (pending-*.json) in the data dir root.
+        old_p = os.path.join(dd, "pending-old.json")
+        new_p = os.path.join(dd, "pending-new.json")
+        fut_p = os.path.join(dd, "pending-future.json")
+        for p in (old_p, new_p, fut_p):
+            with open(p, "w") as fh:
+                fh.write("{}")
+        now = _now()
+        os.utime(old_p, (now - RETENTION_S - 60, now - RETENTION_S - 60))
+        os.utime(fut_p, (now + 3600, now + 3600))
+        link_p = os.path.join(dd, "pending-link.json")
+        os.symlink(old_p + ".target", link_p)  # dangling on purpose
+        os.utime(link_p, (now - RETENTION_S - 60, now - RETENTION_S - 60), follow_symlinks=False)
+        prune(dd, now)
+        check("prune: a pending-*.json older than 30 days is removed", not os.path.exists(old_p))
+        check("prune: a fresh pending-*.json stays", os.path.exists(new_p))
+        check("prune: a future-dated pending-*.json stays", os.path.exists(fut_p))
+        check("prune: a pending-*.json symlink is never removed", os.path.islink(link_p))
+        for p in (old_p, new_p, fut_p, link_p):
+            with contextlib.suppress(OSError):
+                os.unlink(p)
 
         # -- eval: Wilson, rule of three, mixed models, histogram, hard share.
         lo, hi = wilson(5, 10)

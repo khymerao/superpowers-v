@@ -65,8 +65,8 @@ This revision supersedes the first draft (commit b2d3165); see "Pre-flight amend
   catalogue_hash}`. Choice `probs` = the returned probability map; Noul `probs` = `{yes: p}`.
   Unknown keys are ignored (OpenRouter adds `id`, `provider`, `usage`).
 - Status reasons:
-  - `unavailable`: `no_vault`, `disabled`, `egress`, `timeout`, `rate_limited` (429), `upstream`
-    (5xx, 502/503/524/529), `credits` (402), `auth` (401/403);
+  - `unavailable`: `no_vault`, `disabled`, `no_key` (no key in the vault), `egress`, `timeout`, `rate_limited` (429),
+    `upstream` (5xx, 502/503/524/529), `credits` (402), `auth` (HTTP 401: rejected or disabled key; HTTP 403: insufficient permissions, guardrail block or moderation flag);
   - `error`: `schema`, `bad_input` (400/422 or local budget).
 - Telemetry: one line per call to `docs/superpowers/memory/jev-calls.jsonl`:
   `{ts, point, status, reason?, answer?, probs?, latency_ms, model, catalogue_hash, mode}`. Never
@@ -216,7 +216,7 @@ Egress consent is not here (it is per user, C2). `/v:init` gains the `jev` block
 | Situation | Behaviour |
 |---|---|
 | No vault (CC < 2.1.287, mods off, safe mode, `allowManagedModsOnly`, cloud, WSL Desktop) | `unavailable(no_vault)`; today's path |
-| Key missing or lost from secure storage | `unavailable(auth)`; status line says so |
+| Key missing or lost from secure storage | `unavailable(no_key)`; status line says so |
 | Timeout | `unavailable(timeout)`; today's path |
 | 429 | hook: none; offline: one retry if `Retry-After ≤ 1 s`; then `unavailable(rate_limited)` |
 | 402 / 401 / 403 | `unavailable(credits)` / `unavailable(auth)`, no retry |

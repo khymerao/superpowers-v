@@ -75,8 +75,12 @@ Inventory the ground truth, write nothing:
 - **Jev for UI** — only when the floor said `no-ui` and the status line shows `Jev: on` (the
   `compound-v-vault` plugin is installed, has a key, and egress is allowed for this repo):
   1. `python3 "$CV/scripts/compound-v-onboard.py" jev-requests --repo . --point detect_ui` →
-     `{"request_files": [...]}`: one request over at most 12 files × 20 lines, which leaves out `.env`,
-     `*.pem`, `*.key`, `.github/**`, the sensitive globs and any file the secret scan flags.
+     `{"request_files": [...]}`: one request over at most 12 files × 20 lines, which leaves out `.env*`,
+     `*.pem`, `*.key`, `.github/**`, the sensitive globs, files whose names look secret-bearing
+     (`wp-config.php`, `settings.py`, `local_settings.py`, `configuration.php`, `env.php`, `*settings*.php`,
+     any path under a `config` directory or containing `secret` or `credential`), any file the secret scan
+     flags, and any file that assigns a quoted literal to a password-, secret-, key- or token-like name.
+     A secret in a file none of these rules catches can still be sampled.
   2. Call the `jev_classify` tool once per request file (`{"request_file": "<path>"}`). It returns the
      response path, or `refused: <reason>`; a refusal just means Jev has nothing to add.
   3. `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo . --reason --jev-responses DIR`, where
