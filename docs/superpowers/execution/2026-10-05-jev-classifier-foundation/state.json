@@ -1,5 +1,5 @@
 {
-  "phase": "BLOCKED",
+  "phase": "PARTITION_VERIFIED",
   "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
@@ -48,9 +48,9 @@
       "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
     },
     "vault": {
-      "status": "blocked",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-5",
+      "worktree": null,
       "session_id": null,
       "retries": [
         {
@@ -61,8 +61,7 @@
         }
       ],
       "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
-      "merged": null,
-      "baseline": "b299eb8717e63955e9632d56cce983eaeb9bd661"
+      "merged": null
     },
     "ui-floor-onboard-jev": {
       "status": "pending",
