@@ -15,3 +15,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Verifying a Compound V acceptance criterion](verifying-acceptance-criteria.md) — what it costs to
   run an AC for real instead of reading the selftest that covers it.
 - [Code quoted in a plan](verifying-acceptance-criteria.md) — plan-supplied regexes need a timing probe at the read cap.
+- [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; diff the fix itself; mutate on a scratch copy of scripts/

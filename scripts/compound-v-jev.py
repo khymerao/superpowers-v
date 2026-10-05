@@ -18,9 +18,9 @@ CLI (one JSON object on stdout; exit 0 unless a usage error, which exits 2):
 Data dir: ~/.claude/compound-v-jev/<repo-digest>/ (0700; files 0600), where <repo-digest> is
 the first 16 hex of sha256 of the repo's absolute real path. It holds req/, resp/,
 calls.jsonl, shadow-pairs.jsonl, eval-t3.json and the T3 hook's pending-*.json descriptors.
-Every write prunes entries older than 30 days, descriptors included. Request text only ever arrives in a file, never in argv. A response body that is not a
-success body is never read, so nothing from an OpenRouter error body is copied anywhere: only
-the status class is recorded.
+Every write prunes entries older than 30 days, descriptors included. Request text only ever
+arrives in a file, never in argv. A response body that is not a success body is never read,
+so nothing from an OpenRouter error body is copied anywhere: only the status class is recorded.
 """
 import argparse
 import calendar

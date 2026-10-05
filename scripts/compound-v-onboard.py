@@ -2594,7 +2594,6 @@ def _selftest() -> int:
           _has_credential_assignment("db_password = 'plant-db-0005'") is True
           and _has_credential_assignment("x = 1") is False
           and _has_credential_assignment("token: ''") is False)
-    import time as _time
     _t_cred = _time.monotonic()
     _has_credential_assignment("x = '" + "A" * 16384 + "'")
     check("ui sample: the credential rule stays linear on a 16 KiB name-like run (no backtracking blow-up)",

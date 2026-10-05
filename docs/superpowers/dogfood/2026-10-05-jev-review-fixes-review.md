@@ -276,3 +276,58 @@ are what blocks DONE.
    directory. The behaviour holds today (AC-4 probe: `pending-dir.json` kept), so this is a missing guard only.
 
 Not verified in this review: a live vault call with a real key; the T3 module inside a real Claude Code session.
+
+## Re-review (e222217)
+
+Focused re-review of the five findings above against HEAD `e222217`; not a full three-pass rerun. Every probe ran
+with `/usr/bin/python3 -B`. The mutation probes ran on scratch copies of `scripts/`, never in the repository.
+
+1. **CLOSED.** `_CRED_ASSIGN_RE` name parts are `{0,64}` (`scripts/compound-v-onboard.py:1078`, and the plan at
+   `docs/superpowers/plans/2026-10-05-jev-review-fixes.md` Task A step 3). Measured at HEAD: `_ui_sample` on a repo
+   holding one committed `.js` with a 16384-char base64url literal took 0.098 s (`kept=['app.js']`; the review
+   measured 10.089 s); `_has_credential_assignment` on a 64 KiB hex run took 0.248 s (the review measured 168 s), and
+   on a quoted 64 KiB `A` run 0.280 s. It still matches all four shapes: `define('DB_PASSWORD', 'x1234')`,
+   `'password' => 'x1234'`, `password: 'x1234'` and `db_password = 'x1234'` each return `True`. The new selftest row
+   (`:2597-2601`) catches the regression: with both bounds put back to `*` on a scratch copy, the onboard selftest
+   printed `FAIL ui sample: the credential rule stays linear on a 16 KiB name-like run (no backtracking blow-up)`
+   and `FAILED 1`, exit 1.
+2. **CLOSED.** `scripts/compound-v-onboard.py:1239` reads `head = "\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])`.
+3. **CLOSED.** `scripts/compound-v-onboard.py:1101-1102` are two blank lines between `_has_credential_assignment`'s
+   return and the `_LAYER_BANDS` comment.
+4. **CLOSED, but the fix introduced a new defect (finding 6).** The module docstring
+   (`scripts/compound-v-jev.py:20-21`) now names "the T3 hook's pending-*.json descriptors" and says "Every write
+   prunes entries older than 30 days, descriptors included."
+5. **CLOSED.** `scripts/compound-v-jev.py:1212-1220` creates an old `pending-dir.json` directory and asserts
+   `prune: a directory named pending-*.json is never removed`. On a scratch copy where `prune` also `rmdir`s old
+   `pending-*` directories, the jev selftest printed `FAIL prune: a directory named pending-*.json is never removed`
+   and `selftest: 1 of 86 rows failed`.
+6. **NEW, OPEN: QUALITY (PASS 2, low).** `scripts/compound-v-jev.py:21` is 155 characters. The fix put the new
+   sentence on the old line without rewrapping it, so `Every write prunes ... A response body that is not a` is one
+   line in a paragraph whose other lines are 82-93 characters. It is the longest line in the file; the next is 139
+   (`awk 'length>120'`). Rewrap the paragraph to match its neighbours.
+7. **NEW, OPEN: QUALITY (PASS 2, low).** `scripts/compound-v-onboard.py:2597` `import time as _time` repeats the
+   import already at `:2499` in the same `_selftest()` scope, at the same indent. It is dead and harmless. Drop the
+   second import and use the existing `_time`.
+
+Selftests at HEAD: `scripts/compound-v-onboard.py --selftest` exited 0 (217 `ok` rows, last line `OK`, and the new
+row printed `ok   ui sample: the credential rule stays linear ...`). `scripts/compound-v-jev.py --selftest` exited 0
+(`selftest: 86 rows ok`).
+
+Observation, not a finding: the linearity row is a wall-clock assertion (`< 2.0` s). The bounded pattern takes
+about 0.1 s here, and this review's base measurement put the unbounded one at 10.089 s on a 16 KiB literal. The
+margin is wide. A heavily loaded CI host could still flake it.
+
+**Verdict: ISSUES.** Findings 1-5 are closed. Findings 6 and 7 are new, both introduced by `e222217`, and both are
+low-severity style defects of the same class as findings 2 and 3, which blocked DONE. They block DONE too, until the
+docstring paragraph is rewrapped and the duplicate import is dropped.
+
+## Findings 6-7 closed (orchestrator, after the re-review)
+
+6. CLOSED. `scripts/compound-v-jev.py` module docstring rewrapped; its paragraph lines are 88-95 characters.
+7. CLOSED. The duplicate `import time as _time` in `_selftest()` is removed; the earlier import in the same scope
+   serves the linearity row.
+
+Evidence after the change: `scripts/compound-v-onboard.py --selftest` exit 0; `scripts/compound-v-jev.py --selftest`
+`selftest: 86 rows ok`; `tests/test-jev-core.sh` exit 0; `tests/test-onboard-rules.sh` exit 0.
+
+**Final verdict: APPROVED.** All seven findings across the review and re-review are closed.
