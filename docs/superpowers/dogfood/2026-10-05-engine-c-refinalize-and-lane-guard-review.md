@@ -300,3 +300,29 @@ Item 3 is outside every implementer's lane: the orchestrator resolves it by amen
    be spelled once. The helper does that, but the run id that feeds it is still computed twice. With a trailing
    slash on `--run-dir` and no `run_id` in `state.json` (this run's case), the short-circuit declines. The
    consequence is a fallback to today's behaviour, not unsafe.
+
+## Re-review (aeb1185, 332a331)
+
+1. **CLOSED.** Row G guards the validation. On a scratch worktree at HEAD, after `_SHA_RE.match(commit)` was removed, the selftest gave `FAIL: re-finalize row G: a recorded commit that is not a hex SHA declines with NO git call — (('ok', None), [['merge-base', '--is-ancestor', '--output=/nowhere', 'HEAD']])` and `636/637 checks passed`.
+2. **OPEN.** Row H fails when the three new type checks are removed (`FAIL: re-finalize row H ... [('raised', 'AttributeError(...)'), ('raised', 'TypeError(...)'), ...]`, 636/637). But `_already_integrated_wave` still raises on a malformed per-job entry. At `scripts/compound-v-emit-workflow.py:6017`, `(jobs.get(jid) or {}).get("merged")` assumes the entry is a dict, and `.get("integrated")` assumes `merged` is a dict too. A direct call at HEAD returned `jobs {"w1": "x"} -> RAISED AttributeError("'str' object has no attribute 'get'")` and `jobs {"w1": {"merged": [1]}} -> RAISED AttributeError("'list' object has no attribute 'get'")`. The real CLI confirms it. `finalize-wave --jobs w1 --wave 1` on that `state.json` printed `AttributeError: 'str' object has no attribute 'get'`, a traceback through `main` -> `cmd_finalize_wave:6095` -> `:6017`, and exited 1 with no JSON. Row H has no case for either shape. Its fourth case, where the state is a list, returns `None` even with the new `isinstance(state, dict)` guard removed, so that case tests `_load_state` and not the guard.
+3. **CLOSED.** The spec's `## Review amendment (2026-10-05)` (spec lines 154-162) replaces amendment 1's literal own-subject rule with the rule that shipped: a reachable commit carrying the exact subject, found with `git log --fixed-strings --grep` and then an exact line match. That matches the code at `:6024-6031` and its docstring. The original text at spec line 91 stays, unchanged and superseded. There is no inline pointer from it to the amendment.
+4. **CLOSED.** `_finalize_run_id` (`:5961`) is the one derivation, and both the commit site (`:6344`) and the check (`:6021`) call it. At HEAD, `_finalize_run_id({}, "/x/runs/r1/")` gives `r1`, and `({"run_id": ""}, "docs/x/run-a/")` gives `run-a`. On the scratch worktree, reverting the commit site to `os.path.basename(run_dir)` gave `FAIL: the run id feeding the wave subject is derived once, in _finalize_run_id` (636/637).
+5. **New, low (QUALITY).** `_SHA_RE` (`:5953`) is anchored with `$`, so `re.match` also accepts a full SHA followed by a trailing newline. That value passes the check and reaches git's argv: the probe declined only because `git merge-base` exited 128 with "Not a valid object name". It cannot inject an option, because the value starts with hex. It is still a hole in amendment 2's "checked before it reaches git" contract, which row G claims to pin. The fix is `\Z` or `fullmatch`. The regex is older than these commits (029f8fe).
+
+Selftest at HEAD: `/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest` gives `637/637 checks passed`. The scratch worktree has been removed.
+
+**Verdict: ISSUES.** Items 1, 3 and 4 are closed. Items 2 and 5 both block DONE and must be fixed before the next re-review. Item 2: a worker-writable `state.json` with a non-dict job entry still crashes `finalize-wave`. Item 5: a SHA with a trailing newline passes the validation and reaches git.
+
+## Findings 2 and 5 closed (orchestrator, after the re-review)
+
+2. CLOSED. `_already_integrated_wave` is now a never-raise wrapper around `_integrated_wave_or_none`: any unexpected
+   error declines the short-circuit with one stderr line. The per-job check itself also accepts only a dict entry
+   whose `merged` is a dict. Row H gained the two shapes the re-review reproduced (`"jobs": {"w1": "x"}` and
+   `{"w1": {"merged": [1]}}`); before the fix it printed `raised AttributeError` for them.
+5. CLOSED. The SHA check uses `_SHA_RE.fullmatch`. Row G2 (a SHA with a trailing newline) asserts no git call; before
+   the fix it recorded `['merge-base', '--is-ancestor', 'aaaa…\n', 'HEAD']`.
+
+Evidence: `scripts/compound-v-emit-workflow.py --selftest` `638/638 checks passed`; the manifest full command
+`all-tests-ok`; `shellcheck hooks/*.sh scripts/compound-v-*.sh` clean.
+
+**Final verdict: APPROVED.** All findings of the review and the re-review are closed.

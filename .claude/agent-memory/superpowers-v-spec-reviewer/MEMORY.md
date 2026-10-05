@@ -17,4 +17,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Code quoted in a plan](verifying-acceptance-criteria.md) — plan-supplied regexes need a timing probe at the read cap.
 - [Amendment vs AC](verifying-acceptance-criteria.md) — run the AC fixture against an amendment's literal rule first.
 - [Negative-assertion rows](verifying-acceptance-criteria.md) — a "no file planted" row may not guard its validation.
-- [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; diff the fix itself; mutate on a scratch copy of scripts/
+- [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; guards cover only listed shapes; `$` regex takes \n
