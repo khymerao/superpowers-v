@@ -1,25 +1,55 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-05T11:06:45Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-05T11:20:00Z",
   "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
   "jobs": {
     "refinalize": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-2",
+      "session_id": null,
+      "baseline": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "merged": {
+        "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022"
+      }
     },
     "lane-boundary": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-3",
+      "session_id": null,
+      "baseline": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "merged": {
+        "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "refinalize",
+        "lane-boundary"
+      ],
+      "merged": [
+        "refinalize",
+        "lane-boundary"
+      ],
+      "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022",
+      "integrated": true
     }
   }
 }

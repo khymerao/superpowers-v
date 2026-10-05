@@ -1,0 +1,107 @@
+diff --git a/TROUBLESHOOTING.md b/TROUBLESHOOTING.md
+index cc4e367..f03ddf1 100644
+--- a/TROUBLESHOOTING.md
++++ b/TROUBLESHOOTING.md
+@@ -287,7 +287,9 @@ render it — read it from `state.json` or the ack.
+ 
+ **Symptom:** `hooks/lane-guard.sh` is registered, but an obviously out-of-lane write goes through.
+ 
+-**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`. **If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
++**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`.
++A `cwd` claim stops at a git working-tree boundary: a session in a nested worktree, submodule or repository under a claimed path is not that job, and is logged as unresolved.
++**If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
+ 
+ **Fix:** dispatch through Engine C, which writes `lane-map.json` — each implementer registers its real worktree as its first command. Confirm the file exists and maps that worktree to the job. Check the guard's log (`$TMPDIR/compound-v-lane-guard.log`, or `$CV_LANE_GUARD_LOG`); it records every allow-because-unresolved.
+ 
+diff --git a/hooks/lane-guard.sh b/hooks/lane-guard.sh
+index 7c317ea..852d304 100755
+--- a/hooks/lane-guard.sh
++++ b/hooks/lane-guard.sh
+@@ -682,6 +682,32 @@ def _rel_under(path, root):
+     return None
+ 
+ 
++def _crosses_worktree_boundary(cwd, wt):
++    """True when a separate git working tree (a nested worktree, a submodule, a nested repository)
++    sits between `wt` and `cwd`: some directory from `cwd` up to, but excluding, `wt` holds a
++    `.git` entry (a file counts). The scope gate cannot see inside such a tree, and a lane claim on
++    `wt` does not reach into it. Walks in the same path form under which `cwd` is inside `wt`;
++    if no form puts `cwd` inside `wt`, returns False and the claim stands as before."""
++    forms = [(os.path.normpath(cwd), os.path.normpath(wt))]
++    try:
++        forms.append((os.path.realpath(cwd), os.path.realpath(wt)))
++    except Exception:
++        pass
++    for p, r in forms:
++        r = r.rstrip(os.sep)
++        if p != r and not p.startswith(r + os.sep):
++            continue
++        d = p
++        for _ in range(p.count(os.sep) - r.count(os.sep)):
++            if d == r:
++                break
++            if os.path.lexists(os.path.join(d, ".git")):
++                return True
++            d = os.path.dirname(d)
++        return False
++    return False
++
++
+ UNRESOLVABLE = ("$", "`", "\n")
+ 
+ 
+@@ -843,6 +869,10 @@ def resolve_job(agent_id, cwd, maps=None):
+         # job (stage-4 dogfood, finding 78: `sort_keys` put the root first).
+         for wt, job in sorted(worktrees.items(), key=lambda kv: -len(kv[0])):
+             if cwd and _rel_under(cwd, wt) is not None:
++                # A claim stops at a git working-tree boundary: a nested worktree, submodule or
++                # repository under `wt` is another tree, which the scope gate of this job cannot see.
++                if _crosses_worktree_boundary(cwd, wt):
++                    continue
+                 return job, manifest, wt, proj, "cwd->worktree"
+     return None
+ 
+diff --git a/tests/test-lane-guard.sh b/tests/test-lane-guard.sh
+index 72ff76d..830ebde 100755
+--- a/tests/test-lane-guard.sh
++++ b/tests/test-lane-guard.sh
+@@ -393,6 +393,11 @@ echo "=== 2a. finding 78: the LONGEST worktree prefix wins ===================="
+ # PROJECT ROOT by another job (a direct job's "worktree" is the checkout): a
+ # Write at $WT must still resolve to job-under-test, not to the root's job.
+ cp "$RUN/lane-map.json" "$RUN/lane-map.json.f78bak"
++# A real linked worktree holds a `.git` FILE at its root. The working-tree
++# boundary check must stop BELOW the claimed path, never at it: a walk that also
++# inspected $WT itself would leave every real worktree job unresolved (and so
++# unguarded) while a fixture without this file kept the suite green.
++printf 'gitdir: /nowhere\n' >"$WT/.git"
+ cat >"$RUN/lane-map.json" <<JEOF
+ {"run_id": "2099-01-01-sandbox",
+  "agents": {},
+@@ -404,6 +409,7 @@ file_case "finding 78: an out-of-lane Write at the nested worktree is denied AS
+   Write agent_unknown78 "$WT" "$WT/README.md"
+ check "finding 78: the deny names job-under-test, not root-job" \
+   "$(printf '%s' "$OUT" | grep -q 'job-under-test' && ! printf '%s' "$OUT" | grep -q 'root-job' && echo 1 || echo 0)"
++rm -f "$WT/.git"
+ mv "$RUN/lane-map.json.f78bak" "$RUN/lane-map.json"
+ 
+ echo "=== 2b. finding 68: a finished run's lane map claims nothing ============"
+@@ -413,6 +419,19 @@ printf '{"run_id": "2099-09-08-live", "phase": "DISPATCHED", "jobs": {"review-do
+ touch -t 209901010000 "$RUN_L"; touch "$RUN_T"
+ file_case "a LIVE run's direct job claims the checkout: an unknown agent's out-of-lane Write at the root is denied" deny \
+   Write agent_zzz "$PROJ" "$PROJ/docs/somewhere-else.md"
++# The checkout claim stops at a git working-tree boundary. A session in its OWN
++# worktree under the checkout (a `.git` file at its root, not in any lane map) is
++# another tree: it is unresolved, not the direct job. A plain subdirectory of the
++# checkout carries no `.git` and still resolves to the direct job.
++FOREIGN="$PROJ/.claude/worktrees/foreign-session"
++mkdir -p "$FOREIGN/docs"; printf 'gitdir: /nowhere\n' >"$FOREIGN/.git"
++file_case "a nested git worktree NOT in the map is not captured by the checkout's direct-job claim" allow \
++  Write agent_foreign "$FOREIGN" "$FOREIGN/docs/notes.md"
++check "...and the hook says the session is unresolved" \
++  "$([ "$(logged 'UNRESOLVED IDENTITY')" = yes ] && echo 1 || echo 0)"
++file_case "a plain subdirectory of the checkout still resolves to the direct job (out-of-lane denied)" deny \
++  Write agent_sub "$PROJ/docs" "$PROJ/docs/elsewhere.md"
++rm -rf "$FOREIGN"
+ printf '{"run_id": "2099-09-08-live", "phase": "MERGED", "jobs": {"review-done": {"status": "done"}}}\n' >"$RUN_L/state.json"
+ file_case "...and once that run is MERGED the same Write resolves to NO job (allowed, unresolved)" allow \
+   Write agent_zzz "$PROJ" "$PROJ/docs/somewhere-else.md"
