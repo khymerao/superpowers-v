@@ -51,3 +51,12 @@ Version bump, CHANGELOG, the CI version-lockstep step (`.github/workflows/valida
 - AC-3 Installing `superpowers-v` from a local marketplace built from this tree also installs `compound-v-vault`
   (checked with `claude plugin list` in a scratch config directory, never the maintainer's own).
 - AC-4 The manifest's full test command passes.
+
+## Superseded (2026-10-05)
+
+Not built. The pre-flights (`docs/superpowers/{archaeology,expert,library-audit}/2026-10-05-2026-10-05-vault-as-
+dependency-design.md`) showed that a dependency makes the vault load-critical (a disabled, blocked or failing vault
+disables `superpowers-v`), that the key is still set with `/plugin configure` (the install dialog is documented only
+for the plugin being installed, not its dependencies), and that the vault would show `Jev: off (no_key)`, a command and
+a tool to everyone who never uses Jev. The maintainer chose the optional route instead:
+`docs/superpowers/specs/2026-10-05-vault-optional-via-init-design.md`.
