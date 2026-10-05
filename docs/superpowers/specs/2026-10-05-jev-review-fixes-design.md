@@ -92,3 +92,61 @@ Two lanes, no shared file:
   reverted.
 - AC-5 The manifest's full test command passes on the merged tree, and `vault.tsx` and `jev-t3.tsx` are
   byte-identical to HEAD at the start of the run.
+
+## Pre-flight amendments (2026-10-05)
+
+The three pre-flights (`docs/superpowers/archaeology/2026-10-05-2026-10-05-jev-review-fixes-design.md`,
+`docs/superpowers/expert/2026-10-05-2026-10-05-jev-review-fixes-design.md`,
+`docs/superpowers/library-audit/2026-10-05-2026-10-05-jev-review-fixes-design.md`) found no critical issue, but
+Issue 1 as written closed only part of its leak class. This section overrides the sections above it.
+
+**Issue 1, widened.**
+
+1. The `config` directory rule applies to every extension `_UI_SAMPLE_RANK` samples, not only `.php`: any
+   path with a directory component named `config` (case-insensitive) is skipped.
+2. Credential basenames are skipped too: `settings.py`, `local_settings.py`, any `.php` basename containing
+   `settings`, `configuration.php`, `env.php`.
+3. `scan_secrets` matches vendor token families and PEM blocks only; a `DB_PASSWORD`-style value passes it.
+   `_ui_sample` therefore also omits a file whose bounded read contains a credential assignment: a name
+   containing `password`, `passwd`, `pwd`, `secret`, `api_key`/`apikey`, `auth_key` or `token`
+   (case-insensitive, quoted or bare), followed by `=`, `:`, `=>` or `,`, then a quoted literal of 4 or more
+   characters. This only removes files from what is sent; it never adds one. `compound-v-memory.py`'s
+   `SECRET_RE` is unchanged (outside both lanes).
+4. The name rules apply before any read, on both `_repo_files` paths: the `git ls-files` path and the
+   `os.walk` fallback (no repository, or a repository with no commit).
+5. Residual, stated rather than claimed closed: a secret in a file whose name and contents match none of these
+   rules can still reach the sample. The docstring and `skills/compound-v/onboarding.md` say "leaves out
+   files that look secret-bearing", never "no secrets are sent".
+6. `skills/compound-v/onboarding.md:78-79` describes the sample's exclusions and is updated. `commands/v-onboard.md`
+   does not and is not changed.
+
+**Issue 1 test, made non-vacuous.** The probe repository `git add`s every file; its PHP probes carry no HTML
+outside `<?php ?>`, so the deterministic floor stays `no-ui` and a request is actually built; it enables
+`jev.enabled` and `jev.detect_ui.mode: active`; its planted values do not match `SECRET_RE`
+(`DB_PASSWORD`-style literals); it asserts that the request exists and holds `lib/math.php`, and that none of
+the excluded files or planted values is in it. It covers `config/database.js`, `config/settings.py` and a
+`password = '…'` line in a ranked file, and runs once more over an unversioned copy of the tree to cover the
+`os.walk` path. `.env.example` has no ranked extension and proves nothing, so it is not a probe.
+
+**Issue 2, both places in the parent spec.** The status-reasons list (parent spec lines 68-70) and the failure
+table (line 219) both gain `no_key`. The `auth` entries read: HTTP 401 (rejected or disabled key) or HTTP 403
+(insufficient permissions, guardrail block or moderation flag), because OpenRouter's 403 is not only a key
+error. A grep of `docs/` and `skills/` confirms no other text still names `auth` as the missing-key reason.
+
+**Issue 2 contract check, exact shape.** Extraction matches only the call shapes `unavailable('x'` and
+`failed('x'`, skipping the two function definitions. Each response is fed to `parse` without `http_status`,
+because a non-2xx `http_status` routes `parse` through its HTTP-code classifier and ignores the reason.
+`unavailable` literals use status `unavailable`; `failed` literals use status `error`. Zero literals for either
+status fails the check.
+
+**Issue 3, exact rule.** The new `pending-*.json` candidates are pruned only when `lstat` reports a regular file
+(`S_ISREG`) whose mtime is before the cutoff: a symlink or directory is never followed or removed, and a
+future mtime is left alone. The existing `req/`/`resp/` rule is not changed. The `os.listdir` of the data
+directory is wrapped against `OSError`, like the existing `lstat`/`unlink` calls, so a listing failure cannot
+break the T3 hook's `build`. `.pending.XXXXXX` crash leftovers stay outside the glob.
+
+**Issue 3 residual.** Pruning bounds an orphan's age but does not cure the hidden-descriptor window: 50 or more
+orphans inside 30 days still push live descriptors out of `hooks/jev-t3.tsx`'s first-50 slice, and that file
+does not change in this spec. AC-4 claims pruning only.
+
+**Python 3.9.** New code stays 3.9-safe and stdlib-only.
