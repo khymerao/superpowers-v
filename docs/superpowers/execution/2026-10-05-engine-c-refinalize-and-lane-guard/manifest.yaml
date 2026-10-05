@@ -1,0 +1,105 @@
+run_id: 2026-10-05-engine-c-refinalize-and-lane-guard
+feature: 'Engine C: finalize-wave returns early for a wave git confirms is already integrated; the lane guard cwd claim stops at a nested git working tree'
+routing_stance: balanced
+max_parallel: 2
+spec_path: docs/superpowers/specs/2026-10-05-engine-c-refinalize-and-lane-guard-design.md
+plan_path: docs/superpowers/plans/2026-10-05-engine-c-refinalize-and-lane-guard.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-05-2026-10-05-engine-c-refinalize-and-lane-guard-design.md
+  domain: docs/superpowers/expert/2026-10-05-2026-10-05-engine-c-refinalize-and-lane-guard-design.md
+  library: docs/superpowers/library-audit/2026-10-05-2026-10-05-engine-c-refinalize-and-lane-guard-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-05T10:53:38Z'
+global_constraints:
+- 'Python 3.9 syntax, stdlib only; no `match`; no `X | Y` annotations or `isinstance(x, A | B)`.'
+- 'The hook stays filesystem-only on its resolution path: no `git` subprocess.'
+- Every behavioural change ships a test row that fails when the change is reverted.
+- The short-circuit merges nothing and writes nothing; it never weakens what the authority decides for a wave it runs on.
+- No fabricated metrics; no timing numbers in docs; no cost or savings text.
+- 'Docs: plain words, every claim true of HEAD, no line over 200 characters outside code/tables.'
+- 'Lane discipline: touch only your `write_allowed`; `register-lane` first, with a literal `--cwd`. Run python with `-B`.'
+- 'Not in any implementation job: version bump, CHANGELOG, `plugin.json`, `marketplace.json`.'
+- 'Commit subjects are plain sentences, no `feat:`/`fix:`; no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 scripts/compound-v-emit-workflow.py --selftest passes with rows A-E and the exempt row; row A fails with the call to _already_integrated_wave removed.
+- AC-2 tests/test-lane-guard.sh passes with the new rows; the nested-worktree row fails with the boundary check removed, and the finding-78 rows (registered worktree holding a .git file) fail if the check also inspects wt itself.
+- AC-3 shellcheck hooks/*.sh is clean, and the manifest full test command passes on the merged tree.
+- AC-4 In a full-depth scratch clone, re-running finalize-wave on wave 1 of 2026-10-05-jev-classifier-foundation exits 0 and leaves that clone's state.json byte-identical.
+test_contract:
+  floor_command: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-emit-workflow.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emit-ok'
+  - when: hooks/lane-guard.sh
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo guard-ok'
+  - when: tests/test-lane-guard.sh
+    run: bash tests/test-lane-guard.sh
+  - when: '*.md'
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+jobs:
+- id: refinalize
+  title: Task A — idempotent re-finalize of an integrated wave
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-emit-workflow.py
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - '`_wave_commit_subject(wave, run_id, merged) -> str` and `_already_integrated_wave(run_dir, repo_root, wave, job_ids)` (dict or None) in scripts/compound-v-emit-workflow.py; `lane-guard-unresolved.jsonl` in RUN_DIR_EXEMPT_BY_NAME.'
+  acceptance:
+  - emit-workflow --selftest green with rows A-E and the exempt row; row A fails with the short-circuit call removed and the exempt row fails with the entry removed; AC-4 run on a full-depth scratch clone exits 0 with state.json unchanged, output quoted in the summary.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-05-engine-c-refinalize-and-lane-guard.md, every step in order. Read the spec docs/superpowers/specs/2026-10-05-engine-c-refinalize-and-lane-guard-design.md first; its Pre-flight amendments section overrides the sections above it, and the three audits named in this manifest bind. Tests first: write the rows, run and see them fail, then implement, then prove the revert. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: lane-boundary
+  title: Task B — the lane guard cwd claim stops at a working-tree boundary
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: parallel
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - hooks/lane-guard.sh
+  - tests/test-lane-guard.sh
+  - TROUBLESHOOTING.md
+  read_allowed:
+  - '**'
+  interfaces:
+    produces:
+    - '`_crosses_worktree_boundary(cwd, wt) -> bool` inside hooks/lane-guard.sh; resolve_job skips a cwd->worktree claim that crosses it.'
+  acceptance:
+  - tests/test-lane-guard.sh green with the nested-worktree, plain-subdirectory and registered-worktree-with-.git rows; the nested row fails with the helper returning False, and the finding-78 rows fail if the walk also inspects wt; shellcheck hooks/*.sh clean; TROUBLESHOOTING.md:290 states the boundary rule.
+  body: 'Implement Task B of docs/superpowers/plans/2026-10-05-engine-c-refinalize-and-lane-guard.md, every step in order. Read the spec docs/superpowers/specs/2026-10-05-engine-c-refinalize-and-lane-guard-design.md first; its Pre-flight amendments section overrides the sections above it, and the three audits named in this manifest bind. Tests first: write the rows, run and see them fail, then implement, then prove the revert. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
+- id: spec-review
+  title: Review Gate — three passes against the spec (amendments first) and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - refinalize
+  - lane-boundary
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-05-engine-c-refinalize-and-lane-guard-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each acceptance criterion is run on the merged tree with its command and output quoted, including AC-4 on a full-depth scratch clone and revert proofs for row A and the nested-worktree row; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). Follow it within a HARD BUDGET of 50 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-05-engine-c-refinalize-and-lane-guard-review.md with the section skeleton and fill it as you verify. Review the two implementation jobs against docs/superpowers/specs/2026-10-05-engine-c-refinalize-and-lane-guard-design.md (its Pre-flight amendments section overrides earlier sections) and the plan''s Task R. Pay particular attention to whether the lane-guard change can ever weaken enforcement for a registered job. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

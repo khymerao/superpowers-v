@@ -1,0 +1,25 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-05T11:06:45Z",
+  "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
+  "jobs": {
+    "refinalize": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "lane-boundary": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
