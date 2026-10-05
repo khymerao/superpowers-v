@@ -78,6 +78,16 @@ Decided direction (do not store the key in a file or an env var; that defeats th
 4. Optionally, an issue for Anthropic: the desktop app does not pass a plugin's `sensitive` `userConfig` to its
    function-hooks module, and offers no `/plugin configure` to set it in place.
 
+## Plugin-root resolver bug (found 2026-10-05)
+
+Every command resolves `CV` with `ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ | sort -V | tail -1`. That
+sorts whole paths, so the marketplace name decides before the version: with `cv-dev/.../3.8.3` and
+`procoders/.../3.7.5` both cached, it picked the older, disabled `procoders` copy, and a terminal epic session ran
+3.7.5's scripts (no Jev). Workaround applied: `superpowers-v@procoders` uninstalled and its orphaned cache moved to
+`~/.claude/plugins/cache-retired/`. Real fix: prefer `CLAUDE_PLUGIN_ROOT`, else the installed and enabled entry from
+`claude plugin list --json`, else sort on the version component only; one helper, one test row, every command
+updated.
+
 ## Open items that are not features
 
 - The lane-guard and re-finalize fixes reach live sessions only after a release (version bump, CHANGELOG,
