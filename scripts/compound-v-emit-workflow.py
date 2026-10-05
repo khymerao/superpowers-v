@@ -5958,6 +5958,14 @@ def _wave_commit_subject(wave, run_id, merged):
     return "compound-v: wave %d of run %s (%s)" % (wave, run_id, ", ".join(merged) or "no jobs")
 
 
+def _finalize_run_id(state, run_dir):
+    """The run id the wave-commit subject names: state.json's `run_id`, else the run dir's name.
+    One derivation for the commit site and the re-finalize check, so a trailing slash on
+    --run-dir cannot make the two disagree."""
+    rid = state.get("run_id") if isinstance(state, dict) else None
+    return rid if isinstance(rid, str) and rid else os.path.basename(os.path.normpath(run_dir))
+
+
 def _already_integrated_wave(run_dir, repo_root, wave, job_ids):
     """The wave's result (a dict) when state.json records it integrated at a commit git
     confirms is in HEAD and carries this run's wave commit; else None. Writes nothing and
@@ -5981,6 +5989,8 @@ def _already_integrated_wave(run_dir, repo_root, wave, job_ids):
         state = _load_state(run_dir)
     except Exception:  # noqa: BLE001
         return None
+    if not isinstance(state, dict) or not isinstance(state.get("waves") or {}, dict):
+        return None
     rec = (state.get("waves") or {}).get(str(wave))
     if not isinstance(rec, dict) or rec.get("integrated") is not True:
         return None
@@ -5994,15 +6004,19 @@ def _already_integrated_wave(run_dir, repo_root, wave, job_ids):
     if not isinstance(commit, str) or not _SHA_RE.match(commit):
         return decline("the recorded commit %r is not a full hex SHA" % (commit,))
     merged = rec.get("merged") or []
-    if not isinstance(merged, list) or sorted(rec.get("jobs") or []) != sorted(job_ids) \
-            or sorted(merged) != sorted(job_ids):
+    rec_jobs = rec.get("jobs") or []
+    if not isinstance(merged, list) or not isinstance(rec_jobs, list) \
+            or not all(isinstance(j, str) for j in merged + rec_jobs):
+        return decline("the recorded wave's jobs/merged are not lists of job ids")
+    if sorted(rec_jobs) != sorted(job_ids) or sorted(merged) != sorted(job_ids):
         return decline("the recorded wave's jobs/merged are not exactly %s" % ", ".join(job_ids))
     jobs = state.get("jobs") or {}
+    if not isinstance(jobs, dict):
+        return decline("state.json's jobs is not a mapping")
     for jid in job_ids:
         if (((jobs.get(jid) or {}).get("merged") or {}).get("integrated")) is not True:
             return decline("job %s is not recorded integrated" % jid)
-    run_id = state.get("run_id") or os.path.basename(os.path.normpath(run_dir))
-    subject = _wave_commit_subject(wave, run_id, merged)
+    subject = _wave_commit_subject(wave, _finalize_run_id(state, run_dir), merged)
     try:
         rc, _o, err = _git(repo_root, ["merge-base", "--is-ancestor", commit, "HEAD"])
         if rc != 0:
@@ -6330,7 +6344,7 @@ def cmd_finalize_wave(argv):
         out["reason"] = "merged but not committed (--no-commit)"
     else:
         message = _wave_commit_subject(
-            args.wave, state.get("run_id") or os.path.basename(run_dir), out["merged"])
+            args.wave, _finalize_run_id(state, run_dir), out["merged"])
         sha, err = _commit_paths(repo_root, unique, message)
         if err:
             out["reason"] = err
@@ -8941,6 +8955,51 @@ def selftest():
         _check("re-finalize row F: a wave recorded at a later commit whose history "
                "carries the wave commit exits 0 with state.json byte-identical",
                bool(rf_later) and _rf == (0, True, "MERGED"), str(_rf))
+        # Direct calls: the validation must stop a bad commit BEFORE any git call (row E
+        # alone cannot tell, because git also errors on it), and a malformed record must
+        # decline rather than raise (state.json is worker-writable).
+        _rf_calls = []
+        _rf_git = _git
+
+        def _rf_spy(root, argv, env=None, text=True):
+            _rf_calls.append(list(argv))
+            return _rf_git(root, argv, env=env, text=text)
+
+        def _rf_direct(state):
+            d = tempfile.mkdtemp(dir=tmp)
+            with open(os.path.join(d, "state.json"), "w", encoding="utf-8") as fh:
+                json.dump(state, fh)
+            del _rf_calls[:]
+            globals()["_git"] = _rf_spy
+            try:
+                with _quiet():
+                    return ("ok", _already_integrated_wave(d, rf_repo, 1, ["w1"]))
+            except Exception as exc:  # noqa: BLE001
+                return ("raised", repr(exc))
+            finally:
+                globals()["_git"] = _rf_git
+
+        _good_jobs = {"w1": {"merged": {"integrated": True}}}
+        _r = _rf_direct({"run_id": "refin", "jobs": _good_jobs, "waves": {"1": {
+            "jobs": ["w1"], "merged": ["w1"], "commit": "--output=/nowhere", "integrated": True}}})
+        _check("re-finalize row G: a recorded commit that is not a hex SHA declines with NO git call",
+               _r == ("ok", None) and _rf_calls == [], str((_r, _rf_calls)))
+        _malformed = [
+            {"run_id": "refin", "jobs": _good_jobs, "waves": [["not", "a", "dict"]]},
+            {"run_id": "refin", "jobs": _good_jobs, "waves": {"1": {
+                "jobs": [1, "w1"], "merged": ["w1"], "commit": "a" * 40, "integrated": True}}},
+            {"run_id": "refin", "jobs": ["w1"], "waves": {"1": {
+                "jobs": ["w1"], "merged": ["w1"], "commit": "a" * 40, "integrated": True}}},
+            ["state", "is", "a", "list"],
+        ]
+        _rs = [_rf_direct(m) for m in _malformed]
+        _check("re-finalize row H: a malformed state.json or wave record declines (None), never raises",
+               all(r == ("ok", None) for r in _rs), str(_rs))
+        _check("the run id feeding the wave subject is derived once, in _finalize_run_id",
+               _finalize_run_id({}, "/x/runs/r1/") == "r1"
+               and _finalize_run_id({"run_id": "rid"}, "/x/r1") == "rid"
+               and "_finalize_run_id" in cmd_finalize_wave.__code__.co_names
+               and "_finalize_run_id" in _already_integrated_wave.__code__.co_names)
         _check("the wave-commit subject is spelled once, in _wave_commit_subject",
                _wave_commit_subject(2, "r", ["a", "b"]) == "compound-v: wave 2 of run r (a, b)"
                and _wave_commit_subject(3, "r", []) == "compound-v: wave 3 of run r (no jobs)"
