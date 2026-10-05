@@ -180,6 +180,14 @@ Re-run the validator (or `/v:dispatch`) until it's clean. The manifest schema + 
 
 **Fix:** update to 3.7.6 or later and run `/v:onboard --refresh`. It re-verifies each generated doc's citations and re-registers them with `staleness --write --docmap <file>`; the write now fails loudly without a docmap.
 
+## The run band above the prompt does not appear (or I want it gone)
+
+**It appears only while a run has a pending or running job**, and only on Claude Code ≥ 2.1.287 in the terminal or the desktop Code tab; with no active run it draws nothing by design. Check the reader it draws from: `python3 scripts/compound-v-dashboard.py hud` prints `{"run": null}` when nothing is active. A run older than 72 hours is not shown.
+
+**An age shows `?`:** the liveness probe did not answer in time; the band prints "unknown" rather than a number it did not measure.
+
+**Turn it off:** `CV_DISABLED_HOOKS=run-band` in the shell that launches Claude Code.
+
 ## A run was interrupted — how do I resume?
 
 **Symptom:** You killed a session (or it crashed) mid-batch. Some jobs finished, some didn't.

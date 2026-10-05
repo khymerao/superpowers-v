@@ -3,11 +3,11 @@
   "docs": {
     "docs/superpowers/architecture/architecture.md": {
       "cited": {
-        "README.md": "25b69aa15a4fad81404e1594b9cecce58d498bf87c724fe67a5cbe25d2786894",
+        "README.md": "f681ee339a0c53aa3cca6477a6b2013d08fc23205c9abc5a96af3ece0c3420b0",
         "agents/spec-reviewer.md": "54637927295a8863ed910e2c598e07ab75b130554338e35daabb4c6b3466e716",
         "commands/v-onboard.md": "278cfbd57f975eaaa4f0ca58148f66d4f39a59d97025f603ad01f1abb515342c",
         "hooks/brainstorm-trigger0-nudge.sh": "76987d50c3aeee4f9f0920a4b658b49da68e3fef813af67e18cba6eeac8be3a8",
-        "hooks/hooks.json": "224e2ca8d6d371a1ecd6d9cd165a023518aa454007a73d826335afe9d1f8a258",
+        "hooks/hooks.json": "cbede14912c1c2eebcebb98215f2a25d7cd8fd994450374440806d07a31fb330",
         "hooks/lane-guard.sh": "c615f6f509ac2304e025406dbd93e62caae2cfe53ccbdbd6c930d570b620ff2d",
         "hooks/triage-prompt-nudge.sh": "124ce6c0f07446f2f859caf34edf8dff59acdc69631c1754688fd188366a6e9e",
         "scripts/compound-v-emit-workflow.py": "cc448bf31071c4e177e20982597800d1194d96d1df114db520b2df8a5b460ae2",
@@ -32,9 +32,9 @@
     },
     "docs/superpowers/architecture/business-logic.md": {
       "cited": {
-        ".claude-plugin/plugin.json": "240d3d090fa61b84734c34aab5b7043e431860463e94138acf054bfca5366e7f",
-        "AGENTS.md": "b97c850cbe58295aec30a6031b2ec2bee830483fda12b36976d817153e88ab86",
-        "README.md": "25b69aa15a4fad81404e1594b9cecce58d498bf87c724fe67a5cbe25d2786894",
+        ".claude-plugin/plugin.json": "6b677f84f771cf17eb2e9055d127c8c6b6df355fd05c32f7d73682a0ff2b7da9",
+        "AGENTS.md": "aabf416c48c7e2675bb7028f0b7e8990e111557a1dbe7d5683ad3a40317d5c51",
+        "README.md": "f681ee339a0c53aa3cca6477a6b2013d08fc23205c9abc5a96af3ece0c3420b0",
         "agents/spec-reviewer.md": "54637927295a8863ed910e2c598e07ab75b130554338e35daabb4c6b3466e716",
         "skills/backend-launcher/SKILL.md": "181e2a31d1d563bfb1edec9e513d7bb40f50ca6579b815a62cfb358872d4f36b",
         "skills/compound-v/SKILL.md": "f4767666bfd3eda44a88a260db5bb65af18d1f3d19a9ccef2dd2568a75a61fde",
@@ -45,9 +45,9 @@
     },
     "docs/superpowers/architecture/tech-context.md": {
       "cited": {
-        ".claude-plugin/plugin.json": "240d3d090fa61b84734c34aab5b7043e431860463e94138acf054bfca5366e7f",
+        ".claude-plugin/plugin.json": "6b677f84f771cf17eb2e9055d127c8c6b6df355fd05c32f7d73682a0ff2b7da9",
         ".github/workflows/validate.yml": "d344cc33ec90382a7ba82998df69b6acbd3b78c61b98250c1adc1369912f0c1d",
-        "hooks/hooks.json": "224e2ca8d6d371a1ecd6d9cd165a023518aa454007a73d826335afe9d1f8a258",
+        "hooks/hooks.json": "cbede14912c1c2eebcebb98215f2a25d7cd8fd994450374440806d07a31fb330",
         "hooks/lane-guard.sh": "c615f6f509ac2304e025406dbd93e62caae2cfe53ccbdbd6c930d570b620ff2d",
         "scripts/compound-v-emit-workflow.py": "cc448bf31071c4e177e20982597800d1194d96d1df114db520b2df8a5b460ae2",
         "scripts/compound-v-epic-arbiter.py": "25464f9c481bb05b930bc9090d9989beb3d6db58773659a2f0b586eb9775c061",
@@ -73,7 +73,7 @@
         ".cclintrc.json": "8ac23a19d14a834e5fb062fe4c3962e2a2398386311bcfaa77bd5c08c03652dc",
         ".github/workflows/validate.yml": "d344cc33ec90382a7ba82998df69b6acbd3b78c61b98250c1adc1369912f0c1d",
         "examples/manifest.example.yaml": "c76e4476deee63fe7e7f72d96ea8e2e5cfc773fa0191e970ee6025a22c9c888f",
-        "hooks/hooks.json": "224e2ca8d6d371a1ecd6d9cd165a023518aa454007a73d826335afe9d1f8a258",
+        "hooks/hooks.json": "cbede14912c1c2eebcebb98215f2a25d7cd8fd994450374440806d07a31fb330",
         "hooks/lane-guard.sh": "c615f6f509ac2304e025406dbd93e62caae2cfe53ccbdbd6c930d570b620ff2d",
         "scripts/compound-v-onboard.py": "18dd4773ef6fdbeb8fbcbe6428a0387816bde1df8f4b24b7e251b09b84a27459",
         "scripts/compound-v-scope-check.py": "a4a5b0a26b783ad468b769585556f2f8a20bf854f47b53fae261898bb4bc18f5",
@@ -98,7 +98,7 @@
       "cited": {
         ".github/workflows/validate.yml": "d344cc33ec90382a7ba82998df69b6acbd3b78c61b98250c1adc1369912f0c1d",
         "CONVENTIONS.md": "adabe44259d4c81610c37c673856b7217ebe8dbc43634ae78334fce7d10d32ad",
-        "hooks/hooks.json": "224e2ca8d6d371a1ecd6d9cd165a023518aa454007a73d826335afe9d1f8a258",
+        "hooks/hooks.json": "cbede14912c1c2eebcebb98215f2a25d7cd8fd994450374440806d07a31fb330",
         "hooks/lane-guard.sh": "c615f6f509ac2304e025406dbd93e62caae2cfe53ccbdbd6c930d570b620ff2d",
         "skills/compound-v/state-machine.md": "2d2325619dfa19bf1ab7751abf3931be80d09756a02169b44ae7ef6f768234d8"
       }

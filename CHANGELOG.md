@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.8.0] - 2026-10-05
+
+### Added — the run band: a live line above the prompt while a dispatch runs
+
+Until now a running dispatch had no live view: you asked `/v:status`, or you did not know. `hooks/run-band.tsx`
+is a Claude Code mod (function hooks, new in Claude Code 2.1.287) that draws the active run above the prompt:
+
+```
+V 2026-09-11-v3.6-wide-dispatch-r2 · DISPATCHED · done 1/3
+  wave 1/2 ✓ docs-core claude·deep   … docs-skills codex·standard 4m   ! docs-backend claude·standard STALE 11m
+  wave 2/2 · spec-review claude·deep
+```
+
+- **When it shows.** Only while a run has a pending or running job. When the run leaves the active set, one
+  closing line (`<run> · MERGED · 4/4 done`) stays for 60 seconds, then nothing is drawn.
+- **One toast per transition.** A job that goes `STALE`, `DEAD`, `blocked`, `error`, `timeout` or `failed`
+  raises a toast once: `Compound V · docs-backend is STALE, no progress for 11m`.
+- **What it reads.** Files only, so it covers every backend: `compound-v-dashboard.py hud` (new subcommand:
+  statuses from `state.json`, backend and tier from `manifest.yaml`) when `state.json` changes, checked every
+  5 s, and `compound-v-liveness.py --json` every 30 s while a job runs.
+- **What it never prints.** No percent and no ETA: neither is measured. An age the probe could not supply is
+  `?`, not 0.
+- **Off switch.** `CV_DISABLED_HOOKS=run-band`.
+- **Older Claude Code.** 2.1.219 and 2.1.282 both pass `claude plugin validate` on a `hooks.json` that carries
+  `modules` beside `hooks`; they ignore the key, so the plugin's floor stays 2.1.219. Validation was probed;
+  a full session on 2.1.219 was not run.
+
+Tested with `claude plugin test` on the terminal and desktop surfaces (4 tests: draw, toast once, closing line,
+off switch) through `tests/test-run-band-mod.sh`, which CI runs with a pinned CLI. **Not yet seen on a real
+dispatch:** the band has been drawn only from test fixtures.
+
 ## [3.7.6] - 2026-10-05
 
 ### Fixed — `/v:onboard` wrote an empty manifest, and `--refresh` then said "0 stale" forever (issue #21)

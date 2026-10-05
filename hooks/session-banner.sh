@@ -106,7 +106,7 @@ _cv_join() {
 }
 
 if [ -n "${CV_DISABLED_HOOKS:-}" ]; then
-  _cv_known=" brainstorm-trigger0-nudge epic-goal-stop memory-refresh plan-saved-nudge postcompact-resume precompact-snapshot session-banner triage-prompt-nudge "
+  _cv_known=" brainstorm-trigger0-nudge epic-goal-stop memory-refresh plan-saved-nudge postcompact-resume precompact-snapshot session-banner triage-prompt-nudge run-band "
   _cv_disabled_list="" _cv_unknown_list="" _cv_lane_named=""
   _cv_raw="$(printf '%s' "${CV_DISABLED_HOOKS}" | tr -d ' \t')"
   _cv_saved_ifs="$IFS"
