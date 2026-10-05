@@ -1,5 +1,5 @@
 {
-  "phase": "BLOCKED",
+  "phase": "PARTITION_VERIFIED",
   "updated_at": "2026-10-05T07:44:02Z",
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
@@ -8,7 +8,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
       "merged": null
     },
@@ -17,7 +16,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
       "merged": null
     },
@@ -26,7 +24,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
       "merged": null
     },
@@ -35,7 +32,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "retries": [
         {
           "stage": "implement",
@@ -52,7 +48,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "merged": null
     },
     "corpus": {
@@ -60,7 +55,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
       "merged": null
     },
@@ -69,7 +63,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "merged": null
     },
     "t3-mod-shadow": {
@@ -77,7 +70,6 @@
       "isolation": "worktree",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "merged": null
     },
     "spec-review": {
@@ -85,7 +77,6 @@
       "isolation": "direct",
       "worktree": null,
       "session_id": null,
-      "baseline": null,
       "merged": null
     }
   },
