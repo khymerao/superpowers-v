@@ -4,35 +4,38 @@
   "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
   "jobs": {
     "record-t3": {
-      "status": "blocked",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2",
+      "worktree": null,
       "session_id": null,
-      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
-      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
+      "baseline": null,
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "merged": null
     },
     "config-jev": {
-      "status": "done",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-3",
+      "worktree": null,
       "session_id": null,
-      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
-      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
+      "baseline": null,
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "merged": null
     },
     "jev-core": {
-      "status": "done",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-4",
+      "worktree": null,
       "session_id": null,
-      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
-      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
+      "baseline": null,
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "merged": null
     },
     "vault": {
-      "status": "blocked",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-15",
+      "worktree": null,
       "session_id": null,
-      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "baseline": null,
       "retries": [
         {
           "stage": "implement",
@@ -41,39 +44,49 @@
           "wait_ms": 2000
         }
       ],
-      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "merged": null
     },
     "ui-floor-onboard-jev": {
       "status": "pending",
       "isolation": "worktree",
       "worktree": null,
-      "session_id": null
+      "session_id": null,
+      "baseline": null,
+      "merged": null
     },
     "corpus": {
-      "status": "done",
+      "status": "pending",
       "isolation": "worktree",
-      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-6",
+      "worktree": null,
       "session_id": null,
-      "baseline": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
-      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994"
+      "baseline": null,
+      "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+      "merged": null
     },
     "t3-hook-shadow": {
       "status": "pending",
       "isolation": "worktree",
       "worktree": null,
-      "session_id": null
+      "session_id": null,
+      "baseline": null,
+      "merged": null
     },
     "t3-mod-shadow": {
       "status": "pending",
       "isolation": "worktree",
       "worktree": null,
-      "session_id": null
+      "session_id": null,
+      "baseline": null,
+      "merged": null
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
-      "session_id": null
+      "session_id": null,
+      "baseline": null,
+      "merged": null
     }
   },
   "waves": {
@@ -91,5 +104,8 @@
     }
   },
   "blocked_reason": "wave 1 refused: record-t3, config-jev",
-  "blocked_at": "2026-10-05T07:44:02Z"
+  "blocked_at": "2026-10-05T07:44:02Z",
+  "notes": [
+    "2026-10-05: attempt 1 ran every wave-1 worktree from 4bd5c49 (main, v2.17) instead of HEAD fbc37d5, because the session's project root was the parent directory and the repo's worktree.baseRef=head setting did not apply. Nothing was merged. Its results and receipts are kept under attempt1-wrong-base/; every job reset to pending for a re-dispatch from a session rooted in this repository."
+  ]
 }
