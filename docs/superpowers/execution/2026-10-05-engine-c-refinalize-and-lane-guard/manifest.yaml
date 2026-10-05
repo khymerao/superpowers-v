@@ -35,8 +35,10 @@ test_contract:
   impacted_map:
   - when: scripts/compound-v-emit-workflow.py
     run: bash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emit-ok'
+  - when: scripts/compound-v-scope-check.py
+    run: /usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest
   - when: hooks/lane-guard.sh
-    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && echo guard-ok'
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo guard-ok'
   - when: tests/test-lane-guard.sh
     run: bash tests/test-lane-guard.sh
   - when: '*.md'
@@ -54,13 +56,14 @@ jobs:
   test_scope: impacted
   write_allowed:
   - scripts/compound-v-emit-workflow.py
+  - scripts/compound-v-scope-check.py
   read_allowed:
   - '**'
   interfaces:
     produces:
     - '`_wave_commit_subject(wave, run_id, merged) -> str` and `_already_integrated_wave(run_dir, repo_root, wave, job_ids)` (dict or None) in scripts/compound-v-emit-workflow.py; `lane-guard-unresolved.jsonl` in RUN_DIR_EXEMPT_BY_NAME.'
   acceptance:
-  - emit-workflow --selftest green with rows A-E and the exempt row; row A fails with the short-circuit call removed and the exempt row fails with the entry removed; AC-4 run on a full-depth scratch clone exits 0 with state.json unchanged, output quoted in the summary.
+  - the scope-check.py docstring list of RUN_DIR_EXEMPT_BY_NAME entries (around its lines 47 and 353) names lane-guard-unresolved.jsonl, docstring only; emit-workflow --selftest green with rows A-E and the exempt row; row A fails with the short-circuit call removed and the exempt row fails with the entry removed; AC-4 run on a full-depth scratch clone exits 0 with state.json unchanged, output quoted in the summary.
   body: 'Implement Task A of docs/superpowers/plans/2026-10-05-engine-c-refinalize-and-lane-guard.md, every step in order. Read the spec docs/superpowers/specs/2026-10-05-engine-c-refinalize-and-lane-guard-design.md first; its Pre-flight amendments section overrides the sections above it, and the three audits named in this manifest bind. Tests first: write the rows, run and see them fail, then implement, then prove the revert. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return; if you approach your turn budget, commit what is complete and return a summary that says what is not.'
 - id: lane-boundary
   title: Task B — the lane guard cwd claim stops at a working-tree boundary

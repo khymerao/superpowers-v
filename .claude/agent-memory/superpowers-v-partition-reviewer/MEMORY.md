@@ -1,1 +1,1 @@
-- [Shared resources and traps](shared-resources-and-traps.md) — nested-plugin mod-test recursion, CI discovery, interface header-line drop, standard=>Sonnet, barrier-hidden deps, one-module hooks.json, cross-script tests
+- [Shared resources and traps](shared-resources-and-traps.md) — mod-test recursion, CI discovery, interface drop, standard=>Sonnet, barrier deps, lane-guard dogfood, exempt-list prose

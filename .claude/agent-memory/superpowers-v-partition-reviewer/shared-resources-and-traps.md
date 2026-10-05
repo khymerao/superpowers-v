@@ -36,3 +36,14 @@ Leads only - re-verify each against the current tree before citing it as a findi
   `scripts/compound-v-onboard.py` via CLI, and `tests/test-native-points.sh` stubs `scripts/compound-v-jev.py`
   (seen 2026-10-05). An impacted_map that runs only the script's `--selftest` misses them; only the
   full_command at merge catches a break. Grep `tests/*.sh` for the script name before trusting impacted scope.
+- **Lane-guard self-interference on dogfood runs.** The guard that enforces a run is the INSTALLED plugin
+  copy (`~/.claude/plugins/cache/.../hooks/lane-guard.sh`), not the checkout, so a lane editing
+  `hooks/lane-guard.sh` changes nothing mid-run. `resolve_job` walks maps newest-mtime first and, per map,
+  tries agent_id then the cwd->worktree claim, so a direct job's checkout claim in one live map can
+  capture a worker of another live run (or any session in `.claude/worktrees/*`) before its own map's
+  agent_id entry is reached (seen 2026-10-05). Check which runs are non-terminal (MERGED/BLOCKED = terminal).
+- **Out-of-lane drivers of `hooks/lane-guard.sh`:** `tests/test-disabled-hooks.sh` executes it,
+  `tests/test-native-points.sh` greps its literal tool tuple `"Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"`.
+  `tests/test-transcript-watch.sh` / `test-usage-workflow.sh` only use the emit-workflow path as a string.
+- **`RUN_DIR_EXEMPT_BY_NAME` is enumerated in prose** in `scripts/compound-v-scope-check.py`'s docstring
+  (~:47 and ~:353). A job adding an entry to the list in emit-workflow leaves that docstring stale unless it owns it.
