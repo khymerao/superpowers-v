@@ -65,8 +65,26 @@ of this repo.
 ### 1. DETECT
 Inventory the ground truth, write nothing:
 - **Existing instruction files** (treat per the cardinal rule above), stack, git remote origin.
-- **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo .` → `ui` / `no-ui`.
-  This is the only thing that decides whether the DESIGN.md branch runs (step 9 / §DESIGN below).
+- **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo . --reason` →
+  `ui deterministic:<signal>` / `no-ui none`. This is the only thing that decides whether the DESIGN.md
+  branch runs (step 9 / §DESIGN below). The deterministic floor reads tailwind/postcss configs, a root
+  `theme.json`, a WordPress `style.css` with a `Theme Name:` header, `.tsx`/`.jsx`/`.vue`/`.svelte`,
+  template engines (`.blade.php`, `.twig`, `.liquid`, `.erb`, `.hbs`, `.astro`), `.swift` that imports
+  SwiftUI, and `.php` with HTML outside `<?php … ?>` (each read capped at 64 KB). `.html` alone is not a
+  signal: docs sites and fixtures carry it without rendering a product UI.
+- **Jev for UI** — only when the floor said `no-ui` and the status line shows `Jev: on` (the
+  `compound-v-vault` plugin is installed, has a key, and egress is allowed for this repo):
+  1. `python3 "$CV/scripts/compound-v-onboard.py" jev-requests --repo . --point detect_ui` →
+     `{"request_files": [...]}`: one request over at most 12 files × 20 lines, which leaves out `.env`,
+     `*.pem`, `*.key`, `.github/**`, the sensitive globs and any file the secret scan flags.
+  2. Call the `jev_classify` tool once per request file (`{"request_file": "<path>"}`). It returns the
+     response path, or `refused: <reason>`; a refusal just means Jev has nothing to add.
+  3. `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo . --reason --jev-responses DIR`, where
+     `DIR` is the directory the returned response paths sit in. A yes at or above
+     `jev.detect_ui.confidence_min` prints `ui jev:sample`; anything else keeps `no-ui none`.
+
+  Jev can only turn `no-ui` into `ui`, never the reverse. No vault, `jev.enabled: false` or
+  `jev.detect_ui.mode: off`: the step is skipped and the floor's answer stands.
 - **Style configs**: eslint / prettier / ruff / editorconfig / tsconfig / lockfiles — the
   deterministic evidence `CONVENTIONS.md` is later derived from.
 - **Cross-tool signal** for the bridge decision: presence of `.cursor*`, `.windsurf*`, `GEMINI.md`,
@@ -144,6 +162,16 @@ the gate. Surface, as advisory recommendations:
 - **Impact-taxonomy DRAFT + churn cache** from `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy --repo . --with-churn` (v2.9). This proposes the two static-evidence inputs the Pre-Evaluation stage reads — it does **not** decide anything and it **never auto-applies**:
   - a first-cut **impact-taxonomy** built from the repo's directory/module structure + detected stack — **`path_patterns` from the repo's REAL dirs** (cosmetic surfaces low, front-end logic medium, migrations/auth/payments/`.github`/`*.sql`/`*.tf` high), the **content-pattern surfaces OFFERED per-repo** (the **four core** kinds — `legal_copy` · `i18n_placeholder` · `feature_flag` · `config_literal` — always offered; **`shared_token` + `a11y` offered only when a UI is detected**, each with a reason you can override at the GATE), and a **starter `sensitive_path_list`** (always carrying the secret-file surfaces `*.pem`/`*.key`/`*.env` so the required list is never empty — fail-closed — unioned with the repo's real high-blast surfaces). The subcommand **self-validates** the draft against `scripts/compound-v-validate-taxonomy.py` (B1) and emits **block-style YAML only** (never inline flow `{}` — the no-PyYAML fallback drops flow mappings). Its real home is `.claude/compound-v-impact-taxonomy.yaml`, written only at WRITE behind the GATE.
   - a normalized **churn cache** (`docs/superpowers/memory/churn-cache.json`), built from the **same drafted taxonomy's `churn:` block** (single-sourced excludes) via `scripts/compound-v-churn.py` — the escalation-only static signal the scorer's override reads. `draft-taxonomy --with-churn` returns a **proposal summary** (path count, hot paths, `formula_id`, `head_sha`); it writes nothing here.
+  - **Jev layer rows** (3.9), with the same `Jev: on` condition as DETECT. Run
+    `python3 "$CV/scripts/compound-v-onboard.py" jev-requests --repo . --point onboard_layer`: one request per
+    top-level directory that the draft has no row for and that no sensitive glob covers (at most 40; each
+    carries the directory name and up to 30 of its paths). Call `jev_classify` on each, then re-run
+    `draft-taxonomy --repo . --with-churn --jev-responses DIR`. An answer at or above
+    `jev.onboard.confidence_min` adds one `<dir>/**` row after every deterministic row:
+    `ui`, `api`, `domain`, `data` and `infra` → difficulty `medium`, impact `high`; `tooling`, `tests` and
+    `docs` → `low`/`low`; `unknown` → no row. Each such row carries a `# source: jev layer=<l> p=<p>` line
+    in the YAML. Jev never lowers, replaces or removes a row and never touches `sensitive_path_list`.
+    `jev.onboard.mode: off` or no vault: the draft is exactly what it was without Jev.
 
   Both are **present-then-confirm** (the `recommend-mcp` precedent): the draft/summary is shown at the GATE, the real files are written at WRITE, committed at COMMIT, indexed at INDEX — **never auto-applied**. A human keeps/edits the taxonomy at the GATE; onboarding proposes, the maintainer decides.
 
@@ -175,6 +203,9 @@ content-pattern surfaces (flagging `shared_token`/`a11y` as offered-only-if-UI, 
 starter `sensitive_path_list`, and the churn summary (path count + hot paths). Surface the draft's
 **self-validation verdict** (B1 `valid`/`violations`) so the maintainer sees it will parse before
 approving. The maintainer keeps/edits the taxonomy at the GATE; nothing is applied without approval.
+A row marked `source: jev` is shown with its layer and probability and is kept or dropped one row at a
+time, like every other row; a `ui jev:sample` verdict is shown with that reason, so the maintainer
+can see that Jev, not the floor, offered the `shared_token`/`a11y` rows.
 
 Show each **`.claude/rules/*.md`** here as its own per-section diff, with its `paths:` scope and every
 rule's citation visible — a reviewer is approving a file that will load into future sessions, so the
@@ -205,7 +236,9 @@ those files do not reach COMMIT until it is clean. See §Path-scoped rules for w
 **Only when the user approved the taxonomy/churn diff (v2.9):** write the impact-taxonomy to
 `.claude/compound-v-impact-taxonomy.yaml` — `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy
 --repo . --emit-yaml > .claude/compound-v-impact-taxonomy.yaml` (block-style, self-validated) — and,
-if it already exists, apply the maintainer's kept/edited version rather than clobbering it. Then build
+if it already exists, apply the maintainer's kept/edited version rather than clobbering it. When the
+approved draft used Jev, add the same `--jev-responses DIR` so the approved `source: jev` rows reach the
+file, then remove any of them the maintainer dropped at the GATE. Then build
 the churn cache from that now-written taxonomy: `python3 "$CV/scripts/compound-v-churn.py" --repo .` (a full,
 reproducible rebuild → `docs/superpowers/memory/churn-cache.json`). Both stay **out of the DESIGN/arch
 write set** — they are the Pre-Evaluation stage's static inputs, not generated prose.

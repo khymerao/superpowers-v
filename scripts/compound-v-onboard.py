@@ -368,16 +368,85 @@ def cmd_staleness(args) -> int:
 
 UI_SIGNALS = ("tailwind.config.js", "tailwind.config.ts", "postcss.config.js")
 UI_EXT = (".tsx", ".jsx", ".vue", ".svelte")
+# The deterministic floor (3.9). Template-engine extensions are UI by name. `.html` is NOT here on
+# purpose: docs sites and test fixtures carry it without rendering any product UI, so it would flip
+# a CLI repo to `ui`; the Jev sample covers it instead. Compound suffixes come before the plain ones
+# so `.blade.php` is reported as itself, not as a bare `.php`.
+UI_TEMPLATE_EXT = (".blade.php", ".twig", ".liquid", ".erb", ".hbs", ".astro")
+UI_READ_CAP = 64 * 1024        # every content signal reads at most this much; a larger file is skipped
+UI_CONTENT_READS_MAX = 2000    # bound on how many files the content signals open in one call
+_WP_THEME_RE = re.compile(rb"^[ \t/*#@]*Theme Name\s*:", re.M)
+_SWIFTUI_RE = re.compile(rb"^\s*(?:@testable\s+)?import\s+SwiftUI\b", re.M)
+# A PHP block runs from `<?php` / `<?=` / `<?` to `?>`, or to the end of the file when unclosed.
+_PHP_BLOCK_RE = re.compile(rb"<\?(?:php|=)?.*?(?:\?>|\Z)", re.S | re.I)
+_HTML_TAG_RE = re.compile(
+    rb"<(?:!doctype\s+html|html|head|body|div|span|p|a|ul|ol|li|table|tr|td|form|input|button|"
+    rb"select|textarea|label|section|article|header|footer|nav|main|aside|h[1-6]|img|template)[\s/>]",
+    re.I)
+
+
+def _ui_content_signal(repo, rel):
+    """The content-based floor signal for one file, or None. Bounded read; a file that is too large,
+    unreadable or not regular yields None (the floor skips it rather than guessing)."""
+    low = rel.lower()
+    base = low.rsplit("/", 1)[-1]
+    if base == "style.css":
+        kind = "wordpress-theme"
+    elif low.endswith(".swift"):
+        kind = "swiftui"
+    elif low.endswith(".php"):
+        kind = "php-markup"
+    else:
+        return None
+    data, _why, code = _read_bounded(os.path.join(repo, rel), UI_READ_CAP)
+    if code != READ_OK or not data:
+        return None
+    if kind == "wordpress-theme":
+        return kind if _WP_THEME_RE.search(data[:8192]) else None
+    if kind == "swiftui":
+        return kind if _SWIFTUI_RE.search(data) else None
+    outside = _PHP_BLOCK_RE.sub(b" ", data)
+    return kind if _HTML_TAG_RE.search(outside) else None
+
+
+def detect_ui_reason(repo: str, jev_responses=None):
+    """→ (is_ui, reason). reason is `deterministic:<signal>`, `jev:sample` or `none`.
+
+    The deterministic floor runs first and always: config files, then a root `theme.json`, then
+    the sorted file list — extension signals before content signals, first match wins. Jev is
+    consulted only when the floor says False AND `jev_responses` names a directory of vault
+    responses AND `jev.detect_ui.mode` is `active`; it can only turn False into True."""
+    for s in UI_SIGNALS:
+        if os.path.exists(os.path.join(repo, s)):
+            return True, "deterministic:" + s
+    if os.path.isfile(os.path.join(repo, "theme.json")):
+        return True, "deterministic:theme.json"
+    files = sorted(_repo_files(repo))
+    for f in files:
+        low = f.lower()
+        for ext in UI_TEMPLATE_EXT + UI_EXT:
+            if low.endswith(ext):
+                return True, "deterministic:" + ext
+    reads = 0
+    for f in files:
+        if reads >= UI_CONTENT_READS_MAX:
+            break
+        low = f.lower()
+        if not (low.endswith((".swift", ".php")) or low.rsplit("/", 1)[-1] == "style.css"):
+            continue
+        reads += 1
+        sig = _ui_content_signal(repo, f)
+        if sig:
+            return True, "deterministic:" + sig
+    if jev_responses:
+        if _jev_detect_ui(repo, jev_responses):
+            return True, "jev:sample"
+    return False, "none"
 
 
 def detect_ui(repo: str) -> bool:
-    for s in UI_SIGNALS:
-        if os.path.exists(os.path.join(repo, s)):
-            return True
-    for f in _git_tracked(repo):
-        if f.endswith(UI_EXT):
-            return True
-    return False
+    """Unchanged contract for every caller: True when the deterministic floor finds a UI."""
+    return detect_ui_reason(repo)[0]
 
 
 def _design_result_ok(result: dict) -> bool:
@@ -866,6 +935,9 @@ def emit_taxonomy_yaml(path_patterns, content_rows, sensitive, churn_block):
     if path_patterns:
         L += ["", "path_patterns:"]
         for r in path_patterns:
+            if r.get("source") == "jev":
+                # The row's provenance travels with it through the GATE and WRITE (3.9).
+                L.append("  # source: jev layer=%s p=%.2f" % (r["layer"], r["p"]))
             L.append("  - glob: " + _dq(r["glob"]))
             L.append("    difficulty_band: " + r["difficulty_band"])
             L.append("    impact_band: " + r["impact_band"])
@@ -903,22 +975,30 @@ def _validate_taxonomy_text(text):
     return (not problems), problems
 
 
-def draft_taxonomy(repo):
+def draft_taxonomy(repo, jev_responses=None):
     """Draft a first-cut impact-taxonomy PROPOSAL from the repo. Present-then-confirm: returns the
     proposal (incl. the block-style YAML + per-decision evidence + a self-validation verdict) and
     writes NOTHING. The real `.claude/compound-v-impact-taxonomy.yaml` is written only at WRITE,
-    behind the human GATE (per skills/compound-v/onboarding.md)."""
+    behind the human GATE (per skills/compound-v/onboarding.md).
+
+    `jev_responses` (3.9) names a directory of vault responses. Jev can then only ADD: a UI the floor
+    missed (which offers the shared_token/a11y rows), and one path row per top-level directory that
+    has no row and is not sensitive, appended after every deterministic row and marked `source: jev`.
+    It never lowers or removes a row and never touches sensitive_path_list."""
     files = _repo_files(repo)
     _, segs, basenames = _scan_index(files)
-    ui = detect_ui(repo)
+    ui, ui_reason = detect_ui_reason(repo, jev_responses)
     path_patterns = _draft_path_patterns(files, segs)
     content_kinds, content_rows = _draft_content_patterns(ui)
     sensitive = _draft_sensitive(files, segs, basenames)
+    jev_rows = _jev_layer_rows(repo, jev_responses) if jev_responses else []
+    path_patterns = path_patterns + jev_rows
     churn_block = {"exclude_paths": list(_CHURN_EXCLUDES),
                    "format_commit_patterns": list(_CHURN_FORMATS)}
     yaml_text = emit_taxonomy_yaml(path_patterns, content_rows, sensitive, churn_block)
     valid, violations = _validate_taxonomy_text(yaml_text)
-    return {
+    extra = {"ui_reason": ui_reason, "jev_rows": len(jev_rows)} if jev_responses else {}
+    return dict({
         "target_path": _TAXONOMY_TARGET_REL,
         "written": False,          # present-then-confirm — NEVER auto-written
         "ui": ui,
@@ -929,7 +1009,7 @@ def draft_taxonomy(repo):
         "taxonomy_yaml": yaml_text,
         "valid": valid,
         "violations": violations,
-    }
+    }, **extra)
 
 
 def draft_churn_summary(repo, taxonomy_yaml):
@@ -963,6 +1043,313 @@ def draft_churn_summary(repo, taxonomy_yaml):
         "paths": len(paths),
         "hot": hot,
     }
+
+
+# --------------------------------------------------------------------------- Jev (3.9)
+# Jev (TypeSafe System One) is asked two questions during onboarding: "does this sample of files
+# render a UI?" (only when the deterministic floor said no) and "which layer is this top-level
+# directory?" (only for a directory the draft has no row for). This module never talks to the
+# network and never sees a key: it writes request files through scripts/compound-v-jev.py, the
+# command flow hands each one to the compound-v-vault tool `jev_classify`, and the responses come
+# back here through `--jev-responses DIR`. Every answer can only ADD to the draft.
+_JEV_SCRIPT = "compound-v-jev.py"
+_JEV_ENV_KEYS = ("PATH", "HOME", "TMPDIR", "LANG")
+_JEV_TIMEOUT_S = 60
+JEV_UI_SAMPLE_FILES = 12
+JEV_UI_SAMPLE_LINES = 20
+JEV_LAYER_DIRS_MAX = 40
+JEV_LAYER_PATHS_MAX = 30
+# Files worth showing Jev when the floor found no UI. Markup-shaped files rank first, then source
+# files in languages that commonly render pages; within a rank, path order.
+_UI_SAMPLE_RANK = (
+    (".html", ".htm", ".xhtml", ".jinja", ".jinja2", ".j2", ".njk", ".mustache", ".ejs", ".pug",
+     ".haml", ".slim", ".heex", ".eex", ".cshtml", ".razor", ".jsp", ".aspx", ".tpl", ".xaml"),
+    (".php", ".js", ".mjs", ".ts", ".py", ".rb", ".go", ".java", ".kt", ".cs", ".dart", ".ex",
+     ".rs", ".swift"),
+)
+# Layer -> (difficulty_band, impact_band). The ONE place a Jev layer becomes bands; `unknown` (and
+# any label not listed) produces no row.
+_LAYER_BANDS = {
+    "ui": ("medium", "high"), "api": ("medium", "high"),
+    "domain": ("medium", "high"), "data": ("medium", "high"),
+    "infra": ("medium", "high"),
+    "tooling": ("low", "low"), "tests": ("low", "low"), "docs": ("low", "low"),
+}
+
+
+def _jev_point_cfg(repo, key):
+    """The `jev.<key>` block (`detect_ui` or `onboard`) when Jev may run for it, else None. A missing
+    resolver, a malformed config, `jev.enabled: false` or `mode: off` all mean no Jev."""
+    pc = _load_sibling("compound-v-project-config.py")
+    if pc is None:
+        return None
+    try:
+        values, _warnings = pc.resolve_jev(pc.load_project_config(repo))
+    except Exception:  # noqa: BLE001 — a config that cannot be read never sends anything out
+        return None
+    if values.get("enabled") is not True:
+        return None
+    block = values.get(key)
+    if not isinstance(block, dict) or block.get("mode") != "active":
+        return None
+    return block
+
+
+def _jev_run(argv):
+    """Run compound-v-jev.py with a minimal env (no key can ride along). → its JSON object, or None."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), _JEV_SCRIPT)
+    if not os.path.isfile(script):
+        return None
+    env = {k: os.environ[k] for k in _JEV_ENV_KEYS if os.environ.get(k)}
+    try:
+        out = subprocess.run([sys.executable or "python3", "-B", script] + list(argv), env=env,
+                             stdin=subprocess.DEVNULL, capture_output=True, timeout=_JEV_TIMEOUT_S)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        obj = json.loads(out.stdout.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _jev_build(repo, point, state):
+    """Write one request file. The state goes through a private temp file outside the repository
+    (request text is never put in argv). → the request file path, or None."""
+    import tempfile
+    fd, tmp = tempfile.mkstemp(prefix="cv-onboard-jev-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, ensure_ascii=False)
+        res = _jev_run(["build", "--point", point, "--state-file", tmp, "--repo", repo,
+                        "--context", "offline"])
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    if res and res.get("status") == "ok" and isinstance(res.get("request_file"), str):
+        return res["request_file"]
+    return None
+
+
+def _sensitive_globs(repo, files):
+    """Layer A's sensitive globs: the drafted starter list plus, when present and loadable, the
+    project taxonomy's own `sensitive_path_list`."""
+    _, segs, basenames = _scan_index(files)
+    globs = [e["glob"] for e in _draft_sensitive(files, segs, basenames)]
+    tax = _load_sibling("compound-v-taxonomy.py")
+    path = os.path.join(repo, _TAXONOMY_TARGET_REL)
+    if tax is not None and os.path.isfile(path):
+        try:
+            for g in tax.load_taxonomy(path).get("sensitive_path_list", []) or []:
+                if isinstance(g, str) and g not in globs:
+                    globs.append(g)
+        except Exception:  # noqa: BLE001 — the drafted list still applies
+            pass
+    return globs
+
+
+_GLOB_MATCHER = []
+
+
+def _glob_match(path, glob):
+    """validate-manifest's segment-aware glob match (the taxonomy's own matcher), loaded once."""
+    if not _GLOB_MATCHER:
+        _GLOB_MATCHER.append(_load_sibling("compound-v-validate-manifest.py"))
+    vm = _GLOB_MATCHER[0]
+    if vm is None:  # fail closed: without a matcher every glob "matches", so nothing is sent
+        return True
+    return vm.glob_match(path, glob)
+
+
+def _ui_sample(repo):
+    """≤ 12 files × ≤ 20 lines for the detect_ui question, deterministic order. Excluded: `.env`,
+    `*.pem`, `*.key`, `.github/**`, vendored or generated files, anything a sensitive glob matches,
+    and any file `scan_secrets` flags in its bounded read."""
+    files = sorted(_repo_files(repo))
+    sens = _sensitive_globs(repo, files)
+    ranked = []
+    for f in files:
+        low = f.lower()
+        base = low.rsplit("/", 1)[-1]
+        if base == ".env" or low.endswith((".env", ".pem", ".key")) or low.startswith(".github/"):
+            continue
+        if _exclude_reason(f):
+            continue
+        rank = next((i for i, exts in enumerate(_UI_SAMPLE_RANK) if low.endswith(exts)), None)
+        if rank is None:
+            continue
+        ranked.append((rank, f))
+    out = []
+    for _rank, f in sorted(ranked):
+        if len(out) >= JEV_UI_SAMPLE_FILES:
+            break
+        if any(_glob_match(f, g) for g in sens):
+            continue
+        data, _why, code = _read_bounded(os.path.join(repo, f), UI_READ_CAP)
+        if code != READ_OK or data is None or b"\0" in data:
+            continue
+        text = data.decode("utf-8", "replace")
+        if scan_secrets(text):
+            continue
+        head = "\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])
+        out.append({"path": f, "head": head})
+    return out
+
+
+def _dir_covered(name, globs):
+    """True when a directory-shaped glob (`…/**`) already claims the top-level directory `name`."""
+    probe = name + "/probe"
+    return any(g.endswith("/**") and _glob_match(probe, g) for g in globs)
+
+
+def _layer_candidates(repo):
+    """[(directory, [paths ≤ 30])] for each top-level directory with no path row today and no
+    sensitive glob over it, sorted, capped at 40."""
+    files = sorted(_repo_files(repo))
+    _, segs, _basenames = _scan_index(files)
+    rows = [r["glob"] for r in _draft_path_patterns(files, segs)]
+    sens = _sensitive_globs(repo, files)
+    groups = {}
+    for f in files:
+        if "/" not in f or _exclude_reason(f):
+            continue
+        groups.setdefault(f.split("/", 1)[0], []).append(f)
+    out = []
+    for name in sorted(groups):
+        if len(out) >= JEV_LAYER_DIRS_MAX:
+            break
+        if name in VENDOR_DIRS or _dir_covered(name, rows) or _dir_covered(name, sens):
+            continue
+        out.append((name, groups[name][:JEV_LAYER_PATHS_MAX]))
+    return out
+
+
+def jev_requests(repo, point):
+    """CLI `jev-requests`: build the request files for one point. → {"request_files": [...]}.
+    Empty when Jev is off for the point, or (detect_ui) when the deterministic floor already said
+    UI — Jev is asked only what the floor could not answer."""
+    repo = os.path.abspath(repo)
+    built = []
+    if point == "detect_ui":
+        if _jev_point_cfg(repo, "detect_ui") is None or detect_ui_reason(repo)[0]:
+            return {"request_files": []}
+        sample = _ui_sample(repo)
+        if sample:
+            rf = _jev_build(repo, "detect_ui", {"files": sample})
+            if rf:
+                built.append(rf)
+    elif point == "onboard_layer":
+        if _jev_point_cfg(repo, "onboard") is None:
+            return {"request_files": []}
+        for name, paths in _layer_candidates(repo):
+            rf = _jev_build(repo, "onboard_layer", {"directory": name, "paths": paths})
+            if rf:
+                built.append(rf)
+    return {"request_files": built}
+
+
+def _jev_answers(repo, resp_dir, point, state_ok):
+    """Parsed `ok` answers from `resp_dir` for `point`, newest first. A response counts only when its
+    sibling request names this repo and this point and its state passes `state_ok` — so an answer
+    left over from an older run about different files is ignored."""
+    real = os.path.realpath(os.path.abspath(repo))
+    resp_dir = os.path.normpath(os.path.abspath(resp_dir))
+    req_dir = os.path.join(os.path.dirname(resp_dir), "req")
+    try:
+        names = sorted(os.listdir(resp_dir))
+    except OSError:
+        return []
+    found = []
+    for nm in names:
+        if not nm.endswith(".resp.json"):
+            continue
+        rp = os.path.join(resp_dir, nm)
+        reqp = os.path.join(req_dir, nm[: -len(".resp.json")] + ".req.json")
+        raw, _why, code = _read_bounded(reqp, 1 << 20, allow_symlink=False)
+        if code != READ_OK:
+            continue
+        try:
+            req = json.loads(raw.decode("utf-8"))
+            state = json.loads(req["body"]["state"])
+        except (ValueError, KeyError, TypeError, UnicodeDecodeError):
+            continue
+        if not isinstance(req, dict) or req.get("point") != point or req.get("repo") != real:
+            continue
+        if not isinstance(state, dict) or not state_ok(state):
+            continue
+        res = _jev_run(["parse", "--response-file", rp, "--repo", repo, "--mode", "active",
+                        "--request-file", reqp])
+        if not res or res.get("status") != "ok" or not isinstance(res.get("answers"), dict):
+            continue
+        try:
+            mtime = os.stat(rp).st_mtime
+        except OSError:
+            continue
+        found.append((mtime, nm, state, res["answers"]))
+    found.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return [(state, answers) for _m, _n, state, answers in found]
+
+
+def _prob(answer, label):
+    if not isinstance(answer, dict) or not isinstance(answer.get("probs"), dict):
+        return None
+    p = answer["probs"].get(label)
+    return float(p) if isinstance(p, (int, float)) and not isinstance(p, bool) else None
+
+
+def _jev_detect_ui(repo, resp_dir):
+    """True when the newest Jev answer about the CURRENT sample says yes with p ≥ confidence_min.
+    Called only after the floor said False, so it can never turn True into False."""
+    cfg = _jev_point_cfg(repo, "detect_ui")
+    if cfg is None:
+        return False
+    want = [f["path"] for f in _ui_sample(repo)]
+    if not want:
+        return False
+
+    def same_sample(state):
+        got = state.get("files")
+        return isinstance(got, list) and [f.get("path") for f in got if isinstance(f, dict)] == want
+
+    for _state, answers in _jev_answers(repo, resp_dir, "detect_ui", same_sample):
+        a = answers.get("ui")
+        if not isinstance(a, dict) or a.get("type") != "noul":
+            continue
+        p = _prob(a, "yes")
+        return p is not None and p >= cfg["confidence_min"]
+    return False
+
+
+def _jev_layer_rows(repo, resp_dir):
+    """Path rows from Jev layer answers: one `<dir>/**` row per candidate directory whose newest
+    answer names a banded layer with p ≥ confidence_min. Candidates already exclude every directory
+    that has a row or a sensitive glob, so no existing row is lowered, replaced or removed."""
+    cfg = _jev_point_cfg(repo, "onboard")
+    if cfg is None:
+        return []
+    cands = dict(_layer_candidates(repo))
+    seen, rows = set(), []
+    for state, answers in _jev_answers(repo, resp_dir, "onboard_layer",
+                                       lambda st: st.get("directory") in cands):
+        name = state["directory"]
+        if name in seen:
+            continue
+        seen.add(name)
+        a = answers.get("layer")
+        if not isinstance(a, dict) or a.get("type") != "choice":
+            continue
+        layer = a.get("answer")
+        p = _prob(a, layer)
+        if layer not in _LAYER_BANDS or p is None or p < cfg["confidence_min"]:
+            continue
+        dband, iband = _LAYER_BANDS[layer]
+        rows.append({"glob": name + "/**", "difficulty_band": dband, "impact_band": iband,
+                     "evidence": cands[name][0], "source": "jev", "layer": layer, "p": p})
+    return sorted(rows, key=lambda r: r["glob"])
 
 
 # --------------------------------------------------------------------------- .claude/rules/ (3.5.0)
@@ -1999,6 +2386,240 @@ def _selftest() -> int:
     finally:
         shutil.rmtree(d9c, ignore_errors=True)
 
+    # ------------------------------------------------------------ detect_ui deterministic floor (3.9)
+    import io, contextlib
+
+    def _cli(argv):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            rc = main(argv)
+        return rc, buf.getvalue()
+
+    def _ui_case(name, tree, want):
+        dd = tempfile.mkdtemp()
+        try:
+            for rel, txt in tree.items():
+                _touch(dd, rel, txt)
+            got = detect_ui_reason(dd)
+            check("detect_ui floor: %s -> %r" % (name, want), got == want and detect_ui(dd) is want[0])
+        finally:
+            shutil.rmtree(dd, ignore_errors=True)
+
+    _ui_case("WordPress theme root", {
+        "style.css": "/*\nTheme Name: Fixture\nAuthor: T\n*/\nbody{}\n",
+        "functions.php": "<?php\nadd_action('init', 'fx_setup');\n"},
+        (True, "deterministic:wordpress-theme"))
+    _ui_case("theme.json root", {"theme.json": "{\"version\": 2}\n", "functions.php": "<?php\n"},
+             (True, "deterministic:theme.json"))
+    for _ext, _rel in ((".blade.php", "resources/views/home.blade.php"), (".twig", "templates/a.twig"),
+                       (".liquid", "sections/hero.liquid"), (".erb", "app/views/a.html.erb"),
+                       (".hbs", "views/a.hbs"), (".astro", "src/pages/index.astro")):
+        _ui_case(_ext, {_rel: "{{ x }}\n", "lib/core.py": "x = 1\n"}, (True, "deterministic:" + _ext))
+    _ui_case("SwiftUI", {"App/ContentView.swift": "import Foundation\nimport SwiftUI\n"
+                                                  "struct V: View { var body: some View { Text(\"x\") } }\n"},
+             (True, "deterministic:swiftui"))
+    _ui_case("Swift without SwiftUI", {"Sources/main.swift": "import Foundation\nprint(1)\n"},
+             (False, "none"))
+    _ui_case("PHP with markup outside <?php ?>", {
+        "index.php": "<?php $t = 'x'; ?>\n<div class=\"x\"><?= $t ?></div>\n"},
+        (True, "deterministic:php-markup"))
+    _ui_case("PHP whose only markup is inside <?php", {
+        "lib.php": "<?php\nfunction f() { return '<div>'; }\n"}, (False, "none"))
+    _ui_case("PHP over the 64 KB read cap is skipped", {
+        "big.php": "<div>x</div>\n" + "<?php\n" + "// pad\n" * 12000}, (False, "none"))
+    _ui_case("docs site with only .html stays no-ui", {
+        "docs/index.html": "<html><body><div>docs</div></body></html>\n", "cli/main.py": "print(1)\n"},
+        (False, "none"))
+    _ui_case("non-git tree with a .tsx", {"src/App.tsx": "export const A = () => null\n"},
+             (True, "deterministic:.tsx"))
+    _ui_case("pure CLI", {"cli/main.py": "print(1)\n", "README.md": "# cli\n"}, (False, "none"))
+    d_cli = tempfile.mkdtemp()
+    try:
+        _touch(d_cli, "views/a.twig", "{{ x }}\n")
+        rc_b, out_b = _cli(["detect-ui", "--repo", d_cli])
+        rc_r, out_r = _cli(["detect-ui", "--repo", d_cli, "--reason"])
+        os.remove(os.path.join(d_cli, "views", "a.twig"))
+        rc_n, out_n = _cli(["detect-ui", "--repo", d_cli, "--reason"])
+        check("detect-ui CLI: bare output unchanged (`ui`)", rc_b == 0 and out_b == "ui\n")
+        check("detect-ui CLI: --reason prints `ui deterministic:<signal>`",
+              rc_r == 0 and out_r == "ui deterministic:.twig\n")
+        check("detect-ui CLI: --reason prints `no-ui none`", rc_n == 0 and out_n == "no-ui none\n")
+    finally:
+        shutil.rmtree(d_cli, ignore_errors=True)
+
+    # ------------------------------------------------------------ Jev for UI and layers (3.9)
+    # HOME points at a throwaway dir so compound-v-jev.py writes its data there, never to the real
+    # ~/.claude/compound-v-jev/. The responses are fake files in the vault's format.
+    home_saved = os.environ.get("HOME")
+    jev_home = tempfile.mkdtemp()
+    os.environ["HOME"] = jev_home
+    rj = tempfile.mkdtemp()
+    # Recent mtimes only: compound-v-jev.py prunes anything older than its 30-day retention.
+    import time as _time
+    _t0 = _time.time() - 1000
+
+    def _snapshot(base):
+        out = []
+        for root, _dirs, names in os.walk(base):
+            out += [os.path.relpath(os.path.join(root, n), base) for n in names]
+        return sorted(out)
+
+    def _fake_resp(req_file, answers, mtime=None):
+        base = os.path.basename(req_file)[: -len(".req.json")]
+        rdir = os.path.join(os.path.dirname(os.path.dirname(req_file)), "resp")
+        os.makedirs(rdir, exist_ok=True)
+        path = os.path.join(rdir, base + ".resp.json")
+        with open(path, "w") as fh:
+            json.dump({"status": "ok", "latency_ms": 300,
+                       "body": {"model": "typesafe/jev-1.13-20260917", "answers": answers}}, fh)
+        if mtime is not None:
+            os.utime(path, (mtime, mtime))
+        return rdir
+
+    def _req_state(req_file):
+        with open(req_file) as fh:
+            return json.loads(json.load(fh)["body"]["state"])
+
+    def _layer(label, p):
+        return {"layer": {"type": "choice", "choice": label, "probabilities": {label: p}, "confidence": p}}
+
+    def _set_jev_cfg(base, jev):
+        _touch(base, ".claude/compound-v.json", json.dumps({"jev": jev}) + "\n")
+
+    try:
+        _touch(rj, "site/index.html", "<html>\n<body>\n<div>hi</div>\n</body>\n</html>\n")
+        _touch(rj, "site/page.html", "\n".join("line %d" % i for i in range(40)) + "\n")
+        _touch(rj, "site/leak.html", "<div>ghp_" + "a" * 36 + "</div>\n")
+        _touch(rj, "cli/main.py", "print(1)\n")
+        _touch(rj, ".env", "X=1\n")
+        _touch(rj, "keys/server.pem", "x\n")
+        _touch(rj, "keys/server.key", "x\n")
+        _touch(rj, ".github/workflows/ci.html", "<div>ci</div>\n")
+        _touch(rj, "src/auth/login.py", "x = 1\n")
+        before = _snapshot(rj)
+        reqs = jev_requests(rj, "detect_ui")
+        check("jev detect_ui: floor False -> exactly one request file",
+              set(reqs) == {"request_files"} and len(reqs["request_files"]) == 1)
+        req1 = reqs["request_files"][0] if reqs["request_files"] else ""
+        check("jev detect_ui: request file lives in ~/.claude/compound-v-jev, not the repo",
+              req1.startswith(os.path.join(os.path.realpath(jev_home), ".claude", "compound-v-jev"))
+              and _snapshot(rj) == before)
+        st = _req_state(req1) if req1 else {"files": []}
+        spaths = [f["path"] for f in st["files"]]
+        check("jev detect_ui: sample sorted, html first, sensitive/secret/.github/.env/key excluded",
+              spaths == ["site/index.html", "site/page.html", "cli/main.py"])
+        check("jev detect_ui: sample capped at 20 lines per file",
+              all(len(f["head"].splitlines()) <= JEV_UI_SAMPLE_LINES for f in st["files"])
+              and len(st["files"]) <= JEV_UI_SAMPLE_FILES)
+        rdir = _fake_resp(req1, {"ui": {"type": "noul", "noul": 0.93}}, mtime=_t0) if req1 else rj
+        check("jev detect_ui: yes >= confidence_min -> (True, jev:sample)",
+              detect_ui_reason(rj, rdir) == (True, "jev:sample"))
+        check("jev detect_ui: detect_ui(repo) -> bool unchanged without responses", detect_ui(rj) is False)
+        rc_j, out_j = _cli(["detect-ui", "--repo", rj, "--reason", "--jev-responses", rdir])
+        check("detect-ui CLI: --jev-responses prints `ui jev:sample`", out_j == "ui jev:sample\n")
+        req2 = jev_requests(rj, "detect_ui")["request_files"]
+        if req2:
+            _fake_resp(req2[0], {"ui": {"type": "noul", "noul": 0.5}}, mtime=_t0 + 100)
+        check("jev detect_ui: the newest answer wins, and below confidence_min stays (False, none)",
+              len(req2) == 1 and detect_ui_reason(rj, rdir) == (False, "none"))
+        _set_jev_cfg(rj, {"detect_ui": {"mode": "off"}})
+        n_req = len(os.listdir(os.path.dirname(req1))) if req1 else -1
+        check("jev detect_ui: mode off -> no request written and responses ignored",
+              jev_requests(rj, "detect_ui") == {"request_files": []}
+              and len(os.listdir(os.path.dirname(req1))) == n_req
+              and detect_ui_reason(rj, rdir) == (False, "none"))
+        _set_jev_cfg(rj, {"enabled": False})
+        check("jev detect_ui: jev.enabled false -> no request",
+              jev_requests(rj, "detect_ui") == {"request_files": []})
+        os.remove(os.path.join(rj, ".claude", "compound-v.json"))
+
+        # A deterministic True is never asked about and never flipped by a "no".
+        _touch(rj, "web/App.tsx", "export const A = () => null\n")
+        _fake_resp(req1, {"ui": {"type": "noul", "noul": 0.0}}, mtime=_t0 + 200)
+        check("jev detect_ui: floor True -> no request, and a Jev 'no' never flips it",
+              jev_requests(rj, "detect_ui") == {"request_files": []}
+              and detect_ui_reason(rj, rdir) == (True, "deterministic:.tsx"))
+    finally:
+        shutil.rmtree(rj, ignore_errors=True)
+
+    rl = tempfile.mkdtemp()
+    try:
+        for rel in ("api/routes.py", "api/handlers.py", "docs/guide.md", "auth/login.py",
+                    "tools/gen.py", "misc/notes.txt", "node_modules/x/y.js", "db/migrations/001.sql"):
+            _touch(rl, rel)
+        base_prop = draft_taxonomy(rl)
+        lreqs = jev_requests(rl, "onboard_layer")["request_files"]
+        by_dir = {_req_state(f)["directory"]: f for f in lreqs}
+        check("jev layers: one request per unclaimed, non-sensitive top-level directory",
+              sorted(by_dir) == ["api", "db", "docs", "misc", "tools"])
+        check("jev layers: state is the directory name plus its paths",
+              _req_state(by_dir["api"]) == {"directory": "api",
+                                            "paths": ["api/handlers.py", "api/routes.py"]}
+              if "api" in by_dir else False)
+        rdir_l = None
+        for d_name, ans in (("api", _layer("api", 0.91)), ("docs", _layer("docs", 0.95)),
+                            ("tools", _layer("tooling", 0.6)), ("misc", _layer("unknown", 0.99))):
+            if d_name in by_dir:
+                rdir_l = _fake_resp(by_dir[d_name], ans)
+        # An answer about a directory that already has a row must change nothing.
+        auth_req = _jev_build(os.path.abspath(rl), "onboard_layer",
+                              {"directory": "auth", "paths": ["auth/login.py"]})
+        if auth_req:
+            _fake_resp(auth_req, _layer("docs", 0.99))
+        prop_l = draft_taxonomy(rl, rdir_l) if rdir_l else base_prop
+        jrows = [r for r in prop_l["path_patterns"] if r.get("source") == "jev"]
+        check("jev layers: only banded answers >= confidence_min add rows (api, docs)",
+              [(r["glob"], r["difficulty_band"], r["impact_band"]) for r in jrows]
+              == [("api/**", "medium", "high"), ("docs/**", "low", "low")])
+        check("jev layers: existing rows unchanged, in order, ahead of the Jev rows",
+              prop_l["path_patterns"][: len(base_prop["path_patterns"])] == base_prop["path_patterns"]
+              and len(prop_l["path_patterns"]) == len(base_prop["path_patterns"]) + 2)
+        check("jev layers: no row for a claimed or sensitive directory (auth)",
+              not any(r["glob"] == "auth/**" for r in prop_l["path_patterns"]))
+        check("jev layers: sensitive_path_list untouched",
+              prop_l["sensitive_path_list"] == base_prop["sensitive_path_list"])
+        yl = prop_l["taxonomy_yaml"]
+        check("jev layers: `# source: jev` sits right above its row",
+              '  # source: jev layer=api p=0.91\n  - glob: "api/**"\n' in yl
+              and '  # source: jev layer=docs p=0.95\n  - glob: "docs/**"\n' in yl)
+        vt_l = _load_sibling("compound-v-validate-taxonomy.py")
+        parsed_l = _load_sibling("compound-v-validate-manifest.py")._mini_yaml(yl)
+        check("jev layers: YAML with # source: jev lines validates (B1 + no-PyYAML fallback)",
+              prop_l["valid"] is True and vt_l.validate(parsed_l) == []
+              and "api/**" in [r["glob"] for r in parsed_l.get("path_patterns", [])])
+        check("jev layers: without responses the draft carries no jev marks",
+              "# source: jev" not in base_prop["taxonomy_yaml"] and "ui_reason" not in base_prop)
+        rc_y, out_y = _cli(["draft-taxonomy", "--repo", rl, "--emit-yaml", "--jev-responses", rdir_l or rl])
+        check("draft-taxonomy CLI: --jev-responses keeps the rows through --emit-yaml",
+              rc_y == 0 and out_y == yl)
+        _set_jev_cfg(rl, {"onboard": {"mode": "off"}})
+        check("jev layers: onboard mode off -> no requests and no Jev rows",
+              jev_requests(rl, "onboard_layer") == {"request_files": []}
+              and not any(r.get("source") == "jev"
+                          for r in draft_taxonomy(rl, rdir_l)["path_patterns"]))
+    finally:
+        shutil.rmtree(rl, ignore_errors=True)
+
+    # A Jev row as the FIRST item under path_patterns: the comment opens the sequence.
+    rf = tempfile.mkdtemp()
+    try:
+        _touch(rf, "svc/main.go", "package main\n")
+        freq = jev_requests(rf, "onboard_layer")["request_files"]
+        rdir_f = _fake_resp(freq[0], _layer("api", 0.88)) if freq else rf
+        yf = draft_taxonomy(rf, rdir_f)["taxonomy_yaml"]
+        pf = _load_sibling("compound-v-validate-manifest.py")._mini_yaml(yf)
+        check("jev layers: a comment as the first line under path_patterns still parses and validates",
+              "path_patterns:\n  # source: jev layer=api p=0.88\n" in yf
+              and [r["glob"] for r in pf.get("path_patterns", [])] == ["svc/**"]
+              and _load_sibling("compound-v-validate-taxonomy.py").validate(pf) == [])
+    finally:
+        shutil.rmtree(rf, ignore_errors=True)
+        if home_saved is None:
+            os.environ.pop("HOME", None)
+        else:
+            os.environ["HOME"] = home_saved
+        shutil.rmtree(jev_home, ignore_errors=True)
+
     # ----------------------------------------------------------------- rules-lint / rules-plan (3.5.0)
     # CONTAINMENT (shared with verify-citations, which calls the same tier1_check). A citation is a
     # promise a reader can re-read the evidence in THIS checkout; an absolute path, a `..` escape or a
@@ -2443,6 +3064,13 @@ def build_parser():
     sp = sub.add_parser("design-lint")
     sp.add_argument("--file", required=True); sp.add_argument("--json", action="store_true")
     sp = sub.add_parser("detect-ui"); sp.add_argument("--repo", default=".")
+    sp.add_argument("--reason", action="store_true",
+                    help="also print why: `ui deterministic:<signal>`, `ui jev:sample` or `no-ui none`")
+    sp.add_argument("--jev-responses", default=None, metavar="DIR",
+                    help="vault response dir; consulted only when the deterministic floor says no-ui")
+    sp = sub.add_parser("jev-requests", help="write Jev request files for one point (3.9)")
+    sp.add_argument("--repo", default=".")
+    sp.add_argument("--point", required=True, choices=("detect_ui", "onboard_layer"))
     sp = sub.add_parser("scan-output")
     sp.add_argument("--files", nargs="+", required=True)
     sp.add_argument("--repo", default="."); sp.add_argument("--json", action="store_true")
@@ -2459,6 +3087,8 @@ def build_parser():
                     help="also build a churn-cache PROPOSAL from the drafted taxonomy (not written)")
     sp.add_argument("--emit-yaml", action="store_true",
                     help="print ONLY the block-style taxonomy YAML (for the WRITE step to redirect)")
+    sp.add_argument("--jev-responses", default=None, metavar="DIR",
+                    help="vault response dir: Jev may ADD a UI verdict and rows for unclaimed directories")
     sp.add_argument("--json", action="store_true")
     sp = sub.add_parser("rules-lint", help="validate every .claude/rules/**/*.md (3.5.0)")
     sp.add_argument("--repo", default="."); sp.add_argument("--json", action="store_true")
@@ -2490,7 +3120,12 @@ def main(argv) -> int:
         print(json.dumps(result, indent=2))
         return 0 if result["ok"] else 2
     if args.cmd == "detect-ui":
-        print("ui" if detect_ui(os.path.abspath(args.repo)) else "no-ui")
+        is_ui, reason = detect_ui_reason(os.path.abspath(args.repo), args.jev_responses)
+        word = "ui" if is_ui else "no-ui"
+        print(word + " " + reason if args.reason else word)
+        return 0
+    if args.cmd == "jev-requests":
+        print(json.dumps(jev_requests(args.repo, args.point), indent=2))
         return 0
     if args.cmd == "scan-output":
         result = scan_output_files(os.path.abspath(args.repo), args.files)
@@ -2514,7 +3149,7 @@ def main(argv) -> int:
         return 0
     if args.cmd == "draft-taxonomy":
         repo = os.path.abspath(args.repo)
-        proposal = draft_taxonomy(repo)
+        proposal = draft_taxonomy(repo, args.jev_responses)
         if args.with_churn:
             proposal["churn_cache"] = draft_churn_summary(repo, proposal["taxonomy_yaml"])
         if args.emit_yaml:

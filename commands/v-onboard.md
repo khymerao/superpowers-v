@@ -39,6 +39,9 @@ of this repo.
   `detect → pack → extract → verify → diagnose → gate → write → commit → index`, with the
   **path-scoped rules** step inside it: `rules-plan` at DIAGNOSE, one drafted `.claude/rules/*.md`
   per area at the GATE, `rules-lint` blocking before COMMIT (§Path-scoped rules in the skill).
+  When the status line shows `Jev: on`, DETECT and DIAGNOSE also run the Jev steps in the skill:
+  `jev-requests`, one `jev_classify` call per request file, then `detect-ui --jev-responses DIR` and
+  `draft-taxonomy --jev-responses DIR`. Without the vault both steps are skipped.
 
 ## Note on AGENTS.md-only projects (Claude Code 2.1.277+)
 
@@ -85,7 +88,10 @@ that skill file's prose, not adding a small, testable Python branch.
 3. **Secret scan is a blocking refusal** at PACK and again before WRITE.
 4. **Commit before index** — recall and the scope gate see only git-tracked files.
 5. **DESIGN.md only when `detect-ui` is true**; the gate says token pairs pass WCAG AA
-   **structurally**, never "accessible."
+   **structurally**, never "accessible." `detect-ui --reason` names why: `deterministic:<signal>` (the
+   floor found a config, extension or markup signal) or `jev:sample` (the floor found none and Jev said
+   yes at or above `jev.detect_ui.confidence_min`). Show that reason at the gate. Jev only ever adds:
+   it never turns `ui` into `no-ui`, and its taxonomy rows never lower or remove a row.
 6. **Every line of a `.claude/rules/*.md` is copied from `CONVENTIONS.md` or the architecture docs
    with its `file:line` citation — never invented**, every citation resolves strictly inside the
    repo, and `rules-lint` must exit 0 before those files are committed. The body grammar allows only
