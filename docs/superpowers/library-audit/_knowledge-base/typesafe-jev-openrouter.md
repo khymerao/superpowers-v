@@ -17,3 +17,11 @@ Method: WebFetch/WebSearch only (Context7 absent). No live call made; LIVE-UNVER
 - Errors: direct 401, 422, 429, 529. OpenRouter 400, 401, 402, 403, 429, 502/503/524/529. No documented `Retry-After`; docs say exponential backoff.
 - Jagged edges (jev-1.13): 9 listed, including option-order bias (leans to first option), adversarial state, no arithmetic/dates.
 - Open: OpenRouter price, OpenRouter rate limits, the Decisions-path vs systemone-path relationship.
+
+## Updated 2026-10-05 - jev-review-fixes-design
+
+Method: repository read only (Context7 absent; no network call about Jev). Source: `plugins/compound-v-vault/hooks/vault.tsx`, `scripts/compound-v-jev.py`.
+
+- Vault reason literals today: `unavailable` = auth, credits, rate_limited, upstream, timeout, disabled, no_key, egress, no_vault; `failed` (wire status `error`) = bad_input, schema. Parser tuples at `compound-v-jev.py:59-61` lack `no_key` (it degrades to `upstream`) until the review-fixes run lands.
+- `parse_response` routes by `http_status` first when it is a non-2xx integer; the vault's `reason` is ignored in that case (`compound-v-jev.py:537-539`). A contract test over reasons must omit `http_status`.
+- `prune` removes old non-directory entries by `lstat` mtime, which includes old symlinks (the link is unlinked, never its target). Spec wording says symlinks are never removed; mismatch recorded in the audit.

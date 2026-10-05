@@ -51,3 +51,26 @@ Sources: [OpenRouter logging](https://openrouter.ai/docs/guides/privacy/logging)
 
 - HN launch thread "Introducing System One Models and Jev" (about 520 comments, about 2026-09-17): recurring theme is confidently wrong answers ("Type safety is not factual correctness.") and requests for calibration benchmarks ([HN 49717558](https://news.ycombinator.com/item?id=49717558)). It is one thread, below the ≥10-thread consensus bar.
 - Reddit: no relevant hits on 2026-10-05.
+
+## Updated 2026-10-05 - Jev review fixes
+
+### Error mapping matrix, additional rows (OpenRouter), checked 2026-10-05
+
+| HTTP | Meaning (verbatim) | Client reason |
+|---|---|---|
+| 401 | "Invalid credentials (OAuth session expired, disabled/invalid API key)" | key problem (`auth`) |
+| 403 | "Forbidden (insufficient permissions, guardrail block, or moderation flag)" | **not** only a key problem; guardrail blocks (content filter, prompt-injection detection) return 403 before any provider is reached |
+| 408 | "Your request timed out" | timeout |
+| 502 | "Your chosen model is down or we received an invalid response from it" | upstream |
+| 503 | "There is no available model provider that meets your routing requirements" | upstream |
+
+Source: [OpenRouter errors and debugging](https://openrouter.ai/docs/api_reference/errors-and-debugging).
+Correction: the 2026-10-05 foundation audit (constraint 8) said ~~"map 401/403 to `unavailable(no_key)`-class
+reasons"~~ → updated 2026-10-05: map 401 to a key reason; 403 needs its own reason or must be documented as
+"key permission or content block". Compound V's vault today maps both to `auth` (`vault.tsx:102`).
+
+### Client-side telemetry reasons (generalizable)
+
+- Keep "no key configured" (`no_key`), "key rejected" (401) and "request blocked" (403 guardrail/moderation)
+  apart: each has a different fix. A contract test that feeds every reason literal the transport emits through
+  the parser stops a reason being silently rewritten to a catch-all.
