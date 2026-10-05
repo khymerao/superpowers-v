@@ -9,3 +9,4 @@
 {"ts": "2026-10-05T00:15:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "consumed", "path": "docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md"}
 {"ts": "2026-10-05T09:44:20Z", "topic": "jev-review-issues-fix", "outcome": "kb_skip", "reason": "strong hit: same-day review, spec, plan and recon docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md cover this domain and code"}
 {"ts": "2026-10-05T10:54:14Z", "topic": "engine-c-refinalize-and-lane-guard-prefix", "outcome": "kb_skip", "reason": "strong hit: TROUBLESHOOTING lane guard, CHANGELOG 3.4.2 finding 68 lane map, archaeology 2026-09-11 shared state; repo-internal plumbing of this plugin"}
+{"ts": "2026-10-05T13:29:31Z", "topic": "vault-as-plugin-dependency", "outcome": "kb_skip", "reason": "strong hit: same-day foundation spec on the vault split, plus a sourced docs check of dependencies and option export"}
