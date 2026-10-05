@@ -150,3 +150,13 @@ direct job on the checkout.
 
 **Out of scope, unchanged rule.** Version bump, CHANGELOG, `plugin.json` and `marketplace.json` are a release step,
 not an implementation job.
+
+## Review amendment (2026-10-05)
+
+Review finding 3 (`docs/superpowers/dogfood/2026-10-05-engine-c-refinalize-and-lane-guard-review.md`). Amendment 1's
+subject condition is replaced: a commit reachable from the recorded commit, the recorded commit included, must carry
+exactly the wave subject `_wave_commit_subject` builds from the recorded `merged` list (`git log --fixed-strings
+--grep`, then an exact line match). The literal rule (the recorded commit's own subject) fails real runs: when a
+re-finalize has nothing left to commit, the finalizer records HEAD, which is then a later commit (wave 1 of
+`2026-10-05-jev-classifier-foundation` records bookkeeping commit 03cf1e2). The condition stays narrow, because the
+subject spells the run id, the wave number and the exact job list. Row F pins it.
