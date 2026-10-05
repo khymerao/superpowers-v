@@ -1,0 +1,60 @@
+{
+  "base_commit": "9ee23f239f08b36e5a6af29d904c52713eff2d83",
+  "confidence": "localization:exact; tiers:localization,T1,T3",
+  "decision": "SCOPED_PIPELINE",
+  "declared_paths": [
+    ".claude-plugin/marketplace.json",
+    "commands/v-init.md"
+  ],
+  "difficulty": {
+    "band": "medium",
+    "display": 5
+  },
+  "digest": "sha256:4a1c55a7aac9e6ba7a81bc24b28e180f32d99cb16644af01ea7da0d1b2ae5996",
+  "flavor": "scoped_plus",
+  "impact": {
+    "band": "medium",
+    "display": 5
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 2,
+    "flags": [
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      ".claude-plugin/marketplace.json",
+      "commands/v-init.md"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": null,
+  "pre_eval_id": "2026-10-05T134203Z-offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de-1491",
+  "request_slug": "offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de",
+  "session_id": "5a013ec0-f1a9-4ffb-a264-0b0201a3e56b",
+  "status": "PRE_EVAL_DONE",
+  "t3": {
+    "category": "user-facing-minor",
+    "engine": "claude"
+  },
+  "t3_demotion": {
+    "applied": true,
+    "category": "user-facing-minor",
+    "from": {
+      "difficulty": "low",
+      "impact": "low"
+    },
+    "sensitive": true
+  },
+  "t3_reason": "sensitive",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-05T134203Z-offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de-1491.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "SCOPED",
+  "tiers_signalled": [
+    "localization",
+    "T1",
+    "T3"
+  ],
+  "ts": "2026-10-05T13:42:24Z"
+}

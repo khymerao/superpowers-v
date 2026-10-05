@@ -1,0 +1,12 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:983f2a49f7689141cdb7b9dfa25946152050f85081b85f58f09cce96bd6a0208",
+  "fan_out": 2,
+  "flags": [
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    ".claude-plugin/marketplace.json",
+    "commands/v-init.md"
+  ]
+}
