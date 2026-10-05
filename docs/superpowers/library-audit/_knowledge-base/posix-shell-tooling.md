@@ -72,6 +72,14 @@ to upstream.**
 
 ---
 
+## Updated 2026-10-05 — engine-c-refinalize-and-lane-guard
+
+- shellcheck latest stable re-confirmed **v0.11.0, 2025-08-04** (WebFetch github.com/koalaman/shellcheck/releases,
+  2026-10-05, no Context7). Still no bash-minor-version mode, so "shellcheck clean" does not prove bash 3.2
+  compatibility for a hook edit.
+
+---
+
 ## Updated 2026-09-03 — v3.4.6-triage-test-scoping-fixes
 
 Audit: [`docs/superpowers/library-audit/2026-09-03-v3-4-6-triage-test-scoping-fixes.md`](../2026-09-03-v3-4-6-triage-test-scoping-fixes.md).

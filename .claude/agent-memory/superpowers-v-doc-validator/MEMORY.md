@@ -1,1 +1,2 @@
 - [Jev and mods drift facts](drift-jev-and-mods.md) - dated 2026-10-05 versions, paths and API shapes for Jev/OpenRouter and Claude Code mods
+- [System toolchain drift facts](drift-system-toolchain.md) - dated 2026-10-05 Python EOL, git is-ancestor, shellcheck

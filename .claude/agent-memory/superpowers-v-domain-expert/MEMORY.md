@@ -1,3 +1,4 @@
 - [Claude Code mod/userConfig secret scope](claude-code-mod-secret-scope.md) — userConfig key reaches all plugin hooks; mod tool.call answer skips lane-guard
 - [Secret-bearing files](secret-bearing-files.md) — credential file names by framework; token regexes miss DB passwords
+- [Git ancestry and gitfile](git-ancestry-and-gitfile.md) — is-ancestor exit 0/1/other; .git marks worktree, submodule, nested repo
 - [System One classifier calibration](system-one-classifier-calibration.md) — Jev/OpenRouter 32k, 402 no-retry, ZDR gap, small-n rules

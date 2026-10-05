@@ -155,6 +155,14 @@ Audit: [`docs/superpowers/library-audit/2026-09-03-v3-4-10-recall-to-action.md`]
   + CPython language reference for PEP 604 and PEP 634 (both 3.10+, stable long-established facts,
   not re-fetched live this session since the version floor itself was never in question).
 
+---
+
+## Updated 2026-10-05 — engine-c-refinalize-and-lane-guard
+
+- Source: WebFetch `devguide.python.org/versions/`, 2026-10-05 (no Context7). 3.9 EOL 2025-10-31 (matches the
+  2026-09-03 entries); **3.10 EOL 2026-10-01**; oldest supported line is **3.11**, security-only through
+  October 2027. The repo's CI floor `python-version: '3.9'` is therefore two EOL lines behind.
+
 ### DENSE-lane third-party packages (`numpy`, `onnxruntime`, `tokenizers`, `huggingface_hub`) — confirmed still isolated, still out of reach of `recall-check`
 
 ## Updated 2026-09-03 — epic-gp-one-matcher (F1)

@@ -67,3 +67,18 @@ implicitly relevant to `git log` too) can invoke an externally-configured diff/t
 config default) to fire. Same "requires prior config control" caveat as `--show-signature` above — noted,
 not treated as a standalone blocker.
 
+---
+
+## Updated 2026-10-05 — engine-c-refinalize-and-lane-guard
+
+Audit: `docs/superpowers/library-audit/2026-10-05-2026-10-05-engine-c-refinalize-and-lane-guard-design.md`.
+No Context7 (ToolSearch empty). Sources: WebFetch of `git-scm.com/docs/git-merge-base` and
+`git-scm.com/docs/gitrepository-layout`, 2026-10-05.
+
+- `git merge-base --is-ancestor <a> <b>`: exit 0 = a is an ancestor of b, exit 1 = not, any other non-zero =
+  error (e.g. unknown object, observed as a "not a valid commit" failure). Three outcomes: code that tests
+  `!= 1` instead of `== 0` mistakes an error for "ancestor". A commit later reverted is still an ancestor.
+- A gitfile is a plain-text `.git` containing `gitdir: <path>`, written by `git worktree` and `git submodule`.
+  A boundary test for "separate working tree" must use `-e`, not `-d`.
+- Current stable git per the 2026-09-03 entry above is 2.55.0; not re-probed.
+
