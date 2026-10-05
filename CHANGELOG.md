@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [3.8.1] - 2026-10-05
+
+### Changed — the syringe mark is gone
+
+The 💉 that prefixed the README title, the hook reminders (Trigger 0, Trigger 1, plan/spec/recon saved, triage)
+and the phase announcements in `SKILL.md` is removed; the lines now start with `Compound V —`. The maintainer
+does not want syringe, pill or drug imagery on the project. Historical records under `docs/superpowers/` keep
+their text as written.
+
 ## [3.8.0] - 2026-10-05
 
 ### Added — the run band: a live line above the prompt while a dispatch runs
