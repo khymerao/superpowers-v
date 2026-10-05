@@ -100,3 +100,13 @@ pass alone and the seam still drifts. The vault plugin emitted `unavailable('no_
 `UNAVAILABLE_REASONS` had no `no_key` and silently rewrote it to `upstream`. Check every such seam by listing
 the literals on the producing side (`grep -o "unavailable('[a-z_]*')"` or the equivalent) and diffing them
 against the consumer's tuple, then feed one unknown value through the parser to see what it does with it.
+
+## Checking that a CLI masks a secret without printing it
+
+From run `2026-10-05-vault-optional-via-init`. Re-verify before relying on it.
+
+A "the step never prints the key" AC needs the real output shape of the command the step parses
+(`claude plugin configure <id> --json` here). Print the shape with every scalar replaced by its type, then test the
+one sensitive field with a boolean only (empty, or made only of mask characters). On 2.1.289 `inputs` carried the
+sensitive option masked; `configured` lists option names. Probe the installed id from `claude plugin list --json`:
+it may not be the `@procoders` id the docs name (on this machine it was `@cv-dev`).

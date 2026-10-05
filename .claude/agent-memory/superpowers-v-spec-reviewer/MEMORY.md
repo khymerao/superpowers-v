@@ -18,3 +18,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Amendment vs AC](verifying-acceptance-criteria.md) — run the AC fixture against an amendment's literal rule first.
 - [Negative-assertion rows](verifying-acceptance-criteria.md) — a "no file planted" row may not guard its validation.
 - [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; guards cover only listed shapes; `$` regex takes \n
+- [Masked-secret probe](verifying-acceptance-criteria.md) — print a CLI output shape and a boolean, never the secret.
