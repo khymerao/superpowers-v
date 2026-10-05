@@ -28,13 +28,16 @@ V 2026-09-11-v3.6-wide-dispatch-r2 · DISPATCHED · done 1/3
   5 s, and `compound-v-liveness.py --json` every 30 s while a job runs.
 - **What it never prints.** No percent and no ETA: neither is measured. An age the probe could not supply is
   `?`, not 0.
+- **Cost when idle.** One `stat` every 30 s. A repository with no `docs/superpowers/execution` starts no
+  process; one that has it runs the reader once per 30 s until a run becomes active.
 - **Off switch.** `CV_DISABLED_HOOKS=run-band`.
 - **Older Claude Code.** 2.1.219 and 2.1.282 both pass `claude plugin validate` on a `hooks.json` that carries
-  `modules` beside `hooks`; they ignore the key, so the plugin's floor stays 2.1.219. Validation was probed;
+  `modules` beside `hooks`; they ignore the key (2.1.219 also warns that the manifest's `types` field is unknown and ignored), so the
+  plugin's floor stays 2.1.219. Validation was probed;
   a full session on 2.1.219 was not run.
 
-Tested with `claude plugin test` on the terminal and desktop surfaces (4 tests: draw, toast once, closing line,
-off switch) through `tests/test-run-band-mod.sh`, which CI runs with a pinned CLI. **Not yet seen on a real
+Tested with `claude plugin test` on the terminal and desktop surfaces (5 tests: draw, toast once, closing line,
+off switch, no execution directory) through `tests/test-run-band-mod.sh`, which CI runs with a pinned CLI. **Not yet seen on a real
 dispatch:** the band has been drawn only from test fixtures.
 
 ## [3.7.6] - 2026-10-05

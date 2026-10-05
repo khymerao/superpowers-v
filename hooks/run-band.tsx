@@ -129,6 +129,16 @@ async function step($: EngineInterface): Promise<void> {
     if (mem.ticks % IDLE_POLL_EVERY !== 1) {
       return
     }
+    // A repository that never ran Compound V has no execution directory: one stat every
+    // 30 s, and no reader process at all.
+    try {
+      const root = `${await $.session.cwd()}/docs/superpowers/execution`
+      if ((await $.fs.stat(root)).kind !== 'dir') {
+        return
+      }
+    } catch {
+      return
+    }
     const doc = await readHud($)
     if (doc?.run) {
       mem.stateMtime = -1

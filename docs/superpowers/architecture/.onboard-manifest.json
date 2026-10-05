@@ -33,7 +33,7 @@
     "docs/superpowers/architecture/business-logic.md": {
       "cited": {
         ".claude-plugin/plugin.json": "6b677f84f771cf17eb2e9055d127c8c6b6df355fd05c32f7d73682a0ff2b7da9",
-        "AGENTS.md": "aabf416c48c7e2675bb7028f0b7e8990e111557a1dbe7d5683ad3a40317d5c51",
+        "AGENTS.md": "5ea19ac79c5054ecbee248b0492fb403f98a6957d0ec4e96adc65e01aaea825a",
         "README.md": "f681ee339a0c53aa3cca6477a6b2013d08fc23205c9abc5a96af3ece0c3420b0",
         "agents/spec-reviewer.md": "54637927295a8863ed910e2c598e07ab75b130554338e35daabb4c6b3466e716",
         "skills/backend-launcher/SKILL.md": "181e2a31d1d563bfb1edec9e513d7bb40f50ca6579b815a62cfb358872d4f36b",

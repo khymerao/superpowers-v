@@ -32,9 +32,10 @@ for (const surface of ['terminal', 'desktop'] as const) {
 
     on('session.start', () => ({ cwd: '/repo' }))
   on('env.get', () => ({ value: undefined }))
+  on('session.cwd', () => ({ value: '/repo' }))
     on('fs.stat', ($$, e) => ({
       value: {
-        kind: 'file' as const,
+        kind: String(e.path).endsWith('/execution') ? ('dir' as const) : ('file' as const),
         size: 1,
         mtimeMs: String(e.path).endsWith('state.json') ? mtime : 1,
         isLink: false,
@@ -89,7 +90,15 @@ test('draws nothing when no run is active', async ($, on) => {
   const clock = mock.clock(on)
   on('session.start', () => ({ cwd: '/repo' }))
   on('env.get', () => ({ value: undefined }))
-  on('fs.stat', () => ({ value: { kind: 'file' as const, size: 1, mtimeMs: 1, isLink: false } }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('fs.stat', ($$, e) => ({
+    value: {
+      kind: String(e.path).endsWith('/execution') ? ('dir' as const) : ('file' as const),
+      size: 1,
+      mtimeMs: 1,
+      isLink: false,
+    },
+  }))
   on('process.run', () => ({
     value: { exitCode: 0, stdout: '{"run": null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
   }))
@@ -114,5 +123,25 @@ test('CV_DISABLED_HOOKS=run-band starts no poller', async ($, on) => {
 
   await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
   await clock.advance(60_000)
+  expect(runs).toBe(0)
+})
+
+test('a repository with no execution directory never starts the reader', async ($, on) => {
+  const clock = mock.clock(on)
+  let runs = 0
+  on('session.start', () => ({ cwd: '/elsewhere' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.cwd', () => ({ value: '/elsewhere' }))
+  on('fs.stat', () => {
+    throw new Error('ENOENT')
+  })
+  on('process.run', () => {
+    runs += 1
+
+    return { value: { exitCode: 0, stdout: '{"run": null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  await $.session.start({ cwd: '/elsewhere', surface: 'terminal', isInteractive: true })
+  await clock.advance(120_000)
   expect(runs).toBe(0)
 })

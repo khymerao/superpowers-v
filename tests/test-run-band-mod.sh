@@ -4,7 +4,7 @@
 #
 # `claude plugin validate` and `claude plugin test` need no login. A local `claude` is used
 # when it is new enough (function hooks: Claude Code >= 2.1.287); otherwise a pinned CLI is
-# fetched with npx, which is what CI does. No CLI and no npx is a FAILURE, not a skip: a
+# fetched with npx, which is what CI does (so each CI run downloads that pinned CLI). No CLI and no npx is a FAILURE, not a skip: a
 # guard that silently checks nothing is the v2.14.1 false-green.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
