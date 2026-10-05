@@ -105,7 +105,43 @@ print("ok" if "compound-v-vault" not in deps else "superpowers-v depends on the 
 PY
 )"
 if [ "$mk_check" = ok ]; then ok "marketplace lists the vault in lockstep; superpowers-v does not depend on it"; else bad "vault marketplace entry: $mk_check"; fi
-if grep -nE '`/config`' "$PLUGIN/README.md" | grep -qiE 'key|set|fill'; then bad "vault README still sends the key to /config"; else ok "vault README does not send the key to /config"; fi
+if [ ! -f "$PLUGIN/README.md" ]; then
+  bad "vault README missing"
+elif grep -nE '/config' "$PLUGIN/README.md" | grep -qiE 'fill in|set the key|find \*\*compound-v-vault|enter the key'; then
+  bad "vault README still sends the key to /config"
+else
+  ok "vault README does not send the key to /config"
+fi
+
+# /v:init step 1g: the probes never expose the key, and the step covers egress, the 2.1.287 floor, a disabled vault and
+# the installed id. Checked on the step's own text, so a revert of any of these trips a row.
+init_check="$(python3 - "$REPO_ROOT/commands/v-init.md" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^### 1g\..*?(?=^## |^### 1h|\Z)", t, re.S | re.M)
+if not m:
+    print("no step 1g"); raise SystemExit
+sec = m.group(0)
+code = "\n".join(re.findall(r"```bash\n(.*?)```", sec, re.S))
+problems = []
+for line in code.splitlines():
+    if "plugin configure" in line and "2>/dev/null | python3" not in line:
+        problems.append("configure probe not filtered")
+if "inputs" in code:
+    problems.append("probe code reads inputs")
+if "disabled:" not in code:
+    problems.append("probe does not tell disabled from absent")
+for word, why in (("/egress allow", "no egress note"), ("2.1.287", "no 2.1.287 floor"), ("/plugin enable", "no enable hint")):
+    if word not in sec:
+        problems.append(why)
+step2 = t[t.find("## Step 2"):]
+item = step2[step2.find("Jev vault"):step2.find("Jev vault") + 1200]
+if "/plugin configure <id>" not in item:
+    problems.append("Step 2 does not configure the probed id")
+print("ok" if not problems else "; ".join(problems))
+PY
+)"
+if [ "$init_check" = ok ]; then ok "v-init 1g: filtered probes, egress, 2.1.287, disabled and probed id covered"; else bad "v-init 1g: $init_check"; fi
 
 echo "tests/test-vault-mod.sh: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

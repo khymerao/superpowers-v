@@ -266,3 +266,13 @@ Non-blocking observations, ranked:
    `/config` would slip past. Plan-supplied, works on today's text.
 6. The run's commits `414404e` ("compound-v: wave 1 ...") and `a5a13f1` ("bookkeeping(...): ...") use the prefix
    forms the global commit-subject rule forbids. They are written by the Engine C pipeline, not by this job.
+
+## Second opinion findings closed (orchestrator)
+
+The six low findings of the same-family second opinion (`receipts/cross-model.json`) are closed in one follow-up commit:
+`/v:init` 1g now reports `disabled` apart from `absent` and offers `/plugin enable <id>`; it reports
+`installed, inert (Claude Code < 2.1.287)` below the module floor; `ready` became `installed, key set` with the note that
+Jev stays off until `/egress allow`; Step 2 configures the id the probe printed. `tests/test-vault-mod.sh` gained a row
+that pins all of this on the step's own text (probes filtered through `2>/dev/null | python3`, no `inputs` in probe
+code), red before the change; the README row now fails on a missing README and matches `/config` with or without
+backticks. Full test command: `all-tests-ok`.

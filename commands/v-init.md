@@ -298,7 +298,7 @@ editing plugin config directly, never by this walkthrough.
 Jev, TypeSafe's System One classifier, is reached only through the separate `compound-v-vault` plugin, which holds
 the OpenRouter key. Without it nothing changes. This step reports one of three states and never touches the key.
 
-First, is the vault installed and enabled?
+First, is the vault installed, and is it enabled?
 
 ```bash
 claude plugin list --json 2>/dev/null | python3 -c '
@@ -307,11 +307,12 @@ try:
     d = json.load(sys.stdin)
 except Exception:
     d = []
-v = [p for p in d if isinstance(p, dict) and str(p.get("id", "")).startswith("compound-v-vault@") and p.get("enabled")]
-print(v[0]["id"] if v else "absent")'
+v = [p for p in d if isinstance(p, dict) and str(p.get("id", "")).startswith("compound-v-vault@")]
+on = [p for p in v if p.get("enabled")]
+print(on[0]["id"] if on else ("disabled:" + v[0]["id"] if v else "absent"))'
 ```
 
-Only when that printed an id, ask whether the key is set, without its value:
+Only when that printed a bare id (not `absent`, not `disabled:<id>`), ask whether the key is set, without its value:
 
 ```bash
 claude plugin configure "<id>" --json 2>/dev/null | python3 -c '
@@ -329,7 +330,17 @@ this command without the filter, never print its output raw, and never read or e
 `set`, `not set` or `unknown`. `claude plugin configure` needs Claude Code 2.1.285 or newer; below that, report the
 key state as `unknown`.
 
-Report one of: `absent`, `installed, key not set` (or `installed, key state unknown`), `ready`.
+Then check the floor: the vault is a hooks module, and modules load only on Claude Code 2.1.287 or newer
+(`claude --version`). Below that the vault is inert whatever its key state.
+
+Report one of:
+
+- `absent`;
+- `disabled` (installed but turned off; Step 2 offers `/plugin enable <id>`, never a second install);
+- `installed, inert (Claude Code < 2.1.287)`;
+- `installed, key not set` (or `installed, key state unknown`);
+- `installed, key set`. Jev is still off in a repository until the user runs `/egress allow` there; `/egress status`
+  shows the current answer, and the status line reads `Jev: on` once it is allowed. Say so in the report.
 
 ---
 
@@ -346,10 +357,12 @@ worked, then move to the next.** Never chain installs.
   After they confirm, re-run the Step 1b namespace grep.
 - **Plugin surface incomplete:** direct them to reinstall `superpowers-v`; stop and
   resume `/v:init` once it is whole.
-- **Jev vault absent, or its key not set** (and the user wants Jev): ask once whether they want it. If yes, they run
-  `/plugin install compound-v-vault@procoders` (the vault needs Claude Code 2.1.287 or newer), then
-  `/plugin configure compound-v-vault@procoders` to enter the key in Claude Code's own masked field (2.1.285 or
-  newer), then `/egress allow` in each repository where they want Jev. Re-run the Step 1g probe after each and report
+- **Jev vault absent, disabled, or its key not set** (and the user wants Jev): ask once whether they want it. If yes:
+  when it is `absent`, they run `/plugin install compound-v-vault@procoders` (the vault needs Claude Code 2.1.287 or
+  newer); when it is `disabled`, they run `/plugin enable <id>` with the id the probe printed after `disabled:`. Then
+  `/plugin configure <id>` with the id Step 1g printed (`compound-v-vault@procoders` after a fresh install from this
+  marketplace; `configure` accepts only the full `name@marketplace` id) to enter the key in Claude Code's own masked
+  field (2.1.285 or newer), then `/egress allow` in each repository where they want Jev. Re-run the Step 1g probe after each and report
   the new state. Never ask for the key in chat, never pass it on a command line, never point the user at `/config`
   for it. Declining leaves Jev off and changes nothing else.
 
