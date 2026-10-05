@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-05T10:05:00Z",
   "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
   "jobs": {
@@ -32,10 +32,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+      "realised_commit": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+      "merged": {
+        "realised_commit": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "7da34bd38a1fa131c85ca36b82d9519e186060b0"
+      }
     }
   },
   "waves": {
@@ -50,6 +58,22 @@
       ],
       "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "7da34bd38a1fa131c85ca36b82d9519e186060b0",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
+    "run_id": "2026-10-05-jev-review-fixes"
+  },
+  "merged_at": "2026-10-05T10:05:00Z"
 }
