@@ -28,3 +28,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
 - **Undeclared consumers hide behind the wave barrier** (`topo_waves` makes each wave a barrier). A
   wave-2 job reading a wave-1 job's API without `depends_on` works by accident; it breaks on a failed
   or resumed prerequisite. Cross-check "consumes" lines against `depends_on`.
+- **`hooks/hooks.json` `modules` takes ONE module per plugin** (Claude Code 2.1.289 refuses a second
+  entry, seen 2026-10-05). A job adding a new mod must make it the single module and import the
+  existing `hooks/run-band.tsx` `register`, so `tests/test-run-band-mod.sh` (its grep of the
+  validator's per-module hooks line) becomes a shared resource of any new-mod job - that job must own it.
