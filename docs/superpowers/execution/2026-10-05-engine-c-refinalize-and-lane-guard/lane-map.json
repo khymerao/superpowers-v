@@ -1,9 +1,0 @@
-{
-  "agents": {},
-  "manifest": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-engine-c-refinalize-and-lane-guard/manifest.yaml",
-  "run_id": "2026-10-05-engine-c-refinalize-and-lane-guard",
-  "worktrees": {
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-2": "refinalize",
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-3": "lane-boundary"
-  }
-}

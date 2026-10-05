@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-05T11:20:00Z",
   "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
   "jobs": {
@@ -32,10 +32,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "c66c87e80660297c07f5f580e8a6a165647461d2",
+      "realised_commit": "c66c87e80660297c07f5f580e8a6a165647461d2",
+      "merged": {
+        "realised_commit": "c66c87e80660297c07f5f580e8a6a165647461d2",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "1480cc1135d881c6048718a857f429db69040532"
+      }
     }
   },
   "waves": {
@@ -50,6 +58,22 @@
       ],
       "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "1480cc1135d881c6048718a857f429db69040532",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
+    "run_id": "2026-10-05-engine-c-refinalize-and-lane-guard"
+  },
+  "merged_at": "2026-10-05T11:20:00Z"
 }
