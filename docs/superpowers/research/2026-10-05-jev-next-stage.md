@@ -51,6 +51,19 @@ None of that evidence exists yet:
    pre-flight inputs; advisory probabilities on pre-flight skip, Sonnet eligibility and recon gate 1;
    change-request detection; skill hints.
 
+## Finding from the first live attempt (2026-10-05)
+
+- The Claude desktop app's Code tab runs its own bundled Claude Code (here 2.1.286, `CLAUDE_CODE_EXECPATH=
+  ~/Library/Application Support/Claude/claude-code/2.1.286/...`), not the CLI on `PATH` (2.1.289). On 2.1.286 the vault
+  module loads but receives an empty sensitive option: status `Jev: off (no_key)`, and no request is sent. A terminal
+  `claude` on 2.1.289 in the same repository shows `Jev: on`. Run the live test from a terminal `claude` until the
+  desktop app bundles 2.1.287 or newer. The Keychain access-control change tried during diagnosis was not needed.
+- **Bug to fix first next session:** `/v:init` step 1g gates on `claude --version`, which reads the CLI on `PATH`, not
+  the host running the session. In the desktop app it reports 2.1.289 while the session runs 2.1.286, so it would
+  say `installed, key set` for an inert vault. Use the running host's version (the version segment of
+  `CLAUDE_CODE_EXECPATH`, or `"$CLAUDE_CODE_EXECPATH" --version`), falling back to `claude --version` only when that
+  variable is unset; pin it with a test row.
+
 ## Open items that are not features
 
 - The lane-guard and re-finalize fixes reach live sessions only after a release (version bump, CHANGELOG,
