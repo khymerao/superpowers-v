@@ -51,6 +51,18 @@ None of that evidence exists yet:
    pre-flight inputs; advisory probabilities on pre-flight skip, Sonnet eligibility and recon gate 1;
    change-request detection; skill hints.
 
+## FIRST: jev_classify refuses every live call (found 2026-10-06)
+
+The first live attempt that reached the vault (`connect-cf7-to-hubspot`, `jev-requests --point onboard_layer`, 9 request
+files) got `refused: request_file must be an absolute path` on every call, with an absolute path. Cause: the vault's
+`tool.call` handler (`plugins/compound-v-vault/hooks/vault.tsx:400-402`) passes `e.input` to `serveTool`, but Claude
+Code carries a tool's arguments flat beside `tool` on that event (`e.request_file`; the bundled types say "the tool's
+arguments beside them (`e.command` for Bash)"). The test hid it by calling `$.tool.call({ tool, input: { request_file } })`.
+Fix: read the argument flat, and make the test pass it flat so it fails on the old code. Triage record:
+`2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1` (FULL, committed, not yet run).
+After the fix the vault must be reinstalled in `cv-dev`, which clears the key: re-enter it with
+`/plugin configure compound-v-vault@cv-dev` in a terminal `claude`. Nothing else produces Jev data until this lands.
+
 ## Finding from the first live attempt (2026-10-05)
 
 - The Claude desktop app's Code tab runs its own bundled Claude Code (here 2.1.286, `CLAUDE_CODE_EXECPATH=
