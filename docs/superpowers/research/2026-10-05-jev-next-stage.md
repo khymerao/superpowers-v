@@ -111,6 +111,23 @@ use is where most T3 decisions happen. Next step, before the eval can gather dat
 pending descriptor after its classify (or call `jev_classify` directly and run `parse --mode shadow` and `pair`),
 with a test row, and record `t3` on Phase T records (they show `t3: null` even when T3 was signalled).
 
+## Harness bugs reported by a downstream run (2026-10-06)
+
+From `connect-cf7-to-hubspot`'s `docs/superpowers/execution/2026-10-06-multi-object-closeout.md` § Harness behaviour
+observed. Each needs its own triage before a fix.
+
+1. The run-wide re-derivation in `compound-v-integration-gate.py` ignores `toolchain_artifacts`, which the per-job gate
+   honours; gitignored files that change during a run (`.DS_Store`, `.phpunit.cache`, a job's `.baseline`) made review
+   jobs that changed nothing read `contradicted` or `forged`. Not yet reproduced here.
+2. `compound-v-triage-outcomes.py` resolves its default stream from its own location (`default_stream_path()` ->
+   `_repo_root()` from `__file__`, `scripts/compound-v-triage-outcomes.py:260`), so run from the plugin cache it
+   appends to the plugin's copy, not the project's. Confirmed in the code; the downstream run used `--stream` as the
+   workaround. The same pattern is reported for `compound-v-jev.py`. Fix: default to the git toplevel of the current
+   working directory (or require `--repo`), with a test row.
+3. `jev_classify` refuses every call: see "FIRST" above.
+4. `compound-v-resolve-model.py resolve-model` without `--config` ignores the project's `models` table and resolves
+   `standard` to Sonnet. Not yet reproduced here.
+
 ## Open items that are not features
 
 - The lane-guard and re-finalize fixes reach live sessions only after a release (version bump, CHANGELOG,
