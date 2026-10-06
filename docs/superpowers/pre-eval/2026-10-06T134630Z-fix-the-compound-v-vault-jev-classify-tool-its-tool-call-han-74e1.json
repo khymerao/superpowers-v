@@ -1,0 +1,49 @@
+{
+  "base_commit": "98f2116836bf249c7ddd176dd2460938a8f21756",
+  "confidence": "localization:exact; tiers:localization,T3",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
+    "plugins/compound-v-vault/hooks/vault.tsx"
+  ],
+  "difficulty": {
+    "band": "low",
+    "display": 2
+  },
+  "digest": "sha256:837eb93c65f5018e317315cda94dc0988f5a7b62348c60365503bf67cfa6e6c4",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 2,
+    "flags": [
+      "content:config_literal",
+      "content:legal_copy"
+    ],
+    "resolved_paths": [
+      "plugins/compound-v-vault/.tests/vault.test.tsx",
+      "plugins/compound-v-vault/hooks/vault.tsx"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": null,
+  "pre_eval_id": "2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1",
+  "request_slug": "fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han",
+  "session_id": "5a013ec0-f1a9-4ffb-a264-0b0201a3e56b",
+  "status": "PRE_EVAL_DONE",
+  "t3": {
+    "category": "plumbing",
+    "engine": "claude"
+  },
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T3"
+  ],
+  "ts": "2026-10-06T13:46:42Z"
+}
