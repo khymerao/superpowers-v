@@ -88,6 +88,17 @@ sorts whole paths, so the marketplace name decides before the version: with `cv-
 `claude plugin list --json`, else sort on the version component only; one helper, one test row, every command
 updated.
 
+## Shadow covers only the hook path (found 2026-10-06)
+
+Live work on `connect-cf7-to-hubspot` (terminal CLI 2.1.290, `cv-dev` build, egress allowed, taxonomy present)
+produced no Jev request. Of three triage records, the one that reached T3 (2026-10-06T13:32, `tiers_signalled:
+localization, T3`) was classified by the agent running `/v:triage` Phase T itself (`compound-v-classify-request.py
+--classify-headless`). Spec 1 wires the shadow only to `hooks/triage-prompt-nudge.sh` (pending descriptor) and
+`hooks/jev-t3.tsx` (consumer); Phase T never leaves a descriptor, so Jev is never asked on that path, which in real
+use is where most T3 decisions happen. Next step, before the eval can gather data: make Phase T leave the same
+pending descriptor after its classify (or call `jev_classify` directly and run `parse --mode shadow` and `pair`),
+with a test row, and record `t3` on Phase T records (they show `t3: null` even when T3 was signalled).
+
 ## Open items that are not features
 
 - The lane-guard and re-finalize fixes reach live sessions only after a release (version bump, CHANGELOG,
