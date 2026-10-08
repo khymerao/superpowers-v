@@ -1,0 +1,53 @@
+{
+  "base_commit": "def4744cbe5332cdb1beb22792282e5241b05559",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "agents/*.md",
+    "commands/v-*.md",
+    "evals/README.md",
+    "scripts/compound-v-plugin-root.sh",
+    "skills/backend-launcher/*.md",
+    "skills/compound-v/*.md"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:de8df255e4bb86f92064d446ca4006873e8ecedbf22cf763d330d9c90a3f3e8d",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 6,
+    "flags": [
+      "new_file",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "agents/*.md",
+      "commands/v-*.md",
+      "evals/README.md",
+      "scripts/compound-v-plugin-root.sh",
+      "skills/backend-launcher/*.md",
+      "skills/compound-v/*.md"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-08T094652Z-plugin-root-resolver-38-files-agents-md-commands-v-md-skills-0c93",
+  "request_slug": "plugin-root-resolver-38-files-agents-md-commands-v-md-skills",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T094652Z-plugin-root-resolver-38-files-agents-md-commands-v-md-skills-0c93.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T09:46:52Z"
+}
