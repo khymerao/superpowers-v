@@ -1,19 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T10:15:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T10:20:00Z",
   "pre_eval_id": "2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd",
   "jobs": {
     "plugin-root": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_110e470e-ff3-2",
+      "session_id": null,
+      "baseline": "03a083612d9b2992eca0ea42b89849709682d284",
+      "realised_commit": "03a083612d9b2992eca0ea42b89849709682d284",
+      "merged": {
+        "realised_commit": "03a083612d9b2992eca0ea42b89849709682d284",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "0ee97655c1e2fb2adfc53e55d43ad2b43aeedbc6"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "plugin-root"
+      ],
+      "merged": [
+        "plugin-root"
+      ],
+      "commit": "0ee97655c1e2fb2adfc53e55d43ad2b43aeedbc6",
+      "integrated": true
     }
   }
 }
