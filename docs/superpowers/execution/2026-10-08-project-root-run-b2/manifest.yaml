@@ -1,0 +1,74 @@
+run_id: 2026-10-08-project-root-run-b2
+feature: 'Fix run B2 (ADR 0005): integration-gate and update-memory take the project root from resolve_project_root; validate-manifest no-root note made true'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-project-root-run-b2-design.md
+plan_path: docs/superpowers/plans/2026-10-08-project-root-run-b2.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-plugin-root-resolver-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-plugin-root-resolver-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T11:25:48Z'
+global_constraints:
+- 'Python 3.9 stdlib only. Every fix ships a test row that fails when reverted.'
+- 'Use the existing `resolve_project_root(repo=None, start=None)` in `scripts/compound-v-project-config.py`; do not add a second helper and do not change it.'
+- 'integration-gate: no `__file__`-derived repo root; explicit `--repo-root` unchanged (Engine C passes it); outside git with no flag: error JSON, exit 2.'
+- 'update-memory: no `__file__`-derived outcomes path; `compound-v-triage-outcomes.py`''s sibling import keeps working.'
+- 'validate-manifest: the note is true for manifests with and without a `fast_path` block.'
+- 'Command prose is not changed (its callers run from the project root).'
+- 'No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 The new rows pass and each fails when its change is reverted.
+- AC-2 No script under scripts/ derives a project root from __file__ outside a selftest.
+- AC-3 Full suite, lint-frontmatter.py . and shellcheck green.
+test_contract:
+  floor_command: bash tests/test-project-root.sh
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-*.py
+    run: bash -c 'for s in integration-gate update-memory validate-manifest triage-outcomes project-config; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && echo py-ok'
+  - when: tests/*.sh
+    run: bash tests/test-project-root.sh
+jobs:
+- id: b2-fix
+  title: Fix — integration-gate and update-memory project root, validate-manifest note
+  type: implement
+  backend: claude
+  tier: deep
+  effort: medium
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-integration-gate.py
+  - scripts/compound-v-update-memory.py
+  - scripts/compound-v-validate-manifest.py
+  - tests/test-project-root.sh
+  read_allowed:
+  - '**'
+  acceptance:
+  - The spec's rows pass and each fails on revert; the five selftests and the full suite green; AC-2 grep clean.
+  body: 'Implement docs/superpowers/plans/2026-10-08-project-root-run-b2.md Task A (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-project-root-run-b2-design.md and the run B review docs/superpowers/dogfood/2026-10-08-project-root-run-b-review.md (Verdict issues 1 and 3) first. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the B2 spec and AC-1..AC-3
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - b2-fix
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-project-root-run-b2-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-project-root-run-b2-review.md with the section skeleton. Review against docs/superpowers/specs/2026-10-08-project-root-run-b2-design.md. Run the AC-2 grep over all of scripts/ (not only the lane) and say whether run B issue 1 is now closed. Revert checks only in a scratch copy. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/; keep any memory file frontmatter valid YAML (quote values containing a colon). Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
