@@ -1,19 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T12:55:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T13:05:00Z",
   "pre_eval_id": "2026-10-08T123420Z-the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu-7276",
   "jobs": {
     "noul": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_b570e89f-0ef-2",
+      "session_id": null,
+      "baseline": "643ba42d046f762b542232c0acd6896ed94b6724",
+      "realised_commit": "643ba42d046f762b542232c0acd6896ed94b6724",
+      "merged": {
+        "realised_commit": "643ba42d046f762b542232c0acd6896ed94b6724",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "8df3d860949bc62491b3a55e2b5aa8bb4a9f4036"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "noul"
+      ],
+      "merged": [
+        "noul"
+      ],
+      "commit": "8df3d860949bc62491b3a55e2b5aa8bb4a9f4036",
+      "integrated": true
     }
   }
 }

@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/manifest.yaml",
+  "run_id": "2026-10-08-detect-ui-noul-criteria",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_b570e89f-0ef-2": "noul"
+  }
+}
