@@ -110,3 +110,13 @@ A "the step never prints the key" AC needs the real output shape of the command 
 one sensitive field with a boolean only (empty, or made only of mask characters). On 2.1.289 `inputs` carried the
 sensitive option masked; `configured` lists option names. Probe the installed id from `claude plugin list --json`:
 it may not be the `@procoders` id the docs name (on this machine it was `@cv-dev`).
+
+## A mutation anchored on a marker string can hit prose that quotes the marker
+
+From run `2026-10-08-v-init-vault-host-and-desktop`. Re-verify before relying on it.
+
+The test extracted a fenced block by its marker comment (`# cv-host-version` in `commands/v-init.md` step 1g), and
+step 1f's prose quoted that same marker. A scratch mutation that searched for the marker text alone landed in the 1f
+prose, mutated words instead of the block, and every row stayed green, which looked like an unguarded AC. Anchor a
+mutation on the fence plus the marker (```` ```bash\n# cv-host-version ````), assert exactly one match, and print the
+mutated region before trusting a green result.
