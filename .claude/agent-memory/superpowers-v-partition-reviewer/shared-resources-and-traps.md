@@ -60,6 +60,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
 - **Out-of-lane drivers of `hooks/triage-prompt-nudge.sh`:** `tests/test-disabled-hooks.sh` and
   `tests/test-hook-recursion-guard.sh` execute it; `hooks/jev-t3.test.tsx` filters argv for `compound-v-jev.py`
   subcommands. An impacted_map of the hook -> native-points + jev-t3-mod misses the first two (seen 2026-10-08).
+  `scripts/compound-v-classify-request.py` is likewise driven by test-hook-recursion-guard.sh (seen again 2026-10-08, t3 run).
 - **Out-of-lane drivers of `hooks/session-banner.sh`:** `tests/test-session-banner-staleness.sh`, `test-disabled-hooks.sh`,
   `test-hook-recursion-guard.sh`, `test-epic-goal-stop.sh`, `test-native-points.sh` all reference it (seen 2026-10-08).
   An impacted_map entry running only test-disabled-hooks misses the staleness test; only full_command at merge catches it.

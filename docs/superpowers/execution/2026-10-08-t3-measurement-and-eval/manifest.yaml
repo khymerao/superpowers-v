@@ -33,9 +33,9 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: scripts/compound-v-*.py
-    run: bash -c 'for s in classify-request jev preeval; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo py-ok'
+    run: bash -c 'for s in classify-request jev preeval; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo py-ok'
   - when: hooks/*
-    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo hooks-ok'
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hooks-ok'
   - when: '**/*.md'
     run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
   - when: tests/**
