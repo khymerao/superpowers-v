@@ -99,14 +99,23 @@ score. Don't compare a one-arm number with a two-arm one.
 Every Compound V command resolves its tooling like this:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-In an eval run `CLAUDE_PLUGIN_ROOT` is unset for Bash and `$HOME` is a throwaway directory, so
-that chain lands on `$PWD`. `evals/lib/cv-fixture-lib.sh`'s `cv_vendor_tools` therefore copies
-the plugin's `scripts/` and `schemas/` into the workspace root, which is exactly where the
-documented fallback looks.
+Claude Code substitutes the plugin's path for the braced reference in the first line when it
+loads a command, skill or agent body (ADR 0005). The variable itself is not set in the Bash tool,
+so where nothing substituted it the shell expands it to an empty string, and the second line
+accepts `$PWD` only when it holds `scripts/compound-v-preeval.py`; otherwise the third line says
+so on stderr. No cache scan, no `$HOME` lookup.
+
+Under `claude plugin eval` the with-arm loads the plugin from its source checkout, so the
+substituted path is that source and `CV` points there. `evals/lib/cv-fixture-lib.sh`'s
+`cv_vendor_tools` still copies the plugin's `scripts/` and `schemas/` into the workspace root:
+that vendored copy is the fallback only, for a step that runs a block nothing substituted (a
+reference file read with the Read tool, or the baseline arm), and it is exactly what the second
+line accepts.
 
 This is deliberately visible to **both** arms. The baseline can `ls` and find the same
 scripts. The delta therefore measures whether the plugin steers Claude to *use* the gate — not

@@ -19,6 +19,13 @@ if [ "${CV_HEADLESS_CLASSIFY:-}" = "1" ]; then exit 0; fi  # finding 131: never 
 _cv_off=",$(printf '%s' "${CV_DISABLED_HOOKS:-}" | tr -d ' \t'),"
 case "$_cv_off" in *",session-banner,"*) exit 0 ;; esac
 
+# Plugin root (ADR 0005, rule 3): CLAUDE_PLUGIN_ROOT, else the directory above this
+# hook. Never `.`: that is the project's directory, and running a project's own
+# scripts/compound-v-*.py in place of the plugin's is the defect this replaced. If
+# neither resolves, the two probes below are skipped and the banner stays silent.
+_cv_root="${CLAUDE_PLUGIN_ROOT:-}"
+[ -n "$_cv_root" ] || _cv_root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)" || _cv_root=""
+
 banner="Compound V loaded — sidekick to Superpowers. Auto-fires before brainstorming (gated recon) and after it (pre-flights) — description-based discovery. Phases: recon → code-archaeologist + domain-expert + doc-validator (parallel) → partition-reviewer → parallel-dispatcher. You do not need to invoke it manually."
 
 # First-run setup hint: the project stance config is .claude/compound-v.json
@@ -31,8 +38,8 @@ fi
 
 # Read-only onboarding staleness nudge. MUST fail silent: set -euo pipefail would
 # abort the whole banner on any non-zero exit, so guard python and swallow errors.
-if command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
-  stale=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
+if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
+  stale=$(python3 "$_cv_root/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
   if [ "${stale:-0}" = "unregistered" ]; then
     banner="$banner ⚠ The onboard manifest registers no cited files, so doc staleness cannot be checked — run /v:onboard --refresh to re-verify and re-register."
   elif [ "${stale:-0}" -gt 0 ] 2>/dev/null; then
@@ -47,8 +54,8 @@ fi
 # (they come back with the skill) but the agent's POSITION in the pipeline. This
 # reads it back off disk. Read-only, and MUST fail silent for the same reason as
 # the staleness probe above: set -euo pipefail would abort the whole banner.
-if command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
-  resume=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
+if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
+  resume=$(python3 "$_cv_root/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
   if [ -n "${resume:-}" ]; then
     banner="$banner $resume"
   fi

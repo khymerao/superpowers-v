@@ -6,12 +6,18 @@ The worker script ships with the plugin, not with the caller's repository. Resol
 once per session before invoking it:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
-installed plugin cache or a checkout of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 The opencode backend is a **Bash-spawned `opencode run` worker** — its own process, its own git worktree. It mirrors the Antigravity / Cursor adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md), [`adapter-cursor.md`](adapter-cursor.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. UNLIKE every other backend, opencode is **provider-agnostic / multi-provider** — its resolved `model` is always a `provider/model` string (e.g. `anthropic/claude-opus-5-5`), never a bare model name.
 
