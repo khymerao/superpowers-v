@@ -57,3 +57,6 @@ Leads only - re-verify each against the current tree before citing it as a findi
   the vault's reason literals out of vault.tsx, and `tests/test-jev-t3-mod.sh` requires the vault's tests to pass.
   An impacted_map of `plugins/compound-v-vault/** -> test-vault-mod.sh` misses both (seen 2026-10-08). The vault's
   tests live in `.tests/` precisely so the root `claude plugin test .` does not recurse into them.
+- **Out-of-lane drivers of `hooks/triage-prompt-nudge.sh`:** `tests/test-disabled-hooks.sh` and
+  `tests/test-hook-recursion-guard.sh` execute it; `hooks/jev-t3.test.tsx` filters argv for `compound-v-jev.py`
+  subcommands. An impacted_map of the hook -> native-points + jev-t3-mod misses the first two (seen 2026-10-08).
