@@ -1,0 +1,114 @@
+run_id: 2026-10-08-plugin-root-run-a
+feature: 'Plugin root from the harness substitution of CLAUDE_PLUGIN_ROOT in every Markdown entry point (ADR 0005 run A)'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-plugin-root-run-a-design.md
+plan_path: docs/superpowers/plans/2026-10-08-plugin-root-run-a.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-plugin-root-resolver-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-plugin-root-resolver-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T10:02:52Z'
+global_constraints:
+- 'The three canonical lines are exactly those in the spec, byte-for-byte, in all 38 files, replacing the old two (the `evals/README.md` copy had a shorter second line; it gets the same three).'
+- 'Live evidence (2026-10-08, Claude Code 2.1.294, `--plugin-dir`): the bare `${CLAUDE_PLUGIN_ROOT}` is substituted in command, skill and agent bodies; `${CLAUDE_PLUGIN_ROOT:-...}` is not. Do not use the `:-` form anywhere in these files.'
+- 'No cache scan, no `claude plugin list`, no marketplace name, no `~/.claude/plugins` path in the canonical lines.'
+- '`evals/lib/cv-fixture-lib.sh` is not changed; `evals/README.md` explains the new rule and that under `claude plugin eval` `CV` is the substituted plugin source.'
+- '`hooks/session-banner.sh`: `CLAUDE_PLUGIN_ROOT`, else the directory above the hook script; the banner''s output is otherwise unchanged and it still fails silent.'
+- '`tests/test-plugin-root.sh` is executable and shellcheck-clean; each row fails when its change is reverted.'
+- 'Project-root code (ADR 0005 rules 5-8) is not touched: that is run B.'
+- 'No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 tests/test-plugin-root.sh passes and each row fails on revert.
+- AC-2 No file under agents/, commands/, skills/, evals/ contains the old cache scan.
+- AC-3 lint-frontmatter.py ., shellcheck hooks/*.sh tests/test-plugin-root.sh, and the full suite pass.
+- AC-4 After merge and a cv-dev refresh, a command body in a live session shows CV set to the install path.
+test_contract:
+  floor_command: bash tests/test-plugin-root.sh
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: '*.md'
+    run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-plugin-root.sh >/dev/null && echo md-ok'
+  - when: hooks/session-banner.sh
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-plugin-root.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && echo hook-ok'
+  - when: tests/test-plugin-root.sh
+    run: bash -c 'shellcheck tests/test-plugin-root.sh && bash tests/test-plugin-root.sh'
+jobs:
+- id: plugin-root
+  title: Task A — CV from the harness substitution in 38 files, session-banner fallback, test
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - agents/code-archaeologist.md
+  - agents/doc-validator.md
+  - agents/domain-expert.md
+  - agents/parallel-dispatcher.md
+  - agents/partition-reviewer.md
+  - agents/spec-reviewer.md
+  - commands/v-adr.md
+  - commands/v-collect.md
+  - commands/v-dispatch.md
+  - commands/v-epic.md
+  - commands/v-init.md
+  - commands/v-lessons.md
+  - commands/v-memory-refresh.md
+  - commands/v-models.md
+  - commands/v-onboard.md
+  - commands/v-orchestrate.md
+  - commands/v-remember.md
+  - commands/v-resume.md
+  - commands/v-review-plan.md
+  - commands/v-status.md
+  - commands/v-triage.md
+  - evals/README.md
+  - skills/backend-launcher/SKILL.md
+  - skills/backend-launcher/adapter-antigravity.md
+  - skills/backend-launcher/adapter-claude.md
+  - skills/backend-launcher/adapter-codex.md
+  - skills/backend-launcher/adapter-cursor.md
+  - skills/backend-launcher/adapter-opencode.md
+  - skills/compound-v/SKILL.md
+  - skills/compound-v/adr-capture.md
+  - skills/compound-v/cross-model-review.md
+  - skills/compound-v/execution-manifest.md
+  - skills/compound-v/memory.md
+  - skills/compound-v/onboarding.md
+  - skills/compound-v/phase-0-recon.md
+  - skills/compound-v/phase-2-disjoint-partitioning.md
+  - skills/compound-v/phase-3-parallel-opus-dispatch.md
+  - skills/compound-v/routing-policy.md
+  - hooks/session-banner.sh
+  - tests/test-plugin-root.sh
+  read_allowed:
+  - '**'
+  acceptance:
+  - tests/test-plugin-root.sh green and each row fails on revert; lint-frontmatter and shellcheck clean; no old cache scan left; the other tests that read these files green.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-plugin-root-run-a.md, every step in order (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-plugin-root-run-a-design.md, ADR docs/superpowers/adr/0005-one-rule-per-root.md and both audits first. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec, the ADR and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - plugin-root
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-plugin-root-run-a-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-plugin-root-run-a-review.md with the section skeleton. Review the job against docs/superpowers/specs/2026-10-08-plugin-root-run-a-design.md, ADR 0005 and the plan. Check that no :- form of CLAUDE_PLUGIN_ROOT remains in the 38 files, the prose matches the new rule, session-banner never runs a project file, and revert checks fail (scratch copy only). AC-4 is post-merge; mark it pending for the orchestrator. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

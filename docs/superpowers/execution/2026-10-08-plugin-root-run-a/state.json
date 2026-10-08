@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T10:15:00Z",
+  "pre_eval_id": "2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd",
+  "jobs": {
+    "plugin-root": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
