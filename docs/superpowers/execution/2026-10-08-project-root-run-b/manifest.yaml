@@ -33,7 +33,7 @@ test_contract:
   - when: scripts/compound-v-*.py
     run: bash -c 'for s in project-config triage-outcomes preeval fastpath-materialize validate-manifest; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && echo py-ok'
   - when: hooks/*
-    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hooks-ok'
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooks-ok'
   - when: '*.md'
     run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
   - when: tests/*.sh

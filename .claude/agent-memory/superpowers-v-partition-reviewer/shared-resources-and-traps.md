@@ -66,3 +66,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
 - **The plugin-root resolver (`CV=...` cache scan) lives in exactly 38 Markdown files** under agents/ commands/ skills/
   evals/README.md (grep `plugins/cache|sort -V` as of 2026-10-08). Any run changing that rule must own all of them;
   `skills/compound-v/epic-mode.md` co-changes with `commands/v-epic.md` (~75%) but carries no resolver.
+- **Out-of-lane drivers of the hooks touched by project-root work** (seen 2026-10-08): `hooks/run-band.tsx` is also
+  referenced by `tests/test-jev-t3-mod.sh`; `precompact-snapshot.sh` / `postcompact-resume.sh` by test-disabled-hooks,
+  test-hook-recursion-guard, test-native-points. `scripts/compound-v-taxonomy.py:~1010` derives the repo from `__file__`
+  but only inside its selftest - not an AC "no __file__ root" violation.
