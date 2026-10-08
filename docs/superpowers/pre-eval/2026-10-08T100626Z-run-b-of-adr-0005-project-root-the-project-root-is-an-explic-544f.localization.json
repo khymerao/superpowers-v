@@ -1,0 +1,19 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:3e72e3c6a76e74c8b054ad7888f20644d2bc5e90525c0729946aec85ad487bb3",
+  "fan_out": 8,
+  "flags": [
+    "new_file",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    ".git",
+    "hooks/brainstorm-trigger0-nudge.sh:73,134",
+    "hooks/precompact-snapshot.sh",
+    "hooks/run-band.tsx:179",
+    "scripts/compound-v-fastpath-materialize.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-triage-outcomes.py:255-261",
+    "scripts/compound-v-validate-manifest.py:3285-3295"
+  ]
+}

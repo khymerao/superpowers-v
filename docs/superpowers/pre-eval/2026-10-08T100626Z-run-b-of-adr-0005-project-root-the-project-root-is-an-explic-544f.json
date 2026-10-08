@@ -1,0 +1,57 @@
+{
+  "base_commit": "03a083612d9b2992eca0ea42b89849709682d284",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    ".git",
+    "hooks/brainstorm-trigger0-nudge.sh:73,134",
+    "hooks/precompact-snapshot.sh",
+    "hooks/run-band.tsx:179",
+    "scripts/compound-v-fastpath-materialize.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-triage-outcomes.py:255-261",
+    "scripts/compound-v-validate-manifest.py:3285-3295"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:fe614b5859fdc4bddd2bcbe435ad5dcdd2141113f069f14086b86e4c40f65c83",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 8,
+    "flags": [
+      "new_file",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      ".git",
+      "hooks/brainstorm-trigger0-nudge.sh:73,134",
+      "hooks/precompact-snapshot.sh",
+      "hooks/run-band.tsx:179",
+      "scripts/compound-v-fastpath-materialize.py",
+      "scripts/compound-v-preeval.py",
+      "scripts/compound-v-triage-outcomes.py:255-261",
+      "scripts/compound-v-validate-manifest.py:3285-3295"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f",
+  "request_slug": "run-b-of-adr-0005-project-root-the-project-root-is-an-explic",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T10:06:26Z"
+}
