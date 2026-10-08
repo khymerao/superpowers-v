@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/manifest.yaml",
+  "run_id": "2026-10-08-t3-measurement-and-eval",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_6d5bc606-830-2": "measure-eval"
+  }
+}
