@@ -1,9 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T05:55:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T05:40:00Z",
   "pre_eval_id": "2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1",
   "jobs": {
-    "flat-args": {"status": "pending", "isolation": "worktree", "worktree": null, "session_id": null},
-    "spec-review": {"status": "pending", "isolation": "direct", "worktree": null, "session_id": null}
+    "flat-args": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_c0b52242-559-2",
+      "session_id": null,
+      "baseline": "c698279dc07b14c176a8715ecff07d94794c430d",
+      "realised_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+      "merged": {
+        "realised_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "fb1fb433f9abc318519a1270e0e165ac4101bad4"
+      }
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "flat-args"
+      ],
+      "merged": [
+        "flat-args"
+      ],
+      "commit": "fb1fb433f9abc318519a1270e0e165ac4101bad4",
+      "integrated": true
+    }
   }
 }

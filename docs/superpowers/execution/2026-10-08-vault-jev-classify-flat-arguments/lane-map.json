@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/manifest.yaml",
+  "run_id": "2026-10-08-vault-jev-classify-flat-arguments",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_c0b52242-559-2": "flat-args"
+  }
+}

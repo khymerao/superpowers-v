@@ -1,0 +1,79 @@
+diff --git a/plugins/compound-v-vault/.tests/vault.test.tsx b/plugins/compound-v-vault/.tests/vault.test.tsx
+index 84ac688..bfdebc2 100644
+--- a/plugins/compound-v-vault/.tests/vault.test.tsx
++++ b/plugins/compound-v-vault/.tests/vault.test.tsx
+@@ -27,8 +27,10 @@ async function jev($: any, method: 'classify' | 'status', arg: unknown): Promise
+   return value
+ }
+ // Every answer the plugin gives a test (tool results, command text) is recorded for the key check.
++// A tool's arguments sit flat on the call, beside `tool`, as Claude Code delivers them to the
++// `tool.call` event (engine types, ToolCallInput); there is no `input` wrapper.
+ async function toolCall($: any, request_file: string): Promise<any> {
+-  const out = await $.tool.call({ tool: TOOL, input: { request_file } })
++  const out = await $.tool.call({ tool: TOOL, request_file })
+   current?.results.push(out)
+ 
+   return out
+@@ -391,6 +393,23 @@ vtest('jev_classify: an error body is never written to the response file', WITH_
+   expectNoKeyOutsideFetchAuth(seen, [out])
+ })
+ 
++// The regression the live run hit: the handler read `e.input`, which Claude Code never sets, and
++// refused every call. An argument nested under `input` is now refused by the handler's own
++// absolute-path check (it finds no flat request_file), and the same file passed flat is served.
++vtest('jev_classify reads request_file flat; an argument nested under input is refused', WITH_KEY, async ($: any, on: any) => {
++  const { seen } = world(on)
++  await start($)
++  const nested = await $.tool.call({ tool: TOOL, input: { request_file: REQ_FILE } })
++  current?.results.push(nested)
++  expect(nested.result).toBe('refused: request_file must be an absolute path')
++  expect(seen.fetches).toHaveLength(0)
++  expect(seen.writes).toHaveLength(0)
++  const flat = await toolCall($, REQ_FILE)
++  expect(flat.result).toBe(RESP_FILE)
++  expect(seen.fetches).toHaveLength(1)
++  expect(seen.writes.map(w => w.path)).toEqual([RESP_FILE])
++})
++
+ const REFUSALS: Array<[string, string, Record<string, File>]> = [
+   ['a ../ spelling', `${DD}/req/../../../../etc/passwd.req.json`, {}],
+   ['a symbolic link', `${DD}/req/link.req.json`, { [`${DD}/req/link.req.json`]: { isLink: true, realPath: `${DD}/req/x.req.json`, text: '{}' } }],
+diff --git a/plugins/compound-v-vault/hooks/vault.tsx b/plugins/compound-v-vault/hooks/vault.tsx
+index 4d0e309..f634e40 100644
+--- a/plugins/compound-v-vault/hooks/vault.tsx
++++ b/plugins/compound-v-vault/hooks/vault.tsx
+@@ -22,7 +22,9 @@
+ //   across sessions, the plugin's own file under the user's config directory).
+ // - $.tool.register({ name, description, inputSchema }) => Promise<{ tool }>, listed as
+ //   mcp__<plugin>__<name>, served by a `tool.call` hook returning `{ result }`; rejects before
+-//   session.start binds the session.
++//   session.start binds the session. The tool's arguments arrive flat on the `tool.call` event,
++//   beside `tool` (`e.request_file`, not `e.input.request_file`; typings 2.1.293, early access),
++//   and `$.tool.call` takes the same flat shape.
+ // - $.command.register({ name, description, argumentHint? }) => Promise<{ command }>, served by a
+ //   `command.run` hook returning `{ text }`.
+ // - $.ui.status(text | undefined): void; $.ui.toast(text, { timeoutMs? }): void.
+@@ -275,9 +277,10 @@ async function showStatus($: any, vault: Vault): Promise<void> {
+ }
+ 
+ // jev_classify: one request file under ~/.claude/compound-v-jev/<dir>/req/, checked by real path.
+-async function serveTool($: any, vault: Vault, input: unknown): Promise<string> {
++// `given` is the event's flat request_file, still checked here: whether the engine enforces the
++// inputSchema before tool.call is unverified.
++async function serveTool($: any, vault: Vault, given: unknown): Promise<string> {
+   if (await isDisabled($)) return 'refused: disabled'
+-  const given = isRecord(input) ? input.request_file : undefined
+   if (typeof given !== 'string' || !given.startsWith('/')) return 'refused: request_file must be an absolute path'
+   if (given.split('/').some(part => part === '..' || part === '.')) return 'refused: request_file must not contain . or .. segments'
+   const home = await $.env.get('HOME')
+@@ -397,8 +400,9 @@ export function register(on: any, options: Record<string, unknown> = {}) {
+     return started
+   })
+ 
++  // The tool's arguments sit flat on the event beside `tool` (there is no `e.input`).
+   on('tool.call', { tool: 'mcp__compound-v-vault__jev_classify' }, async ($: any, e: any) => ({
+-    result: await serveTool($, vault, e.input),
++    result: await serveTool($, vault, e.request_file),
+   }))
+ 
+   on('command.run', { command: COMMAND_NAME }, async ($: any, e: any) => ({

@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
+    "plugins/compound-v-vault/hooks/vault.tsx"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+    "diff_digest": "sha256:677679b011d42e3db4d1d0e1d763f4d9698fe0515bbb4e8d9cf455684365ae45",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"c698279dc07b14c176a8715ecff07d94794c430d\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 jev_classify reads request_file flat",
+  "tests": {
+    "command": "bash tests/test-vault-mod.sh\nbash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_c0b52242-559-2"
+}

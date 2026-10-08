@@ -1,0 +1,50 @@
+{
+  "baseline_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+  "diff_digest": "sha256:677679b011d42e3db4d1d0e1d763f4d9698fe0515bbb4e8d9cf455684365ae45",
+  "exit_code": 0,
+  "job_id": "flat-args",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/flat-args.patch",
+  "patch_paths": [
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
+    "plugins/compound-v-vault/hooks/vault.tsx"
+  ],
+  "patch_sha256": "sha256:677679b011d42e3db4d1d0e1d763f4d9698fe0515bbb4e8d9cf455684365ae45",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"c698279dc07b14c176a8715ecff07d94794c430d\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "c698279dc07b14c176a8715ecff07d94794c430d",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "plugins/compound-v-vault/.tests/vault.test.tsx",
+      "plugins/compound-v-vault/hooks/vault.tsx"
+    ],
+    "checks": [
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_c0b52242-559-2"
+}
