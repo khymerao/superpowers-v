@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/.run.lock
+40b5592c78369b571c3f2582474261abc6b1578098bb0780af0640036ece4e46  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/lane-map.json
+dbc75175e7b2ea83db8b4e41d905a57db6c0b00c269b916f299c2432c154fa37  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/dispatch.workflow.js
+11ea4b4cc281ab4b7bf87ead2b31ad74b052ccdaab4fbae1aee9743e03bd7a2d  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/flat-args.baseline
+677679b011d42e3db4d1d0e1d763f4d9698fe0515bbb4e8d9cf455684365ae45  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/flat-args.patch
+15807e81c8792dca33ab3e7bea85585bdde79805f3f9265b054a6677c7e785bd  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/flat-args.prompt.md
+b5529c4676226c4703e198c0090c806e37c81fcbef0ca674303c49a909cb0c70  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/flat-args.test-contract.json
+c7cd478596f27ceae69027c9eb58ec6b215a7fbd234d3833b96c9d5d46fdae2b  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.baseline
+43fcd140be493a7381b776be3ae14e79a667c5ef210d06d9c23ab5bf12766133  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.prompt.md
+4a52a2d2194a574f1407f37a6b53316ad435ac8b22d26dc1c17a2add72313e7e  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.test-contract.json
+4c0fda97d585521ab330cecd8def2ffae6b286f01beba9cdae892aa67c38bd9a  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/manifest.yaml
+095dd84ce5013509fea3e3eaeaea17ceeb794c68a979988e9a534d2629f1b09c  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/preexisting/spec-review.txt
+313813a0fa78f5729f20cd6dc95f65594ba174d4d98302321c180ce784501815  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/receipts/flat-args.gate.json
+a07f9c4aaa1ebd42a697702032d3501a334c13816c9ee763ee1bfecf677d0b83  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/results/flat-args.json
+eba734de33a002e077a7c393b3fce787767300c1da161749b3c82fb990c6c85a  docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/state.json

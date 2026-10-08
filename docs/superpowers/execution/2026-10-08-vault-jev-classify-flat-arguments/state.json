@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T05:40:00Z",
   "pre_eval_id": "2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1",
   "jobs": {
@@ -18,10 +18,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "4156e8936da26398de02fd696d17e5c5cf98bae9",
+      "realised_commit": "4156e8936da26398de02fd696d17e5c5cf98bae9",
+      "merged": {
+        "realised_commit": "4156e8936da26398de02fd696d17e5c5cf98bae9",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "54dbc28dbe6df6983d848c8864d8f6987237e1c9"
+      }
     }
   },
   "waves": {
@@ -34,6 +42,22 @@
       ],
       "commit": "fb1fb433f9abc318519a1270e0e165ac4101bad4",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "54dbc28dbe6df6983d848c8864d8f6987237e1c9",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1",
+    "run_id": "2026-10-08-vault-jev-classify-flat-arguments"
+  },
+  "merged_at": "2026-10-08T05:40:00Z"
 }
