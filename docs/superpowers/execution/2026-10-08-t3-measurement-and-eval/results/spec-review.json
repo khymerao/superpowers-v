@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/conjunct-mutation.md",
+    "docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "f4b0839e2513670107c533750d895089881504fb",
+    "diff_digest": "sha256:a720cf0dcad8a3acf0c953b55ab54008421d7e0961b355c95258ac675a2d4a46",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"f4b0839e2513670107c533750d895089881504fb\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/conjunct-mutation.md\",\n    \"docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "f4b0839e2513670107c533750d895089881504fb",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the spec, its amendments and AC-1..AC-4",
+  "tests": {
+    "command": "bash -c '/usr/bin/python3 -B scripts/compound-v-classify-request.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && echo floor-ok'\n/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": ""
+}

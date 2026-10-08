@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T16:45:00Z",
   "pre_eval_id": "2026-10-08T161225Z-measure-the-claude-t3-classifier-next-to-jev-and-extend-the-517a",
   "jobs": {
@@ -18,10 +18,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "f4b0839e2513670107c533750d895089881504fb",
+      "realised_commit": "f4b0839e2513670107c533750d895089881504fb",
+      "merged": {
+        "realised_commit": "f4b0839e2513670107c533750d895089881504fb",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "2b9b32d9a6cc7cf441259c1dcda4a2a5673342e8"
+      }
     }
   },
   "waves": {
@@ -34,6 +42,22 @@
       ],
       "commit": "c1c27bcdd60b6d54e7b360de9fed86d53e5407a7",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "2b9b32d9a6cc7cf441259c1dcda4a2a5673342e8",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T161225Z-measure-the-claude-t3-classifier-next-to-jev-and-extend-the-517a",
+    "run_id": "2026-10-08-t3-measurement-and-eval"
+  },
+  "merged_at": "2026-10-08T16:45:00Z"
 }
