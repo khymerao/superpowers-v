@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T11:10:00Z",
+  "pre_eval_id": "2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f",
+  "jobs": {
+    "project-root": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
