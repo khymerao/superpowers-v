@@ -147,7 +147,7 @@ choose would be a fabricated routing decision.
 
 Resolution is **stance-aware**: the `standard` Claude row resolves to `sonnet` under `balanced` / `cost-aware` / `claude-only`, and to `opus` under `conservative` — that is what the conservative stance means. `frontier` is `fable` everywhere except `cost-aware`, whose ceiling is `opus`. `deep` (incl. all reviewers + sensitive surfaces) is `opus` in every stance, and `codex`/`antigravity`/`cursor`/`opencode` are identical across stances.
 
-The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map; omitting the stance defaults to `balanced`. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
+The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map and `--repo-dir` for the project root; omitting the stance defaults to `balanced`. Omitting `--config` does **not** mean the built-in defaults: the resolver then reads `<root>/.claude/compound-v.json`, root = `--repo-dir` or the git toplevel, and takes the `maxEffortLevel` cap from the same root. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
 
 ### Config `models` map (project `.claude/compound-v.json`)
 

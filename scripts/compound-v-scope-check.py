@@ -593,6 +593,32 @@ def _check_ignore(cwd, paths):
     return _split_nul(proc.stdout)
 
 
+def manifest_toolchain_artifacts(manifest):
+    """The manifest's top-level ``toolchain_artifacts`` globs, or ``[]``.
+
+    THE ONE READER. This gate owns what the globs mean, so it owns how they are
+    read off a parsed manifest too: the emitter's per-job gate
+    (``compound-v-emit-workflow.py`` ``_toolchain_artifacts_spec``) and the
+    run-wide re-derivation (``compound-v-integration-gate.py``) both call this,
+    so the two can never disagree about which globs a run declared. The
+    integration gate cannot import the emitter (the emitter imports the gate),
+    and a second copy of this parse would be a second definition.
+
+    MANIFEST-LEVEL ONLY: a run-wide declaration, not a per-job one, so there is
+    no job-level override to read. ALL OR NOTHING: a non-empty list whose every
+    entry is a non-blank string is returned as-is; anything else — absent, a
+    bare string, an empty list, one non-string or blank entry, a manifest that
+    is not a mapping — is ``[]``, "nothing declared". Salvaging part of a
+    malformed list would make this reader's idea of the manifest disagree with
+    ``compound-v-validate-manifest.py``, which is where a malformed value is
+    REFUSED (a bare string, a catch-all glob, a non-string entry).
+    """
+    raw = manifest.get("toolchain_artifacts") if isinstance(manifest, dict) else None
+    if isinstance(raw, list) and raw and all(isinstance(g, str) and g.strip() for g in raw):
+        return list(raw)
+    return []
+
+
 def check(cwd, baseline, allowed, preexisting=None, toolchain_artifacts=None):
     """Compute the changed set, the violations against ``allowed``, and the
     (possibly empty) list of paths FORGIVEN as toolchain artifacts.
@@ -1463,6 +1489,37 @@ def _selftest():
         expect(
             "toolchain: CLI with no flag reports an empty toolchain_artifacts list",
             cli_ta_none_verdict.get("toolchain_artifacts") == [],
+        )
+
+        # The manifest READER (moved here from the emitter so the integration
+        # gate and the per-job gate share one parse). All or nothing.
+        expect(
+            "toolchain reader: a well-formed list is returned as-is",
+            manifest_toolchain_artifacts(
+                {"toolchain_artifacts": ["build/**", "tsconfig.tsbuildinfo"]}
+            ) == ["build/**", "tsconfig.tsbuildinfo"],
+        )
+        expect(
+            "toolchain reader: absent key -> []",
+            manifest_toolchain_artifacts({"jobs": []}) == [],
+        )
+        expect(
+            "toolchain reader: a bare string is not salvaged -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": "build/**"}) == [],
+        )
+        expect(
+            "toolchain reader: one non-string entry voids the whole list -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", 3]}) == [],
+        )
+        expect(
+            "toolchain reader: one blank entry voids the whole list -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", " "]}) == [],
+        )
+        expect(
+            "toolchain reader: an empty list and a non-mapping manifest -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": []}) == []
+            and manifest_toolchain_artifacts(["build/**"]) == []
+            and manifest_toolchain_artifacts(None) == [],
         )
 
         # UNUSUAL-FILENAME case: with NUL-delimited (-z) parsing, a path with a

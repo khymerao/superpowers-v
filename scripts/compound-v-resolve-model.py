@@ -11,10 +11,21 @@ No backend-specific routing logic is baked in here — every backend is just a
 ``{tier -> model}`` map. Three layers of precedence, lowest to highest:
 
   1. BUILT-IN default map (below) so the resolver works with NO config file.
-  2. ``models.<backend>.<tier>`` in the --config JSON, if present, OVERRIDES
+  2. ``models.<backend>.<tier>`` in the project config, if present, OVERRIDES
      the built-in value for that single (backend, tier) cell.
   3. ``--explicit-model M`` (a manifest-level model override) always wins and
      skips the map entirely.
+
+The project config is ``--config`` when given. OMITTING ``--config`` DOES NOT
+MEAN THE BUILT-IN DEFAULTS: the CLI then reads ``<root>/.claude/compound-v.json``,
+where root is ``--repo-dir`` when given, else the git toplevel of the current
+directory (``resolve_project_root``, ADR 0005). A missing file means the built-in
+map. The same root locates the ``maxEffortLevel`` settings below, so the models
+and the effort cap come from one place. Outside a git repository with neither
+``--config`` nor ``--repo-dir`` the CLI fails closed (exit 2), except that
+``--explicit-model`` needs no config and works anywhere. This default lives in
+``main()`` only: ``resolve()`` and ``load_config_models`` read exactly what they
+are handed, as before.
 
 Vocabulary (never changes when models churn):
   tier   ∈ { frontier, deep, standard, light }
@@ -44,8 +55,8 @@ Exit non-zero if a tier cannot be resolved for a backend (and no
 
 Usage
 -----
-    compound-v-resolve-model.py --backend codex --tier deep
-    compound-v-resolve-model.py --backend claude --tier light --effort low
+    compound-v-resolve-model.py --backend codex --tier deep      # project config from the git toplevel
+    compound-v-resolve-model.py --backend claude --tier light --effort low --repo-dir /path/to/project
     compound-v-resolve-model.py --backend codex --tier standard --config .claude/compound-v.json
     compound-v-resolve-model.py --backend codex --tier deep --explicit-model gpt-5.6
     compound-v-resolve-model.py --selftest
@@ -529,7 +540,15 @@ def main(argv):
     parser.add_argument("--effort", default=None, choices=list(EFFORTS))
     parser.add_argument("--stance", default="balanced", choices=list(VALID_STANCES),
                         help="routing stance (default balanced)")
-    parser.add_argument("--config", default=None, help="path to compound-v.json")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "path to compound-v.json; default is <root>/.claude/compound-v.json, "
+            "root = --repo-dir or the git toplevel (a missing file means the "
+            "built-in map)"
+        ),
+    )
     parser.add_argument(
         "--explicit-model",
         default=None,
@@ -539,9 +558,12 @@ def main(argv):
         "--repo-dir",
         default=None,
         help=(
-            "project root to locate .claude/settings.json and settings.local.json "
-            "under (for the maxEffortLevel cap); default is --config's own "
-            "directory when it ends in .claude, else the current directory"
+            "project root: without --config, its .claude/compound-v.json is the "
+            "config AND its .claude/settings.json / settings.local.json give the "
+            "maxEffortLevel cap; default is the git toplevel of the current "
+            "directory (outside git, pass this, --config or --explicit-model). "
+            "With --config, the settings come from --config's own directory when "
+            "it ends in .claude, else from this root or the current directory"
         ),
     )
     parser.add_argument(
@@ -549,8 +571,29 @@ def main(argv):
     )
     args = parser.parse_args(argv[1:])
 
+    # THE PROJECT'S CONFIG BY DEFAULT (this CLI only; resolve() and
+    # load_config_models keep their in-process behaviour). With no --config the
+    # config is <root>/.claude/compound-v.json, root = --repo-dir or the git
+    # toplevel (ADR 0005 rule 5), and the same root locates the effort-cap
+    # settings, so models and cap never come from two different places. Until
+    # this default existed, a caller that left --config off got the built-in
+    # table even in a project whose config said otherwise.
+    config_path = args.config
+    settings_repo_dir = args.repo_dir
+    if config_path is None:
+        root, root_err = _cli_project_root(args.repo_dir)
+        if root is not None:
+            settings_repo_dir = root
+            if not args.explicit_model:
+                config_path = os.path.join(root, ".claude", "compound-v.json")
+        elif not args.explicit_model:
+            # Fail closed: guessing the built-in table here is what this default
+            # exists to stop. --explicit-model needs no config, so it never lands here.
+            print(json.dumps({"error": root_err}), file=sys.stderr)
+            return 2
+
     try:
-        config_models = load_config_models(args.config)
+        config_models = load_config_models(config_path)
     except Exception as e:  # noqa: BLE001 - report config errors cleanly
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2
@@ -568,11 +611,30 @@ def main(argv):
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 1
 
-    settings_paths = default_settings_paths(config_path=args.config, repo_dir=args.repo_dir)
+    settings_paths = default_settings_paths(config_path=config_path,
+                                            repo_dir=settings_repo_dir)
     result = apply_effort_cap(result, settings_paths)
 
     print(json.dumps(result))
     return 0
+
+
+def _cli_project_root(repo_dir):
+    """(root, error) for ``main()``'s config default: ``--repo-dir`` when given,
+    else the git toplevel of the current directory, by the shared
+    ``resolve_project_root`` (loaded by explicit path like the config loader).
+    ``(None, message)`` when the sibling cannot be loaded or no root exists."""
+    mod = _project_config_module()
+    fn = getattr(mod, "resolve_project_root", None) if mod is not None else None
+    if not callable(fn):
+        return None, ("cannot locate the project config: compound-v-project-config.py "
+                      "(resolve_project_root) could not be loaded; pass --config or "
+                      "--explicit-model")
+    try:
+        return fn(repo=repo_dir), None
+    except ValueError as e:
+        return None, ("cannot locate the project config: %s (or pass --config, "
+                      "--repo-dir or --explicit-model)" % e)
 
 
 # --------------------------------------------------------------------------- #

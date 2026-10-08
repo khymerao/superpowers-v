@@ -165,9 +165,12 @@ Each dispatch must include:
 1. **Backend + tier/effort from the manifest; resolve the concrete model BEFORE dispatch** — never re-decide backend/tier/isolation here. The manifest carries the routing **intent** (`tier` ∈ {deep, standard, light}, optional `effort` ∈ {low, medium, high, xhigh} — `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead)) instead of a hardcoded model string, so the plugin survives model churn (refresh the config `models` map via `/v:models`, never the call sites). Before invoking the backend for a job, resolve the model with [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py):
 
    ```bash
-   # (backend, tier, effort, config) -> concrete model. --config points at the
-   # project .claude/compound-v.json whose `models` map overrides built-in
-   # defaults per cell; omit --config to use built-in defaults.
+   # (backend, tier, effort, config) -> concrete model. The project
+   # .claude/compound-v.json, whose `models` map overrides built-in defaults per
+   # cell, is read even WITHOUT --config: omitting it means
+   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
+   # the built-in table. Outside git, pass --repo-dir (or --config); the
+   # maxEffortLevel cap comes from the same root.
    # Build the flag list with explicit if/else (portable across bash AND zsh —
    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
    # Read `routing_stance` once from the manifest and pass `--stance` on every
@@ -176,6 +179,7 @@ Each dispatch must include:
    set -- --backend "$BACKEND" --tier "$TIER"
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
+   set -- "$@" --repo-dir "$PWD"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')

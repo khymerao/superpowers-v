@@ -53,6 +53,20 @@ the same case: missing, therefore re-derived, never silently passed.
 A receipt that is present and well-formed but wrong is a different thing: a
 forged claim. It is refused, not re-derived.
 
+TOOLCHAIN ARTIFACTS — THE SAME EXEMPTION THE PER-JOB GATE APPLIED
+-----------------------------------------------------------------
+Both re-derivations pass the manifest's top-level ``toolchain_artifacts`` globs
+to the scope gate as ``--toolchain-artifact``, read by the scope gate's own
+``manifest_toolchain_artifacts`` (one reader, shared with the emitter). Before
+this, a gitignored build artifact the per-job gate had forgiven was re-derived as
+a violation: an honest ``pass`` read as ``contradicted``, and a missing receipt
+re-derived to a false ``blocked`` (a missing receipt never reads ``forged``). The
+exemption is exactly as narrow as at the per-job gate: a path is forgiven only
+when it matches a DECLARED glob and ``git check-ignore`` confirms it is ignored in
+the gated tree. Nothing is forgiven by name or extension — ``.DS_Store``,
+``.phpunit.cache`` and a stray ``.baseline`` stay violations unless the manifest
+declares them.
+
 DIFF DIGEST — THE SEAM THAT MATTERS MOST
 ----------------------------------------
 The recipe is PINNED in ``schemas/job_result.schema.json`` (the ``diff_digest``
@@ -436,6 +450,39 @@ def load_scope_matcher(scope_check):
     avoid. A full or unwritable temp dir is a condition an attacker can arrange,
     so the protection had an off switch. This fails closed with a reason instead.
     """
+    module, err = load_scope_module(scope_check)
+    if module is None:
+        return None, err
+    fn = getattr(module, "is_allowed", None)
+    if not callable(fn):
+        return None, "%s defines no is_allowed()" % scope_check
+    return fn, None
+
+
+def manifest_toolchain_artifacts(scope_check, manifest):
+    """(globs, error) — the manifest's ``toolchain_artifacts``, read by the scope
+    gate's OWN reader (``manifest_toolchain_artifacts`` in
+    ``scripts/compound-v-scope-check.py``), never re-parsed here.
+
+    The per-job gate reads the same list through the same function, so the
+    re-derivation below forgives exactly what the per-job gate forgave. A
+    manifest that declares no list costs no import at all.
+    """
+    if not (isinstance(manifest, dict) and "toolchain_artifacts" in manifest):
+        return [], None
+    module, err = load_scope_module(scope_check)
+    if module is None:
+        return None, err
+    reader = getattr(module, "manifest_toolchain_artifacts", None)
+    if not callable(reader):
+        return None, "%s defines no manifest_toolchain_artifacts()" % scope_check
+    return reader(manifest), None
+
+
+def load_scope_module(scope_check):
+    """(module, error) — ``scripts/compound-v-scope-check.py`` loaded FROM SOURCE
+    under a private bytecode cache; see ``load_scope_matcher`` for why, and why a
+    cache directory that cannot be created loads nothing."""
     prev_prefix = getattr(sys, "pycache_prefix", None)
     tmp_pycache = None
     module = None
@@ -464,10 +511,7 @@ def load_scope_matcher(scope_check):
             pass
         if tmp_pycache:
             shutil.rmtree(tmp_pycache, ignore_errors=True)
-    fn = getattr(module, "is_allowed", None)
-    if not callable(fn):
-        return None, "%s defines no is_allowed()" % scope_check
-    return fn, None
+    return module, None
 
 
 # --------------------------------------------------------------------------- #
@@ -739,12 +783,22 @@ def receipt_binding_faults(receipt, pinned_baseline, observed_head, observed_dig
 # --------------------------------------------------------------------------- #
 # re-derivation
 # --------------------------------------------------------------------------- #
-def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None):
+def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None,
+                    toolchain_artifacts=None):
     """Invoke scripts/compound-v-scope-check.py as a SUBPROCESS.
 
     A subprocess, not an import: this script must not be able to perturb the
     matcher it is checking against, and the matcher belongs to another lane.
     Returns (verdict, stdout, exit_code, error).
+
+    ``toolchain_artifacts`` is the manifest's declared glob list, passed as one
+    ``--toolchain-artifact`` per glob exactly as the per-job gate passes it.
+    Without it this re-derivation charged a job for a gitignored build artifact
+    its own gate had forgiven, and an honest ``pass`` read as ``contradicted``.
+    The scope gate still forgives only a path that matches a declared glob AND
+    that ``git check-ignore`` confirms is ignored in the gated tree; nothing is
+    forgiven by name, so ``.DS_Store`` or ``.phpunit.cache`` stays a violation
+    unless the manifest declares it.
     """
     cmd = [sys.executable, scope_check]
     cmd += ["--worktree" if mode == "worktree" else "--repo", root]
@@ -754,6 +808,8 @@ def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None):
         cmd += ["--allow", glob]
     if preexisting:
         cmd += ["--preexisting", preexisting]
+    for glob in (toolchain_artifacts or []):
+        cmd += ["--toolchain-artifact", glob]
     try:
         proc = subprocess.run(
             cmd,
@@ -825,8 +881,13 @@ def _leading_json(text):
 # --------------------------------------------------------------------------- #
 # per-job evaluation
 # --------------------------------------------------------------------------- #
-def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
-    """Resolve one job to exactly one verdict class. Never raises."""
+def evaluate_job(job, state_job, run_dir, repo_root, scope_check,
+                 toolchain_artifacts=None):
+    """Resolve one job to exactly one verdict class. Never raises.
+
+    ``toolchain_artifacts`` is the manifest's run-wide list, threaded into both
+    re-derivations so they apply the exemption the per-job gate applied.
+    """
     job_id = job.get("id") or "<unnamed>"
     out = {
         "job": job_id,
@@ -1073,7 +1134,8 @@ def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
                 "re-derived rather than refused"
             )
         verdict, raw, code, err = run_scope_check(
-            scope_check, mode, gate_root, baseline, allow, preexisting
+            scope_check, mode, gate_root, baseline, allow, preexisting,
+            toolchain_artifacts=toolchain_artifacts,
         )
         if err:
             out["verdict"] = "unverifiable"
@@ -1174,7 +1236,8 @@ def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
 
     # ---- bindings hold; confirm the CONCLUSION independently --------------- #
     verdict, raw, code, err = run_scope_check(
-        scope_check, mode, gate_root, baseline, allow, preexisting
+        scope_check, mode, gate_root, baseline, allow, preexisting,
+        toolchain_artifacts=toolchain_artifacts,
     )
     if err:
         out["verdict"] = "unverifiable"
@@ -1305,6 +1368,16 @@ def evaluate_run(run_dir, repo_root, scope_check, manifest_path=None, only=None,
     manifest = load_manifest(manifest_path)
     if not isinstance(manifest, dict) or not isinstance(manifest.get("jobs"), list):
         raise RuntimeError("manifest %s has no jobs list" % manifest_path)
+    # The run-wide `toolchain_artifacts` exemption, read ONCE by the scope gate's
+    # own reader so this re-derivation forgives exactly what the per-job gate
+    # forgave. A list that cannot be read fails the whole evaluation loudly
+    # rather than silently re-deriving without it.
+    toolchain_artifacts, ta_err = manifest_toolchain_artifacts(scope_check, manifest)
+    if ta_err:
+        raise RuntimeError(
+            "cannot read the manifest's toolchain_artifacts through the scope "
+            "gate: %s" % ta_err
+        )
 
     state = {}
     state_path = os.path.join(run_dir, "state.json")
@@ -1335,6 +1408,7 @@ def evaluate_run(run_dir, repo_root, scope_check, manifest_path=None, only=None,
                 run_dir,
                 repo_root,
                 scope_check,
+                toolchain_artifacts=toolchain_artifacts,
             )
         )
 

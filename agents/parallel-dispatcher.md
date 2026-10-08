@@ -138,8 +138,11 @@ worktree path is absolute.)
 
    ```bash
    # Resolve (backend, tier, effort, config) -> concrete model.
-   # --config points at the project .claude/compound-v.json (its `models` map
-   # overrides the built-in defaults per cell); omit it to use built-in defaults.
+   # The project's .claude/compound-v.json (its `models` map overrides the
+   # built-in defaults per cell) is read even WITHOUT --config: omitting it means
+   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
+   # the built-in table. --repo-dir "$PWD" pins that root (this runs from the
+   # project root), and the maxEffortLevel cap is read from the same root.
    # Build the flag list with explicit if/else (portable across bash AND zsh —
    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
    # Read `routing_stance` once from the manifest and pass `--stance` on every
@@ -148,6 +151,7 @@ worktree path is absolute.)
    set -- --backend "$BACKEND" --tier "$TIER"
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
+   set -- "$@" --repo-dir "$PWD"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')

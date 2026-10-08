@@ -377,7 +377,12 @@ compound-v-resolve-model.py --backend codex --tier deep --effort high \
 Precedence, lowest to highest:
 
 1. **Built-in default map** (the one above) so the resolver works with no config file.
-2. **`models.<backend>.<tier>`** from `--config`, if present, overrides that one cell.
+2. **`models.<backend>.<tier>`** from the project config, if present, overrides that one
+   cell. The project config is `--config` when given; **omitting `--config` does not mean
+   the built-in defaults** — it means `<root>/.claude/compound-v.json`, where root is
+   `--repo-dir` or the git toplevel of the current directory (a missing file is the
+   built-in map). The `maxEffortLevel` cap is read from the same root. Outside a git
+   repository with neither flag the resolver fails closed, except under `--explicit-model`.
 3. **`--explicit-model M`** (a manifest `model` override) always wins and skips the
    map entirely.
 

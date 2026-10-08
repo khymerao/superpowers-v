@@ -1829,7 +1829,7 @@ def load_recall_argument(value):
 
 
 def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
-                      config_path=None):
+                      config_path=None, repo_dir=None):
     """(model, error). An explicit `model` wins; otherwise `tier` is resolved.
 
     Fails closed: an external backend's argv cannot be completed without a
@@ -1843,6 +1843,11 @@ def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
     resolver's map is per-stance, and `/v:models` writes its discovered map into
     .claude/compound-v.json. Until 3.0.5 neither was passed, so every resolution
     silently used the built-in balanced defaults.
+
+    `repo_dir` is the project root this emitter already knows, passed as
+    `--repo-dir`: with no `--config` the resolver reads `<root>/.claude/
+    compound-v.json` itself, and it takes the `maxEffortLevel` cap from the same
+    root, so the answer never depends on the directory this process runs in.
     """
     explicit = job.get("model")
     if isinstance(explicit, str) and explicit.strip():
@@ -1860,6 +1865,8 @@ def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
         cmd += ["--stance", stance.strip()]
     if isinstance(config_path, str) and config_path and os.path.isfile(config_path):
         cmd += ["--config", config_path]
+    if isinstance(repo_dir, str) and repo_dir:
+        cmd += ["--repo-dir", repo_dir]
     effort = job.get("effort")
     if isinstance(effort, str) and effort.strip():
         cmd += ["--effort", effort.strip()]
@@ -2149,22 +2156,30 @@ def _provision_spec(manifest, job):
     return command, timeout
 
 
+_SCOPE_CHECK_MODULE = []
+
+
 def _toolchain_artifacts_spec(manifest):
     """The manifest's top-level `toolchain_artifacts` globs, or `[]` (issue #22).
 
-    MANIFEST-LEVEL ONLY, same reasoning as `_provision_spec`: `toolchain_artifacts`
-    is a run-wide declaration, not a per-job one, so there is no job-level
-    override to read. `compound-v-validate-manifest.py` is where a malformed
-    value is REFUSED — a bare string, a catch-all glob, a non-string entry; this
-    function only decides what the emitter passes through, and it fails closed
-    into "nothing declared" rather than trying to salvage a partially-valid list,
-    which would make the emitter's idea of the manifest disagree with the
-    validator's.
+    NOT PARSED HERE. The one reader is `manifest_toolchain_artifacts` in
+    `compound-v-scope-check.py`, which owns what the globs mean; the integration
+    gate calls the same function, so its re-derivation forgives exactly what this
+    per-job gate forgives. (The gate cannot import this emitter — the emitter
+    imports the gate — so the reader lives with the scope gate.) That reader is
+    all or nothing: a malformed list is "nothing declared", never salvaged, and
+    `compound-v-validate-manifest.py` is where it is REFUSED.
+
+    If the scope gate cannot be loaded from source, nothing is declared: the
+    per-job gate is then stricter, never looser.
     """
-    raw = (manifest or {}).get("toolchain_artifacts") if isinstance(manifest, dict) else None
-    if isinstance(raw, list) and raw and all(isinstance(g, str) and g.strip() for g in raw):
-        return list(raw)
-    return []
+    if not _SCOPE_CHECK_MODULE:
+        _SCOPE_CHECK_MODULE.append(
+            _load_module_from_path("cv_scope_check_reader", SCOPE_CHECK_DEFAULT))
+    reader = getattr(_SCOPE_CHECK_MODULE[0], "manifest_toolchain_artifacts", None)
+    if not callable(reader):
+        return []
+    return reader(manifest)
 
 
 def build_launch_argv(job, entry, run_id, repo_root, run_dir, model):
@@ -2363,7 +2378,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
     # rather than inheriting whatever the session happens to be running.
     transport_model, transport_note = resolve_job_model(
         {"id": "__transport__", "backend": "claude", "tier": "light"},
-        python_bin, stance=stance, config_path=config_path)
+        python_bin, stance=stance, config_path=config_path, repo_dir=abs_repo_root)
     # `agents/transport.md` (3.6.4) — resolved ONCE per run, never per job or
     # per stage, because Gate/Record/Finalize/Continuity are not job types and
     # never key off a job's own `type` the way `AGENT_TYPE_BY_JOB_TYPE` does.
@@ -2641,7 +2656,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
             # agent inherited the session model. The tier existed, was validated,
             # was documented — and never reached agent().
             resolved, merr = resolve_job_model(routed_job, python_bin, stance=stance,
-                                               config_path=config_path)
+                                               config_path=config_path, repo_dir=abs_repo_root)
             if resolved:
                 entry["model"] = resolved
                 entry["model_source"] = ("explicit" if job.get("model") else "tier")
@@ -2689,7 +2704,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
                     % (job_id, backend, backend)
                 )
             model, err = resolve_job_model(routed_job, python_bin, stance=stance,
-                                           config_path=config_path)
+                                           config_path=config_path, repo_dir=abs_repo_root)
             if not model:
                 raise ValueError(
                     "job %r cannot be launched: %s. `--model` is required by the "
@@ -2712,7 +2727,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
             # Engine C). Light tier, never Haiku: the wrapper only runs one command.
             _wrap_model, _wrap_err = resolve_job_model(
                 {"backend": "claude", "tier": "light"}, python_bin, stance=stance,
-                config_path=config_path)
+                config_path=config_path, repo_dir=abs_repo_root)
             entry["agent_model"] = _wrap_model or "sonnet"
             artefacts[job_id]["launch_argv"] = argv
             artefacts[job_id]["launch_argv_file"] = entry["launch_argv_file"]
@@ -10303,7 +10318,8 @@ def selftest():
         # `raised != unraised` would fail on a routing table that is behaving
         # correctly.
         _rk_std, _ = resolve_job_model({"id": "impl", "backend": "claude",
-                                        "tier": "standard"}, "/usr/bin/python3")
+                                        "tier": "standard"}, "/usr/bin/python3",
+                                       repo_dir=tmp)
         _check("...and the RESOLVER is handed the raised tier, not the manifest's",
                _rk_on["impl"]["model"] == _rk_std
                and _rk_on["impl"]["model_source"] == "tier",
@@ -11337,6 +11353,27 @@ def selftest():
                                     FASTPATH_DEFAULT, HERE)["waves"][0][0]["launch_argv"]
             _check("A4: ...and none when the manifest declares no toolchain_artifacts",
                    "--toolchain-artifact" not in _ta4b_argv, " ".join(_ta4b_argv))
+            _check("A5: the emitter's reader IS the scope gate's (one parse, no copy)",
+                   _toolchain_artifacts_spec({"toolchain_artifacts": ["b/**"]}) == ["b/**"]
+                   and _toolchain_artifacts_spec({"toolchain_artifacts": ["b/**", 1]}) == []
+                   and getattr(_SCOPE_CHECK_MODULE[0], "manifest_toolchain_artifacts",
+                               None) is not None,
+                   repr(_SCOPE_CHECK_MODULE))
+
+            # ---- resolve_job_model hands the resolver the project root ---------
+            # With no --config the resolver reads <root>/.claude/compound-v.json and
+            # the effort cap from the same root; the emitter knows the root, so it
+            # says so rather than leaving it to this process's cwd.
+            _fake_rm = os.path.join(tmp, "fake-resolve-model.py")
+            _atomic_write(_fake_rm,
+                         "import sys, json\na = sys.argv[1:]\n"
+                         "print(json.dumps({'model': a[a.index('--repo-dir') + 1] "
+                         "if '--repo-dir' in a else 'no-repo-dir'}))\n")
+            _rd_model, _rd_err = resolve_job_model(
+                {"id": "x", "backend": "claude", "tier": "deep"}, sys.executable,
+                resolve_model=_fake_rm, repo_dir="/the/project/root")
+            _check("resolve_job_model passes the project root as --repo-dir",
+                   _rd_model == "/the/project/root", "%s %s" % (_rd_model, _rd_err))
 
             # ---- B1: worktree re-attempt re-pins the baseline ------------------
             _repo_b1 = os.path.join(tmp, "v363-reattempt")

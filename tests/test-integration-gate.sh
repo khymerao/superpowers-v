@@ -164,14 +164,14 @@ PY
 # schemas/job_result.schema.json, executed verbatim in the shell against a COPY
 # of the worktree so the `git add -A` it mandates cannot disturb the case under
 # test. The copy is byte-identical, so the digest is the recipe's own answer.
-literal_digest() {
-  local wt="$1" copy
+literal_digest() { # <tree> [baseline, default $BASE]
+  local wt="$1" base="${2:-$BASE}" copy
   copy="$(mktemp -d)"
   # cp -R of a linked worktree copies the .git FILE (a gitdir pointer), which
   # still resolves — the administrative dir lives in $SANDBOX, inside $WORK.
   cp -R "$wt/." "$copy/"
   git -C "$copy" add -A >/dev/null 2>&1
-  git -C "$copy" diff --cached --binary "$BASE" | shasum -a 256 | awk '{print "sha256:"$1}'
+  git -C "$copy" diff --cached --binary "$base" | shasum -a 256 | awk '{print "sha256:"$1}'
   rm -rf "$copy"
 }
 
@@ -409,6 +409,91 @@ put_result "$RUN" "$WT"
 run_gate "$RUN"
 check "a GITIGNORED out-of-lane write ⇒ BLOCKED (the digest alone would miss it)" \
       "$([ "$(verdict_of)" = blocked ] && echo 1 || echo 0)"
+
+# 5d. TOOLCHAIN ARTIFACTS at the run-wide gate. The per-job gate forgives a
+#     gitignored path that matches a manifest `toolchain_artifacts` glob; the
+#     re-derivation must apply the SAME exemption, or an honest pass reads as
+#     `contradicted`. A DIRECT job on purpose: a sealed worktree job is already
+#     rescued by the sealed-patch rule, so only a direct job proves the flag is
+#     threaded. The .gitignore is committed BEFORE the baseline, so
+#     `git check-ignore` confirms the path in the gated tree, and the receipt is
+#     the real scope gate's own output with `--toolchain-artifact`.
+TA="$WORK/ta-direct"
+mkdir -p "$TA/scripts"
+git -C "$TA" init -q
+git -C "$TA" config user.email "test@example.invalid"
+git -C "$TA" config user.name  "integration-gate-test"
+git -C "$TA" config commit.gpgsign false
+printf 'seed\n' >"$TA/README.md"
+printf 'build/\n' >"$TA/.gitignore"
+git -C "$TA" add -A
+git -C "$TA" commit -q -m seed
+TA_BASE="$(git -C "$TA" rev-parse HEAD)"
+TA_RUN="$WORK/run-ta-direct"
+mkdir -p "$TA_RUN/results"
+printf 'in lane\n' >"$TA/scripts/allowed.py"
+mkdir -p "$TA/build"
+printf 'built\n' >"$TA/build/out.js"
+check "5d precondition: build/out.js is really gitignored in the gated tree" \
+      "$(git -C "$TA" check-ignore -q build/out.js && echo 1 || echo 0)"
+
+ta_manifest() { # <run-dir> <with-globs: 1|0>
+  {
+    printf 'version: 1\nrun_id: gate-test\n'
+    if [ "$2" = "1" ]; then printf 'toolchain_artifacts:\n  - "build/**"\n'; fi
+    printf 'jobs:\n  - id: job-a\n    title: "direct job"\n    backend: claude\n'
+    printf '    isolation: direct\n    write_allowed:\n      - "scripts/allowed.py"\n'
+  } >"$1/manifest.yaml"
+}
+"$PY" - "$TA_RUN" "$TA_BASE" <<'PY'
+import json, os, sys
+run, base = sys.argv[1:3]
+with open(os.path.join(run, "state.json"), "w") as fh:
+    json.dump({"run_id": "gate-test", "phase": "COLLECTED",
+               "jobs": {"job-a": {"status": "done", "isolation": "direct",
+                                  "baseline": base}}}, fh)
+PY
+TA_RAW="$("$PY" "$SCOPE" --repo "$TA" --baseline "$TA_BASE" --allow 'scripts/allowed.py' \
+          --toolchain-artifact 'build/**' 2>&1)"
+TA_RC=$?
+check "5d precondition: the per-job gate forgives the artifact (pass)" \
+      "$([ "$TA_RC" = 0 ] && echo 1 || echo 0)"
+TA_DIGEST="$(literal_digest "$TA" "$TA_BASE")"
+"$PY" - "$TA_RUN/receipt.json" "$TA_BASE" "$(git -C "$TA" rev-parse HEAD)" "$TA_DIGEST" \
+      "$TA_RC" "$TA_RAW" <<'PY'
+import json, sys
+out, base, realised, digest, rc, raw = sys.argv[1:7]
+verdict = {"0": "pass", "1": "blocked"}.get(rc, "error")
+with open(out, "w") as fh:
+    json.dump({"baseline_commit": base, "realised_commit": realised,
+               "diff_digest": digest, "verdict": verdict,
+               "raw_stdout": raw, "exit_code": int(rc)}, fh)
+PY
+"$PY" - "$TA_RUN" "$TA_RUN/receipt.json" <<'PY'
+import json, os, sys
+run, receipt_file = sys.argv[1:3]
+with open(receipt_file) as fh:
+    receipt = json.load(fh)
+doc = {"status": "success", "blocked": False, "files_changed": [], "violations": [],
+       "summary": "planted", "session_id": "", "worktree": "", "exit_code": 0,
+       "failure_class": None, "retry_after_seconds": 0, "gate_receipt": receipt}
+with open(os.path.join(run, "results", "job-a.json"), "w") as fh:
+    json.dump(doc, fh)
+PY
+ta_gate() {
+  GATE_OUT="$("$PY" "$GATE" --run-dir "$TA_RUN" --repo-root "$TA" --json 2>"$WORK/gate.err")"
+  GATE_RC=$?
+}
+ta_manifest "$TA_RUN" 1
+ta_gate
+check "a declared, gitignored toolchain artifact ⇒ PASS at the run-wide gate (direct job, honest receipt)" \
+      "$([ "$(verdict_of)" = pass ] && [ "$GATE_RC" = 0 ] && echo 1 || echo 0)"
+ta_manifest "$TA_RUN" 0
+ta_gate
+TA_V="$(verdict_of)"
+check "...and with the glob removed from the manifest the same tree is still caught ($TA_V)" \
+      "$( { [ "$TA_V" = contradicted ] || [ "$TA_V" = blocked ]; } && [ "$GATE_RC" != 0 ] \
+          && violations_of | grep -q 'build/out.js' && echo 1 || echo 0)"
 
 # --------------------------------------------------------------------------- #
 # 6. FAIL-CLOSED paths. An unknown must never read as a pass.
