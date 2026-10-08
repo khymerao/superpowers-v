@@ -1,0 +1,16 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:f7a1ef10ac690a27ebad7fcf450253bd0d98d44f3a998b0714c8dfb161c7bdd6",
+  "fan_out": 5,
+  "flags": [
+    "content:config_literal",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "commands/v-triage.md",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-jev.py",
+    "scripts/compound-v-preeval.py"
+  ]
+}
