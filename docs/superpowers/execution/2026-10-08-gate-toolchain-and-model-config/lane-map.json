@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/manifest.yaml",
+  "run_id": "2026-10-08-gate-toolchain-and-model-config",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_99308208-405-2": "gate-model"
+  }
+}

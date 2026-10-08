@@ -1,0 +1,38 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "agents/parallel-dispatcher.md",
+    "scripts/compound-v-emit-workflow.py",
+    "scripts/compound-v-integration-gate.py",
+    "scripts/compound-v-resolve-model.py",
+    "scripts/compound-v-scope-check.py",
+    "skills/compound-v/execution-manifest.md",
+    "skills/compound-v/phase-3-parallel-opus-dispatch.md",
+    "skills/compound-v/routing-policy.md",
+    "tests/test-integration-gate.sh",
+    "tests/test-resolve-model.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "cf58e0323301e6899e87d0fc515d72cd0d959190",
+    "diff_digest": "sha256:c5cd8cc27e6dfab3cd124e3803a632e8ab23940fc138089a3f45a21c78f3dd05",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"cf58e0323301e6899e87d0fc515d72cd0d959190\",\n  \"changed\": [\n    \"agents/parallel-dispatcher.md\",\n    \"scripts/compound-v-emit-workflow.py\",\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-resolve-model.py\",\n    \"scripts/compound-v-scope-check.py\",\n    \"skills/compound-v/execution-manifest.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\",\n    \"skills/compound-v/routing-policy.md\",\n    \"tests/test-integration-gate.sh\",\n    \"tests/test-resolve-model.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-scope-check.py\",\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-emit-workflow.py\",\n    \"scripts/compound-v-resolve-model.py\",\n    \"tests/test-integration-gate.sh\",\n    \"tests/test-resolve-model.sh\",\n    \"agents/parallel-dispatcher.md\",\n    \"skills/compound-v/phase-3-parallel-opus-dispatch.md\",\n    \"skills/compound-v/routing-policy.md\",\n    \"skills/compound-v/execution-manifest.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "cf58e0323301e6899e87d0fc515d72cd0d959190",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 gate toolchain_artifacts via the scope-check reader; resolve-model project config default",
+  "tests": {
+    "command": "bash -c 'bash tests/test-integration-gate.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-resolve-model.py --selftest >/dev/null && echo floor-ok'\nbash -c 'for s in scope-check integration-gate emit-workflow resolve-model; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && bash tests/test-agent-memory.sh >/dev/null && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-transcript-watch.sh >/dev/null && echo py-ok'\nbash -c 'bash tests/test-integration-gate.sh >/dev/null && for t in tests/test-resolve-model.sh; do [ -f \"$t\" ] && bash \"$t\" >/dev/null; done; echo tests-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 4
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_99308208-405-2"
+}

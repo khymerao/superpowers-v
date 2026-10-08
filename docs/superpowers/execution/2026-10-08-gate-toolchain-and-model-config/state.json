@@ -1,19 +1,59 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T13:10:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T13:15:00Z",
   "pre_eval_id": "2026-10-08T123419Z-item-5-harness-bugs-reproduced-1-scripts-compound-v-integrat-5605",
   "jobs": {
     "gate-model": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_99308208-405-2",
+      "session_id": null,
+      "baseline": "cf58e0323301e6899e87d0fc515d72cd0d959190",
+      "recall_check": {
+        "evidence": [
+          {
+            "file": "skills/compound-v/execution-manifest.md",
+            "reason": "test_failure",
+            "run": "2026-09-03-v3.4.1-triage-size/results/test-scope.json",
+            "status": "blocked"
+          },
+          {
+            "file": "scripts/compound-v-emit-workflow.py",
+            "reason": "scope_violation",
+            "run": "2026-09-02-df27-full-pass/results/spec-review.json",
+            "status": "blocked"
+          }
+        ],
+        "k": 2,
+        "match_count": 2,
+        "recall_check_ms": 205,
+        "verdict": "tighten"
+      },
+      "realised_commit": "cf58e0323301e6899e87d0fc515d72cd0d959190",
+      "merged": {
+        "realised_commit": "cf58e0323301e6899e87d0fc515d72cd0d959190",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "2a488e7e05655bc61a91f2625b0b6c9f75fb57df"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "gate-model"
+      ],
+      "merged": [
+        "gate-model"
+      ],
+      "commit": "2a488e7e05655bc61a91f2625b0b6c9f75fb57df",
+      "integrated": true
     }
   }
 }
