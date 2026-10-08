@@ -196,3 +196,15 @@ Observations that do not block:
    global "plain sentences" commit rule. It belongs to the engine, not to this job.
 2. `catalogue_entry` and `questions_for` now return a reference to the module-level `NOUL_CRITERIA` dict. Nothing
    mutates it today. A future caller that edits a wire question in place would change the catalogue.
+
+### AC-3 live check (orchestrator, 2026-10-08)
+
+After the merge and a cv-dev refresh, a terminal `claude -p` in `~/jev_test` ran `jev-requests --point detect_ui`,
+`jev_classify` and `detect-ui --reason --jev-responses`: the response was
+`{"status":"ok","latency_ms":1771,"body":{"model":"typesafe/jev-1.13-20260917","answers":{"ui":{"type":"noul","noul":0.99}}, ...}}`
+and `detect-ui` printed `ui jev:sample`. AC-3 met.
+
+Two observations for a later change (not defects of this run): `detect-ui --jev-responses <dir>` re-parses every
+response file in the shared `resp/` directory, so an old error response is re-logged to `calls.jsonl` with a new
+timestamp and old answers take part in the decision; and the hook T3 path logged one `timeout` at 1,505 ms against its
+1,500 ms budget while Jev answered in about 1.8 s.
