@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T13:10:00Z",
+  "pre_eval_id": "2026-10-08T123419Z-item-5-harness-bugs-reproduced-1-scripts-compound-v-integrat-5605",
+  "jobs": {
+    "gate-model": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
