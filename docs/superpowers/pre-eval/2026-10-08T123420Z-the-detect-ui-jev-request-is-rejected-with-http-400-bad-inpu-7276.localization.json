@@ -1,0 +1,9 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:7e1b2c5e3692a19bf222c05e964609bfab45e62fdc99ad712921584e656e7998",
+  "fan_out": 1,
+  "flags": [],
+  "resolved_paths": [
+    "scripts/compound-v-jev.py"
+  ]
+}
