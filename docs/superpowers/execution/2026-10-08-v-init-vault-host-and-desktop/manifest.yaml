@@ -1,0 +1,82 @@
+run_id: 2026-10-08-v-init-vault-host-and-desktop
+feature: '/v:init 1g gates the vault on the running host, reports the desktop vault as inert, and says a new key needs a restart'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-v-init-vault-host-and-desktop-design.md
+plan_path: docs/superpowers/plans/2026-10-08-v-init-vault-host-and-desktop.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-v-init-vault-host-and-desktop-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-v-init-vault-host-and-desktop-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T05:52:10Z'
+global_constraints:
+- '`CLAUDE_CODE_EXECPATH` and `CLAUDE_CODE_ENTRYPOINT` are undocumented: the step never fails when either is unset, empty or malformed. Live capture, desktop Code tab, 2026-10-08: `CLAUDE_CODE_ENTRYPOINT=claude-desktop`, `CLAUDE_CODE_EXECPATH=~/Library/Application Support/Claude/claude-code/2.1.293/<hash>/claude.app/Contents/MacOS/claude`, whose `--version` prints `2.1.293 (Claude Code)`. Terminal transcripts record `entrypoint: cli`.'
+- 'Host-version block, one fenced bash block in 1g: run `"$CLAUDE_CODE_EXECPATH" --version` only after `[ -x ]`, with `</dev/null`, under `python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 5 --`; take the first anchored `x.y.z`; otherwise fall back to `claude --version` (same timeout); otherwise `unknown`. It prints the version and its source on one line: `<x.y.z> host`, `<x.y.z> path` or `unknown`. The directory name of the path is never the primary source. It never reads `claude plugin configure` output.'
+- '`unknown` never passes the 2.1.287 floor: report `installed, host version unknown (the vault needs Claude Code 2.1.287 or newer)`.'
+- 'Desktop: only the exact value `CLAUDE_CODE_ENTRYPOINT=claude-desktop` selects the state `installed, inert in the desktop app (observed 2026-10-08 on the bundled 2.1.293: the vault does not receive its key there) - use Jev from a terminal claude`. Worded as observed behaviour, not a documented guarantee. Do not use `CLAUDECODE` or `CLAUDE_CODE_CHILD_SESSION`. No gist is cited as the contract.'
+- 'State order: `absent`, `disabled`, desktop inert, host version unknown, below the floor, key not set or unknown, key set. The key probe is skipped in the desktop case. Fix the stale intro line ("one of three states").'
+- 'Step 2''s vault bullet: on a desktop host it does not offer `/plugin configure` in place; it says to run it in a terminal `claude`. Everywhere the key is entered or changed, say it takes effect in a new session (restart `claude`).'
+- 'Step 1f''s `/skill-doctor` floor reads the host version from the 1g block instead of `claude --version`.'
+- '`hooks/session-banner.sh:84` has the same defect; out of scope (not in this lane), recorded as a follow-up.'
+- 'The filtered key probe and the existing 1g test row (`tests/test-vault-mod.sh:116-144`) stay green and unchanged in intent. Never read, print, request or forward the key value.'
+- 'README: one sentence on the desktop limitation (observed, dated), one on the restart.'
+- 'No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 tests/test-vault-mod.sh passes, including both new rows.
+- AC-2 Reverting the host-version block to claude --version makes the first new row fail; removing the desktop state or either README sentence makes the second fail.
+- AC-3 /v:init step 1g never reads, prints, requests or forwards the key value (the existing filtered-probe row stays green).
+- AC-4 scripts/lint-frontmatter.py . passes.
+test_contract:
+  floor_command: bash tests/test-vault-mod.sh
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: commands/*.md
+    run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-vault-mod.sh >/dev/null && echo init-ok'
+  - when: plugins/compound-v-vault/**
+    run: bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'
+  - when: tests/test-vault-mod.sh
+    run: bash tests/test-vault-mod.sh
+  - when: '*.md'
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+jobs:
+- id: host-desktop
+  title: Task A — 1g host version, desktop inert, restart note
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - commands/v-init.md
+  - plugins/compound-v-vault/README.md
+  - tests/test-vault-mod.sh
+  read_allowed:
+  - '**'
+  acceptance:
+  - test-vault-mod.sh green with both new rows, each failing when its change is reverted; lint-frontmatter clean; the existing filtered-probe row green; the host block run live once with its output quoted.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-v-init-vault-host-and-desktop.md, every step in order (A1..A7). Read the spec docs/superpowers/specs/2026-10-08-v-init-vault-host-and-desktop-design.md and both audits first; their section 7 constraints and the plan Global Constraints bind. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - host-desktop
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-v-init-vault-host-and-desktop-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-v-init-vault-host-and-desktop-review.md with the section skeleton. Review the job against docs/superpowers/specs/2026-10-08-v-init-vault-host-and-desktop-design.md and the plan. Check AC-2 by reverting in a scratch copy (never in the tree), that unknown never passes the floor, and that 1g cannot print or forward the key. Cite the live env capture from the plan Global Constraints. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

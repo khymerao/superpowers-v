@@ -1,4 +1,5 @@
 - [Triage T3 map](triage-t3-map.md) — who calls T3, what it can change, record/hook/onboard couplings (3.5.1 checkout)
 - [Jev seams map](jev-seams-map.md) — vault reasons vs parse, prune/pending descriptors, detect_ui sample couplings
 - [Vault tool.call map](vault-tool-call-map.md) — vault tool.call hook, test helper, CLI pin/floor couplings
+- [/v:init 1g map](v-init-1g-map.md) — step 1g prose, its one test row, sibling PATH-version readers, unobserved env vars
 - [Finalize + lane-guard map](finalize-and-laneguard-map.md) — finalize-wave order, state.waves, cwd->worktree resolution, test-source greps

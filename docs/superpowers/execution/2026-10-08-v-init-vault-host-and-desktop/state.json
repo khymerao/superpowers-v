@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T06:50:00Z",
+  "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
+  "jobs": {
+    "host-desktop": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
