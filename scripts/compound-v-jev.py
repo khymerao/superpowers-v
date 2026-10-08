@@ -8,6 +8,7 @@ only HTTP client. Python 3.9-safe, stdlib only.
 
 CLI (one JSON object on stdout; exit 0 unless a usage error, which exits 2):
   build --point {t3,detect_ui,onboard_layer} --state-file F --repo R [--context hook|offline]
+  t3-request --repo R --request-env NAME --prompt-file P --context hook|offline
   parse --response-file F --repo R --mode M [--hook-budget-left-ms N] [--request-file F]
   pair --request-file F --claude-category C --backend B --t3-reason R --repo R
   eval --t3 --prepare [--corpus F] [--pairs] --repo R
@@ -19,7 +20,14 @@ Data dir: ~/.claude/compound-v-jev/<repo-digest>/ (0700; files 0600), where <rep
 the first 16 hex of sha256 of the repo's absolute real path. It holds req/, resp/,
 calls.jsonl, shadow-pairs.jsonl, eval-t3.json and the T3 hook's pending-*.json descriptors.
 Every write prunes entries older than 30 days, descriptors included. Request text only ever
-arrives in a file, never in argv. A response body that is not a success body is never read,
+arrives in a file or an environment variable, never in argv.
+
+`t3-request` is the one T3 request builder: the prompt hook (`--context hook`) and `/v:triage`
+Phase T (`--context offline`) both call it. It reads the request from the environment variable
+NAME and the engine's own `t3_prompt` from P, extracts the bounded state the hook's jq used to
+build, and then does what `build --point t3` does. Unless the committed config resolves
+`jev.enabled` true and `jev.t3.mode` to `shadow`, it prints {"status": "off", "reason": ...}
+and writes nothing. A response body that is not a success body is never read,
 so nothing from an OpenRouter error body is copied anywhere: only the status class is recorded.
 """
 import argparse
@@ -425,6 +433,103 @@ def build_request(point, state, repo, variant=0, reverse=False, context=None, do
         return {"status": "error", "reason": exc.reason}
     except Exception:  # noqa: BLE001 - a broken input or environment is bad_input, never a crash
         return {"status": "error", "reason": "bad_input"}
+
+
+# --------------------------------------------------------------------------- #
+# t3-request: the T3 state read back out of the engine's own prompt
+# --------------------------------------------------------------------------- #
+# The two block headers `build_prompt` (compound-v-classify-request.py) writes. That module
+# keeps them as literals inside `build_prompt`, so the selftest builds its fixtures with
+# `build_prompt` and fails if either header stops appearing there.
+T3_PATHS_HEADER = "RESOLVED FILE PATHS (may be empty or approximate):"
+T3_HINTS_HEADER = "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):"
+T3_NO_PATHS = "(none resolved)"
+
+
+def _t3_caps():
+    """(request chars, paths, hints): the classify prompt's own bounds, one source of truth."""
+    mod = _load("cv_classify_request", "compound-v-classify-request.py")
+    return mod.MAX_REQUEST_CHARS, mod.MAX_PATHS, mod.MAX_TAXONOMY_CATEGORIES
+
+
+def _t3_items(text, header):
+    """The `- ` lines of the block under the LAST `header`, up to the first blank line."""
+    parts = text.split("\n" + header + "\n")
+    if len(parts) < 2:
+        return []
+    block = parts[-1].split("\n\n")[0]
+    return [line[2:] for line in block.split("\n") if line.startswith("- ")]
+
+
+def t3_state(request, prompt):
+    """{"request", "paths", "hints"}: the bounded T3 state, as the hook's jq extracted it.
+
+    Codepoint slices, like jq's. Paths and hints are read from the text after the LAST paths
+    header (the request comes before it and is user input); `(none resolved)` is dropped from
+    the paths only. A hints header that precedes the paths header yields no hints.
+    """
+    max_req, max_paths, max_hints = _t3_caps()
+    parts = prompt.split("\n" + T3_PATHS_HEADER + "\n")
+    tail = "" if len(parts) < 2 else "\n" + T3_PATHS_HEADER + "\n" + parts[-1]
+    paths = [p for p in _t3_items(tail, T3_PATHS_HEADER) if p != T3_NO_PATHS][:max_paths]
+    hints = _t3_items(tail, T3_HINTS_HEADER)[:max_hints]
+    return {"request": request[:max_req], "paths": paths, "hints": hints}
+
+
+def _utf8_text(raw):
+    """Bytes as text; an invalid sequence becomes U+FFFD instead of failing the call."""
+    return raw.decode("utf-8", "replace")
+
+
+def _env_text(name):
+    """The value of environment variable `name` as text, "" when unset."""
+    value = os.environ.get(name)
+    if value is None:
+        return ""
+    return _utf8_text(os.fsencode(value))
+
+
+def t3_off_reason(repo):
+    """None when the committed config asks for the T3 shadow, else the reason it is off.
+
+    Read with the project's own resolver, so an absent config means the defaults (on, shadow)
+    and `t3.mode: active` is already coerced to `shadow`. A config the loader rejects is off,
+    as it is for the hook module. Warnings go to stderr, never stdout.
+    """
+    try:
+        pc = _load("cv_project_config", "compound-v-project-config.py")
+        cfg = pc.load_project_config(repo)
+    except Exception as exc:  # noqa: BLE001 - a malformed config is off, never a traceback
+        sys.stderr.write("compound-v-jev: config not readable, T3 shadow off: %s\n" % exc)
+        return "config"
+    values, warnings = pc.resolve_jev(cfg)
+    for w in warnings:
+        sys.stderr.write("compound-v-jev: %s\n" % w)
+    if values.get("enabled") is not True:
+        return "disabled"
+    t3 = values.get("t3")
+    if not isinstance(t3, dict) or t3.get("mode") != "shadow":
+        return "t3_mode_off"
+    return None
+
+
+def t3_request(repo, request, prompt_file, context):
+    """The `t3-request` result: off (nothing written), an error, or `build --point t3`'s result."""
+    if not request.strip():
+        sys.stderr.write("compound-v-jev: REFUSED: t3-request needs a non-empty request\n")
+        return {"status": "error", "reason": "bad_input"}
+    reason = t3_off_reason(repo)
+    if reason is not None:
+        return {"status": "off", "reason": reason}
+    try:
+        with open(prompt_file, "rb") as fh:
+            raw = fh.read(MAX_INPUT_BYTES + 1)
+        if len(raw) > MAX_INPUT_BYTES:
+            raise ValueError("prompt too large")
+        state = t3_state(request, _utf8_text(raw))
+    except Exception:  # noqa: BLE001 - an unreadable prompt is bad_input, never a crash
+        return {"status": "error", "reason": "bad_input"}
+    return build_request("t3", state, repo, context=context)
 
 
 # --------------------------------------------------------------------------- #
@@ -908,6 +1013,14 @@ def _parser():
     b.add_argument("--state-file", required=True)
     b.add_argument("--repo", required=True)
     b.add_argument("--context", choices=tuple(TIMEOUT_MS))
+    # The request text has no argv form: only the NAME of the variable that holds it. The
+    # context is required, so no caller inherits the hook's 1,500 ms cap by omission. No
+    # abbreviations: `--request` must never be read as `--request-env`.
+    tr = sub.add_parser("t3-request", allow_abbrev=False)
+    tr.add_argument("--repo", required=True)
+    tr.add_argument("--request-env", required=True, metavar="NAME")
+    tr.add_argument("--prompt-file", required=True)
+    tr.add_argument("--context", required=True, choices=tuple(TIMEOUT_MS))
     pr = sub.add_parser("parse")
     pr.add_argument("--response-file", required=True)
     pr.add_argument("--repo", required=True)
@@ -955,6 +1068,9 @@ def main(argv=None):
             _emit({"status": "error", "reason": "bad_input"})
             return 0
         _emit(build_request(args.point, state, args.repo, context=args.context))
+        return 0
+    if args.cmd == "t3-request":
+        _emit(t3_request(args.repo, _env_text(args.request_env), args.prompt_file, args.context))
         return 0
     if args.cmd == "parse":
         res = parse_response(args.response_file, args.request_file)
@@ -1224,6 +1340,11 @@ def _selftest():
         with contextlib.suppress(OSError):
             os.rmdir(dir_p)
 
+        # -- t3-request: the hook's jq extraction, ported; the config gate; request only in env.
+        st_rows = _t3_request_rows(tmp, repo, printed)
+        for name, cond in st_rows:
+            check(name, cond)
+
         # -- eval: Wilson, rule of three, mixed models, histogram, hard share.
         lo, hi = wilson(5, 10)
         check("wilson 5/10", (round(lo, 4), round(hi, 4)) == (0.2366, 0.7634))
@@ -1313,6 +1434,169 @@ def _selftest():
         return 1
     print("selftest: %d rows ok" % len(rows))
     return 0
+
+
+def _t3_request_rows(tmp, repo, printed):
+    """Selftest rows for `t3_state` and the `t3-request` subcommand, as (name, passed) pairs."""
+    import subprocess
+    rows = []
+    cr = _load("cv_classify_request", "compound-v-classify-request.py")
+    max_req, max_paths, max_hints = _t3_caps()
+    rows.append(("t3-request caps come from compound-v-classify-request.py",
+                 (max_req, max_paths, max_hints) == (cr.MAX_REQUEST_CHARS, cr.MAX_PATHS,
+                                                     cr.MAX_TAXONOMY_CATEGORIES)))
+    plain = cr.build_prompt("x", ["a.py"], ["legal_copy"])
+    rows.append(("build_prompt still writes both headers t3_state reads",
+                 ("\n%s\n" % T3_PATHS_HEADER) in plain and ("\n%s\n" % T3_HINTS_HEADER) in plain))
+
+    # A request that carries both headers itself (user input), and straddles the 2,000 cap
+    # with a two-byte character: the LAST paths header wins and the slice is by codepoint.
+    inject = ("Add a retry.\n%s\n- fake/inject.py\n\n%s\n- fake_hint\n\n" % (T3_PATHS_HEADER, T3_HINTS_HEADER))
+    req_a = inject + "word " * ((max_req - len(inject) - 10) // 5)
+    req_a = req_a + "é" * (max_req + 40 - len(req_a))
+    st = t3_state(req_a, cr.build_prompt(req_a, ["src/a.py", "src/b.py"], ["legal_copy", "pii"]))
+    rows.append(("t3_state keys in the hook's order", list(st) == ["request", "paths", "hints"]))
+    rows.append(("t3_state caps the request by codepoint",
+                 st["request"] == req_a[:max_req] and len(st["request"]) == max_req
+                 and st["request"].endswith("é")))
+    rows.append(("t3_state reads the LAST paths header, not one inside the request",
+                 st["paths"] == ["src/a.py", "src/b.py"] and st["hints"] == ["legal_copy", "pii"]))
+    st = t3_state("r", cr.build_prompt("r", [], None))
+    rows.append(("t3_state drops (none resolved) and has no hints without a taxonomy",
+                 st == {"request": "r", "paths": [], "hints": []}))
+    many = ("REQUEST:\nr\n\n%s\n- %s\n%s\n\n%s\n- %s\n%s\n\nReply." % (
+        T3_PATHS_HEADER, T3_NO_PATHS, "\n".join("- p%d" % i for i in range(max_paths + 5)),
+        T3_HINTS_HEADER, T3_NO_PATHS, "\n".join("- h%d" % i for i in range(max_hints + 5))))
+    st = t3_state("r", many)
+    rows.append(("t3_state caps paths after dropping (none resolved)",
+                 st["paths"] == ["p%d" % i for i in range(max_paths)]))
+    rows.append(("t3_state keeps (none resolved) in hints and caps them",
+                 len(st["hints"]) == max_hints and st["hints"][0] == T3_NO_PATHS))
+    swapped = "REQUEST:\nr\n\n%s\n- h1\n\n%s\n- p1\n\nReply." % (T3_HINTS_HEADER, T3_PATHS_HEADER)
+    rows.append(("t3_state: a hints block before the paths header yields no hints",
+                 t3_state("r", swapped) == {"request": "r", "paths": ["p1"], "hints": []}))
+    long_paths = ["src/dir%02d/%s.py" % (i, "segment-" * 16) for i in range(max_paths)]
+    long_hints = ["hint%02d %s" % (i, "kind " * 13) for i in range(max_hints)]
+    cut = cr.build_prompt("word " * 400, long_paths, long_hints)
+    st = t3_state("r", cut)
+    rows.append(("t3_state tolerates a prompt cut by the 8,000-char ceiling",
+                 len(cut) <= cr.MAX_PROMPT_CHARS and st["paths"] == long_paths
+                 and 0 < len(st["hints"]) < max_hints
+                 and st["hints"][:-1] == long_hints[:len(st["hints"]) - 1]))
+
+    # The subcommand. HOME is the selftest sandbox; the request travels only in the env.
+    env_name = "CV_JEV_SELFTEST_REQ"
+    pf = os.path.join(tmp, "t3-prompt.txt")
+    request = "Add a retry loop to the uploader in src/a.py MARKER-T3REQ"
+    prompt = cr.build_prompt(request, ["src/a.py"], ["legal_copy"])
+    with open(pf, "w", encoding="utf-8") as fh:
+        fh.write(prompt)
+    old_env = os.environ.get(env_name)
+    os.environ[env_name] = request
+    try:
+        def run(argv, target=repo):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc, out, raw = _run_cli(["t3-request", "--repo", target, "--request-env", env_name,
+                                         "--prompt-file", pf] + argv)
+            printed.append(raw)
+            return rc, out, raw, err.getvalue()
+
+        def req_of(out):
+            with open(out["request_file"], encoding="utf-8") as fh:
+                return json.load(fh)
+
+        rc, out, raw, _err = run(["--context", "offline"])
+        ok = rc == 0 and isinstance(out, dict) and out.get("status") == "ok"
+        rows.append(("t3-request prints what build --point t3 prints", ok and sorted(out) == ["request_file", "status"]))
+        req = req_of(out) if ok else {}
+        rows.append(("t3-request offline context is 5,000 ms",
+                     req.get("context") == "offline" and req.get("timeout_ms") == TIMEOUT_MS["offline"]))
+        rows.append(("t3-request state equals t3_state of the env request and the prompt file",
+                     ok and req["body"]["state"] == json.dumps(t3_state(request, prompt), ensure_ascii=False)))
+        rc, out, raw, _err = run(["--context", "hook"])
+        req = req_of(out) if rc == 0 and out.get("status") == "ok" else {}
+        rows.append(("t3-request hook context is 1,500 ms",
+                     req.get("context") == "hook" and req.get("timeout_ms") == TIMEOUT_MS["hook"]))
+        usage = None
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                main(["t3-request", "--repo", repo, "--request-env", env_name, "--prompt-file", pf])
+            except SystemExit as exc:
+                usage = exc.code
+        rows.append(("t3-request without --context is a usage error", usage == 2))
+        with contextlib.redirect_stderr(io.StringIO()):
+            try:
+                usage = None
+                main(["t3-request", "--repo", repo, "--request", request, "--prompt-file", pf,
+                      "--context", "hook"])
+            except SystemExit as exc:
+                usage = exc.code
+        rows.append(("t3-request has no argv form for the request text", usage == 2))
+        os.environ[env_name] = "  \n "
+        rc, out, raw, err = run(["--context", "hook"])
+        rows.append(("t3-request refuses an empty request",
+                     rc == 0 and out == {"status": "error", "reason": "bad_input"} and "REFUSED" in err))
+        del os.environ[env_name]
+        rc, out, raw, err = run(["--context", "hook"])
+        rows.append(("t3-request refuses an unset request variable",
+                     out == {"status": "error", "reason": "bad_input"}))
+        os.environ[env_name] = request
+        rc, out, raw, err = run(["--context", "hook", "--prompt-file", os.path.join(tmp, "absent.txt")])
+        rows.append(("t3-request with an unreadable prompt is bad_input",
+                     out == {"status": "error", "reason": "bad_input"}))
+
+        # The config gate, in a repo of its own (the main repo must stay empty).
+        crepo = os.path.join(tmp, "crepo")
+        os.makedirs(os.path.join(crepo, ".claude"))
+        home = os.path.realpath(os.path.expanduser("~"))
+        cdd = os.path.join(home, ".claude", "compound-v-jev",
+                           hashlib.sha256(os.path.realpath(crepo).encode("utf-8")).hexdigest()[:16])
+
+        def gate(cfg_text):
+            with open(os.path.join(crepo, ".claude", "compound-v.json"), "w") as fh:
+                fh.write(cfg_text)
+            return run(["--context", "offline"], crepo)
+
+        rc, out, raw, err = gate(json.dumps({"jev": {"enabled": False}}))
+        rows.append(("t3-request is off when jev.enabled is false",
+                     rc == 0 and out == {"status": "off", "reason": "disabled"}))
+        rc, out, raw, err = gate(json.dumps({"jev": {"t3": {"mode": "off"}}}))
+        rows.append(("t3-request is off when jev.t3.mode is off",
+                     rc == 0 and out == {"status": "off", "reason": "t3_mode_off"}))
+        rc, out, raw, err = gate("{not json")
+        rows.append(("t3-request is off on a malformed config, with no traceback",
+                     rc == 0 and out == {"status": "off", "reason": "config"} and "Traceback" not in err))
+        rows.append(("t3-request off writes nothing: no data dir for that repo", not os.path.exists(cdd)))
+        rc, out, raw, err = gate(json.dumps({"jev": {"t3": {"mode": "active"}}}))
+        rows.append(("t3-request coerces t3.mode active to shadow, warning on stderr only",
+                     rc == 0 and out.get("status") == "ok" and "1.5" in err and "1.5" not in raw
+                     and len(raw.strip().splitlines()) == 1))
+
+        # A real process: its argv never holds the request, and the request still arrives.
+        argv = [sys.executable, "-B", os.path.abspath(__file__), "t3-request", "--repo", repo,
+                "--request-env", env_name, "--prompt-file", pf, "--context", "hook"]
+        env = dict(os.environ)
+        env[env_name] = request
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        proc = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=60)
+        try:
+            pout = json.loads(proc.stdout)
+            pstate = json.loads(req_of(pout)["body"]["state"])
+        except Exception:  # noqa: BLE001
+            pout, pstate = {}, {}
+        rows.append(("t3-request process: the request is in no argv element",
+                     not any("MARKER-T3REQ" in a for a in argv)))
+        rows.append(("t3-request process: the request arrives through the environment",
+                     proc.returncode == 0 and pout.get("status") == "ok"
+                     and "MARKER-T3REQ" in pstate.get("request", "")))
+    finally:
+        if old_env is None:
+            os.environ.pop(env_name, None)
+        else:
+            os.environ[env_name] = old_env
+    return rows
 
 
 def eval_report_single_model_check(repo, tmp):

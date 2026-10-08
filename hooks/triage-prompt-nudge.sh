@@ -444,13 +444,12 @@ _classify_headless() {
 #     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid}
 #
 # `<data_dir>` is `compound-v-jev.py`'s per-user directory, outside the repository.
-# The request travels to `build` in a 0600 state file (never argv), and that file
-# is deleted as soon as `build` returns. `state` is today's bounded classify input:
-# the request capped at 2,000 characters, plus the resolved paths and taxonomy
-# hints read back out of the engine's own `t3_prompt`, where `build_prompt` has
-# already bounded them (20 and 40). The LAST paths header is the one used: the
-# request text comes before it and is user input.
-_T3_STATE_MAX_CHARS=2000
+# The request file is built by `compound-v-jev.py t3-request --context hook`, the
+# same builder `/v:triage` Phase T calls: it bounds the state (the request, plus the
+# resolved paths and taxonomy hints read back out of the engine's own `t3_prompt`)
+# with the classify prompt's own caps, and it reads the committed `jev` config
+# itself. The request reaches it through the environment, never argv; the prompt
+# through a 0600 temp file that is removed on every exit path of this function.
 
 # Runs in a subshell so `umask 077` cannot leak into the rest of the hook.
 # Returns non-zero on any failure, having written no descriptor.
@@ -462,30 +461,13 @@ _write_t3_descriptor() (
   py="$(_python)" || exit 1
   umask 077
 
-  statef="$(mktemp "${TMPDIR:-/tmp}/cv-jev-state.XXXXXX" 2>/dev/null)" || exit 1
-  # Request and prompt reach jq through its environment, never its argv.
-  if ! CV_JEV_REQ="$request" CV_JEV_PROMPT="$prompt" \
-       jq -n --argjson n "$_T3_STATE_MAX_CHARS" '
-         def items($text; $hdr):
-           ($text | split("\n" + $hdr + "\n")) as $parts
-           | if ($parts | length) < 2 then []
-             else ($parts[-1] | split("\n\n")[0] | split("\n")
-                   | map(select(startswith("- ")) | .[2:]))
-             end;
-         ($ENV.CV_JEV_PROMPT // "") as $p
-         | "RESOLVED FILE PATHS (may be empty or approximate):" as $ph
-         | ($p | split("\n" + $ph + "\n")
-            | if length < 2 then "" else "\n" + $ph + "\n" + .[-1] end) as $tail
-         | {request: (($ENV.CV_JEV_REQ // "")[0:$n]),
-            paths: (items($tail; $ph) | map(select(. != "(none resolved)")) | .[0:20]),
-            hints: (items($tail; "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):")
-                    | .[0:40])}' >"$statef" 2>/dev/null; then
-    rm -f "$statef"
-    exit 1
-  fi
-  out="$(PYTHONDONTWRITEBYTECODE=1 "$py" "$script" build --point t3 \
-         --state-file "$statef" --repo "$proj" 2>/dev/null)"
-  rm -f "$statef" 2>/dev/null || true
+  promptf="$(mktemp "${TMPDIR:-/tmp}/cv-jev-prompt.XXXXXX" 2>/dev/null)" || exit 1
+  printf '%s' "$prompt" >"$promptf" 2>/dev/null || { rm -f "$promptf"; exit 1; }
+  out="$(CV_JEV_REQ="$request" PYTHONDONTWRITEBYTECODE=1 "$py" "$script" t3-request \
+         --repo "$proj" --request-env CV_JEV_REQ --prompt-file "$promptf" \
+         --context hook 2>/dev/null)"
+  # The prompt carries the request text: it goes before anything else can exit.
+  rm -f "$promptf" 2>/dev/null || true
 
   rf="$(printf '%s' "$out" | jq -r 'if (type == "object") and (.status == "ok")
           and ((.request_file | type) == "string") then .request_file else empty end' \

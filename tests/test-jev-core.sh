@@ -187,5 +187,174 @@ if [ -z "$(ls -A "$REPO")" ]; then pass "nothing written under the repository"; 
 rc=$?
 if [ "$rc" = "2" ]; then pass "usage error exits 2"; else fail "usage error exit $rc"; fi
 
+# 12. /v:triage Phase T prose: the re-invocation passes --t3-engine, and the Jev step (T2b) names
+# t3-request, jev_classify, parse --mode shadow and pair. A copy with any one removed must fail.
+TRIAGE_MD="$ROOT/commands/v-triage.md"
+prose_check() { # md -> "ok" or what is missing
+  "$PY" -B - "$1" <<'PYEOF'
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+blocks = re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.S | re.M)
+reinv = [b for b in blocks if 'compound-v-preeval.py" triage' in b and "--t3-category" in b]
+m = re.search(r"^### T2b\..*?(?=^### )", text, re.S | re.M)
+step = m.group(0) if m else ""
+need = [
+    ("re-invocation passes --t3-engine", bool(reinv) and all("--t3-engine" in b for b in reinv)),
+    ("T2b sits between T2 and T3", bool(step) and text.find("### T2.") < text.find("### T2b.") < text.find("### T3.")),
+    ("t3-request --context offline", "t3-request" in step and "--context offline" in step),
+    ("jev_classify loaded with ToolSearch", "mcp__compound-v-vault__jev_classify" in step and "ToolSearch" in step),
+    ("parse --mode shadow --request-file", "parse --mode shadow --request-file" in step),
+    ("pair", re.search(r'compound-v-jev\.py" pair --request-file', step) is not None),
+    ("no_key/egress/disabled write no pair", all(r in step for r in ("no_key", "egress", "disabled"))
+     and "write no pair" in step),
+    ("never skips T3", "never skips T3" in step),
+    ("t3_reason kept from the first result", "Keep `t3_reason`" in text),
+]
+missing = [n for n, ok in need if not ok]
+print("ok" if not missing else "missing: " + "; ".join(missing))
+PYEOF
+}
+got="$(prose_check "$TRIAGE_MD")"
+if [ "$got" = "ok" ]; then pass "v-triage prose: --t3-engine and the Jev step"; else fail "v-triage prose: $got"; fi
+for tok in '--t3-engine' 't3-request' 'jev_classify' 'parse --mode shadow' '" pair --request-file'; do
+  "$PY" -B - "$TRIAGE_MD" "$T/work/triage-mut.md" "$tok" <<'PYEOF'
+import sys
+src, dst, tok = sys.argv[1:4]
+open(dst, "w", encoding="utf-8").write(open(src, encoding="utf-8").read().replace(tok, "XXXX"))
+PYEOF
+  got="$(prose_check "$T/work/triage-mut.md")"
+  if [ "$got" != "ok" ]; then pass "planted: prose without '$tok' fails the check"; else fail "planted: prose without '$tok' still passes"; fi
+done
+
+# 13. The prose's own commands, run as written (placeholders filled) against a fixture repo whose
+# request reaches T3: T2 asks for T3, the re-invocation writes a record with a t3 block, and the Jev
+# step's t3-request, parse and pair commands run. A copy of the prose whose re-invocation lost
+# --t3-engine writes a record without one.
+block() { # md selector out: the one bash block matching selector, FILL_* placeholders filled
+  "$PY" -B - "$1" "$2" "$3" <<'PYEOF'
+import os, re, sys
+md, sel, out = sys.argv[1:4]
+text = open(md, encoding="utf-8").read()
+blocks = re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.S | re.M)
+pick = {
+    "t2": lambda b: 'compound-v-preeval.py" triage' in b and "--t3-category" not in b,
+    "reinvoke": lambda b: 'compound-v-preeval.py" triage' in b and "--t3-category" in b,
+    "t3req": lambda b: "t3-request" in b,
+    "parse": lambda b: 'compound-v-jev.py" parse' in b,
+    "pair": lambda b: 'compound-v-jev.py" pair' in b,
+}[sel]
+found = [b for b in blocks if pick(b)]
+if len(found) != 1:
+    sys.exit("expected one %s block, found %d" % (sel, len(found)))
+b = found[0]
+for ph, var in (("<the request text>", "FILL_REQUEST"), ("<category>", "FILL_CATEGORY"),
+                ("<engine>", "FILL_ENGINE"), ("<t3_reason>", "FILL_REASON"),
+                ("<request_file>", "FILL_REQ_FILE"), ("<response_file>", "FILL_RESP_FILE")):
+    if ph in b:
+        b = b.replace(ph, os.environ[var])
+open(out, "w", encoding="utf-8").write(b)
+PYEOF
+}
+P="$T/proj"
+mkdir -p "$P/.claude" "$P/src"
+printf 'def upload(chunk):\n    return chunk\n' >"$P/src/uploader.py"
+# Safety coverage, but nothing banded under src/: the shape that makes the engine ask for T3.
+cat >"$P/.claude/compound-v-impact-taxonomy.yaml" <<'YAML'
+version: 1
+
+path_patterns:
+  - glob: "docs/**"
+    difficulty_band: low
+    impact_band: low
+
+content_patterns:
+  - match: "terms of service"
+    pattern_type: literal
+    case: insensitive
+    scan: content
+    kind: legal_copy
+    impact_band: high
+
+sensitive_path_list:
+  - "**/*.env"
+  - "**/secrets/**"
+
+churn:
+  exclude_paths:
+    - "**/*.lock"
+  format_commit_patterns:
+    - "^chore: format"
+YAML
+git -C "$P" init -q >/dev/null 2>&1
+git -C "$P" add -A >/dev/null 2>&1
+git -C "$P" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m fixture >/dev/null 2>&1
+cp -R "$P" "$T/proj-mut"
+export CV="$ROOT" CLAUDE_CODE_SESSION_ID="sess-jev-core"
+export FILL_REQUEST="please add a retry loop to the uploader module at src/uploader.py"
+export FILL_CATEGORY="user-facing-minor" FILL_ENGINE="parent"
+record_t3() { # repo pre_eval_id -> the record's t3 block as compact JSON, or "none"
+  "$PY" -B -c 'import json,sys; r=json.load(open(sys.argv[1])); print(json.dumps(r.get("t3"), sort_keys=True) if "t3" in r else "none")' \
+    "$1/docs/superpowers/pre-eval/$2.json" 2>/dev/null
+}
+block "$TRIAGE_MD" t2 "$T/work/t2.sh" && first="$(cd "$P" && bash "$T/work/t2.sh" 2>/dev/null)"
+if [ "$(jget "${first:-null}" 'd.get("needs_t3")')" = "True" ]; then pass "prose T2 on the fixture asks for T3"; else fail "prose T2: ${first:-no output}"; fi
+FILL_REASON="$(jget "${first:-null}" 'd.get("t3_reason") or "unbanded"')"
+export FILL_REASON
+export PROMPT_FILE="$T/work/t3-prompt.txt"
+jget "${first:-null}" 'd.get("t3_prompt", "")' >"$PROMPT_FILE"
+block "$TRIAGE_MD" reinvoke "$T/work/reinvoke.sh" && second="$(cd "$P" && bash "$T/work/reinvoke.sh" 2>/dev/null)"
+pid="$(jget "${second:-null}" 'd.get("pre_eval_id", "")')"
+t3b="$(record_t3 "$P" "$pid")"
+if [ "$t3b" = '{"category": "user-facing-minor", "engine": "parent"}' ]; then
+  pass "prose re-invocation writes a record with a t3 block"
+else
+  fail "prose re-invocation t3 block: ${t3b:-no record} (${second:-no output})"
+fi
+
+# The Jev step's commands, as written, in the same repo (same --repo .).
+block "$TRIAGE_MD" t3req "$T/work/t3req.sh" && jr="$(cd "$P" && bash "$T/work/t3req.sh" 2>/dev/null)"
+JREQ="$(jget "${jr:-null}" 'd.get("request_file", "")')"
+ctx="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["context"])' "$JREQ" 2>/dev/null)"
+if [ "$(jget "${jr:-null}" 'd.get("status")')" = "ok" ] && [ "$ctx" = "offline" ]; then
+  pass "prose t3-request builds an offline request"
+else
+  fail "prose t3-request: ${jr:-no output}"
+fi
+JRESP="$(dirname "$(dirname "$JREQ")")/resp/$(basename "$JREQ" .req.json).resp.json"
+printf '%s' '{"status": "ok", "latency_ms": 900, "body": {"model": "typesafe/jev-1.13-20260917", "answers": {"category": {"type": "choice", "choice": "user-facing-minor", "probabilities": {"user-facing-minor": 0.8, "unknown": 0.1, "user-facing-major": 0.05, "plumbing": 0.05}}}}}' >"$JRESP"
+export FILL_REQ_FILE="$JREQ" FILL_RESP_FILE="$JRESP"
+block "$TRIAGE_MD" parse "$T/work/parse.sh" && pr="$(cd "$P" && bash "$T/work/parse.sh" 2>/dev/null)"
+if [ "$(jget "${pr:-null}" 'd["answers"]["category"]["answer"]')" = "user-facing-minor" ]; then pass "prose parse reads the answer"; else fail "prose parse: ${pr:-no output}"; fi
+block "$TRIAGE_MD" pair "$T/work/pair.sh" && pa="$(cd "$P" && bash "$T/work/pair.sh" 2>/dev/null)"
+last="$(tail -n 1 "$(dirname "$(dirname "$JREQ")")/shadow-pairs.jsonl" 2>/dev/null)"
+if [ "$(jget "${pa:-null}" 'd.get("status")')" = "ok" ] \
+   && [ "$(jget "${last:-null}" 'd["backend"] + "/" + d["claude_category"] + "/" + d["t3_reason"]')" = "parent/user-facing-minor/$FILL_REASON" ]; then
+  pass "prose pair writes the carried category, engine and reason"
+else
+  fail "prose pair: ${pa:-no output} ${last:-no line}"
+fi
+case "$JREQ" in "$HOME"/.claude/compound-v-jev/*/req/*.req.json) pass "prose Jev request lands in the per-user data dir" ;; *) fail "prose Jev request path: $JREQ" ;; esac
+if [ -z "$(find "$P" \( -name '*.req.json' -o -name '*.resp.json' -o -name 'shadow-pairs.jsonl' \) 2>/dev/null)" ]; then
+  pass "no Jev file under the fixture repo"
+else
+  fail "Jev file under the fixture repo"
+fi
+
+# Planted: the same re-invocation with --t3-engine removed from the prose writes no t3 block.
+"$PY" -B - "$TRIAGE_MD" "$T/work/triage-noengine.md" <<'PYEOF'
+import sys
+src, dst = sys.argv[1:3]
+open(dst, "w", encoding="utf-8").write(open(src, encoding="utf-8").read().replace(" --t3-engine <engine>", ""))
+PYEOF
+block "$T/work/triage-noengine.md" t2 "$T/work/t2m.sh" && (cd "$T/proj-mut" && bash "$T/work/t2m.sh" >/dev/null 2>&1)
+block "$T/work/triage-noengine.md" reinvoke "$T/work/reinvokem.sh" \
+  && secm="$(cd "$T/proj-mut" && bash "$T/work/reinvokem.sh" 2>/dev/null)"
+pidm="$(jget "${secm:-null}" 'd.get("pre_eval_id", "")')"
+if [ -n "$pidm" ] && [ "$(record_t3 "$T/proj-mut" "$pidm")" = "none" ]; then
+  pass "planted: a re-invocation without --t3-engine writes no t3 block"
+else
+  fail "planted: the no-engine re-invocation did not show the missing block (${secm:-no output})"
+fi
+
 [ "$fails" = "0" ] || { echo "$fails failure(s)"; exit 1; }
 echo "all jev-core tests pass"
