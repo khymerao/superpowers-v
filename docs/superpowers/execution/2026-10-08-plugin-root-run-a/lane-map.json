@@ -1,8 +1,0 @@
-{
-  "agents": {},
-  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-plugin-root-run-a/manifest.yaml",
-  "run_id": "2026-10-08-plugin-root-run-a",
-  "worktrees": {
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_110e470e-ff3-2": "plugin-root"
-  }
-}

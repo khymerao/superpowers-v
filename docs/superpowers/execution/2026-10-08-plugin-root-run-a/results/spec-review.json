@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md",
+    "docs/superpowers/dogfood/2026-10-08-plugin-root-run-a-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "280b954a1965e3d342b69e937ec4a578486ad22a",
+    "diff_digest": "sha256:a734bef29e073aee7209025218ceb73b376772c69c87f81cce2ecff039d4a2a8",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"280b954a1965e3d342b69e937ec4a578486ad22a\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md\",\n    \"docs/superpowers/dogfood/2026-10-08-plugin-root-run-a-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-plugin-root-run-a-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "280b954a1965e3d342b69e937ec4a578486ad22a",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the spec, the ADR and AC-1..AC-4",
+  "tests": {
+    "command": "bash tests/test-plugin-root.sh\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 2
+  },
+  "violations": [],
+  "worktree": ""
+}

@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T10:20:00Z",
   "pre_eval_id": "2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd",
   "jobs": {
@@ -18,10 +18,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "280b954a1965e3d342b69e937ec4a578486ad22a",
+      "realised_commit": "280b954a1965e3d342b69e937ec4a578486ad22a",
+      "merged": {
+        "realised_commit": "280b954a1965e3d342b69e937ec4a578486ad22a",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "b79cd468f61fd7c500243600df214da725991036"
+      }
     }
   },
   "waves": {
@@ -34,6 +42,22 @@
       ],
       "commit": "0ee97655c1e2fb2adfc53e55d43ad2b43aeedbc6",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "b79cd468f61fd7c500243600df214da725991036",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd",
+    "run_id": "2026-10-08-plugin-root-run-a"
+  },
+  "merged_at": "2026-10-08T10:20:00Z"
 }
