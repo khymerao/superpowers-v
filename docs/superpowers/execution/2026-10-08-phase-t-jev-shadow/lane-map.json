@@ -1,8 +1,0 @@
-{
-  "agents": {},
-  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/manifest.yaml",
-  "run_id": "2026-10-08-phase-t-jev-shadow",
-  "worktrees": {
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_a9335b49-cad-2": "phase-t-shadow"
-  }
-}

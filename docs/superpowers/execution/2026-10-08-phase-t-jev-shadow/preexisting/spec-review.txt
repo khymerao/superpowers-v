@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/.run.lock
+e536a6053f40fcd2f304ca1f5a30e40a7fc93c18183391654bb6f2be5db1728a  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/lane-map.json
+f8be1bfa9163a53c08f18e7f49981c21e4c2cf17c2e7e8d38f1fb81a80879877  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/dispatch.workflow.js
+5c12c1cb2db8565439a6293328601e1f049d6c71840ad8bfda609aa7ffa00b18  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/phase-t-shadow.baseline
+d223613e5d1997469868565b6d4e12d4460d388102401d32e46ccbf8a3175f9c  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/phase-t-shadow.patch
+d5ef74b53343579981eb59086ebbcf52b6d80e597efa27588faa2e41842408ed  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/phase-t-shadow.prompt.md
+349efa18e819804cbfb8386b8e9e46d7c6ef5a3392faa9099bfb738b0d2e7ac8  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/phase-t-shadow.test-contract.json
+15b950bdc2b71f804d1bc0c90ac42a2d6c4542520fddba07a4e6d91636f4c9a1  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.baseline
+f1dd203dd449ac9cb40ec72841c82e3bff4c7ff978059671b6c179ddf7213a28  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.prompt.md
+e763f14cddc3b06c337d4303ffb34d2545e2a7454872af2503a439a518cbd9dd  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.test-contract.json
+2cd735fd3203af1046452299b8196c6aa771ed7fe5aae055229dbab51d7f4ea6  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/manifest.yaml
+3cf3a48b7140604f2ff7026ff7d061eeb6965c46af8dfe25a0ff7dcb1d69ca8c  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/preexisting/spec-review.txt
+ed81cc9da968568be68e2630c78e7f5d41023d40c1a6b0d020f7a6870c795938  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/receipts/phase-t-shadow.gate.json
+9babf9e5a06a5c7cecb09573fd7f62e20ccd5dbfe2429c262e8a0bece68d77c2  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/results/phase-t-shadow.json
+d63bc81946df204f999e4f4bfb030d7fc600eac3c3846b10c4e51d5a9aded531  docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/state.json
