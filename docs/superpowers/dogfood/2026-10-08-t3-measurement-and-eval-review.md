@@ -1,0 +1,247 @@
+# Review Gate — run 2026-10-08-t3-measurement-and-eval
+
+Reviewed: merged commit `c1c27bc` (job `measure-eval`, baseline `126a8ec`), tree at `f4b0839`. Reviewed against
+`docs/superpowers/specs/2026-10-08-t3-measurement-and-eval-design.md` with its Pre-flight amendments, which override the
+sections above them, and against the manifest's global constraints and AC-1..AC-4. Reviewer job `spec-review`,
+direct isolation. All revert checks ran in a scratch copy (`git archive HEAD`), never in this checkout.
+
+```
+VERDICT: ISSUES
+  PASS 1 SPEC:        clean (one item for the maintainer to confirm, not blocking)
+  PASS 2 QUALITY:     ISSUES (2 test gaps, 1 measurement-honesty defect)
+  PASS 3 INTEGRATION: clean (AC-1..AC-4 green on the merged tree)
+```
+
+## Recall
+
+- The prompt carried a V-memory block. Its rows are the 2026-10-05 handoff and the spec-1 plan. They give the
+  background (shadow-only today; spec 1.5 is gated on an eval with human labels) and claim nothing that this diff
+  contradicts.
+- `compound-v-memory.py recall-check --files scripts/compound-v-jev.py scripts/compound-v-classify-request.py
+  hooks/triage-prompt-nudge.sh hooks/jev-t3.tsx` returned
+  `recall-check: none (0/2 match ...)`, so no control was tightened.
+- Reviewer memory read first: `review-job-bash-clamp.md`. It was confirmed: rtk-rewritten `ls`/`cat`/`head` were denied
+  and `env git` passed. Every probe ran as `bash <script>` or `python3 <script>` from the scratchpad.
+- No directive was found in any memory file.
+
+## SPEC
+
+### Scope
+
+The gate receipt says `verdict: pass` with no violations. `files_changed` lists 9 paths, every one in `write_allowed`.
+`tests/fixtures/jev-t3-corpus.jsonl` was allowed and left untouched, which is right: `--merge-human` and
+`--label-claude` must not run in this job.
+
+### Spec coverage
+
+| Requirement (spec + amendments) | Implemented in | Status |
+|---|---|---|
+| `--output-format json`, prompt still first positional after `-p`, `--tools ""` last, no `--bare` | `scripts/compound-v-classify-request.py:483` (`build_claude_command`) | ✅ |
+| Trust rule: `type=="result"`, `subtype=="success"`, `is_error is False`, `result` is str; else `parse_category(raw)` and an all-null measure | `parse_claude_json`, `compound-v-classify-request.py` ~544-568 | ✅ (guard gap, see QUALITY 1) |
+| `wall_ms` around the whole process (`time.monotonic`) | `classify_via_claude` t0/`_ms_since` | ✅ |
+| Tokens from `usage` only, an absent field is `null` and never `0`; resolved model id from the `modelUsage` key | `parse_claude_json` | ✅ |
+| `total_cost_usd` never read into a stored or printed field | neither script reads it; the selftests plant `total_cost_usd`/`costUSD` and assert that `cost` is absent from the output | ✅ |
+| Codex route: `wall_ms` only, tokens `null` | `classify_headless` :722-730 | ✅ |
+| `_classify_headless` keeps two tab fields; the measure goes to a separate file via jq | `hooks/triage-prompt-nudge.sh` `_classify_headless`, `printf '%s\t%s'` unchanged | ✅ |
+| Descriptor gains one string key `claude_measure`; key-set tests updated, not deleted | `_write_t3_descriptor` jq `--arg measure`; `tests/test-native-points.sh` (eight keys) | ✅ |
+| Module validates the measure and passes `pair --claude-measure-json`; a bad measure still writes the pair | `hooks/jev-t3.tsx` `measureArg`, `runShadow` | ✅ |
+| `pair --claude-measure-json` optional, validated with a closed key set; refuses whole | `compound-v-jev.py:1634-1636`, `validate_measure` :798 | ✅ |
+| Phase T passes the measure and drops it on the Task route | `commands/v-triage.md` T2/T2b | ✅ |
+| No request text in a pair or results line | pair line keys `ts, request_file, claude_category, backend, t3_reason, claude_measure`; label line keys `ts, batch, id, run, backend, timed_out, category, measure` | ✅ |
+| Frozen protocol written before any call, refuses to overwrite; digest over `id`, `request`, `paths`, `hints` only; records both model ids | `eval_freeze` :957, `corpus_digest` :869, `models` block outside `frozen_digest` | ✅ |
+| `--prepare`/`--report` refuse a changed corpus or catalogue | `_check_protocol` :976 (`corpus_changed`, `catalogue_changed`, `protocol_edited`) | ✅ |
+| `--label-claude`: same `build_prompt` as the hook, 3 runs per row, majority with ties to the stricter label, results under `eval/` | `eval_label_claude` :1031; preeval uses `cm.build_prompt(request_text, resolved_paths, hints)` at `compound-v-preeval.py:898` | ✅ (but see QUALITY 3) |
+| `--merge-human` reads the sheet (codes `p m M u`), refuses an unknown code or a missing row | `eval_merge_human` :1084. Probe on the real sheet with a scratch corpus copy: `{"status": "ok", "rows": 80, "labelled": 0}` | ✅ |
+| 6 Jev calls per row (base ×3, three variants ×1), repeat index in the request id, cold/warm by position | `eval_prepare` :1129, `VARIANT_REPEATS` :755 | ✅ |
+| Report keyed by `(id, variant, repeat)` | `eval_report` :1296 | ✅ |
+| Agreement (Wilson) for Jev and Claude vs `human_label`; Jev vs Claude; inversions vs human only, rule of three at zero; self-consistency; flips by label; histogram and hard share; risk-coverage fitted and reported on fixed-seed halves; skippable share; latency (Jev cold/warm, budget share, non-ok, live shadow; Claude wall/api p50/p95, tokens) | `eval_report` :1303-1569 | ✅ |
+| "Not decidable" below 80 human labels; decision rule stated | `eval_report` :1548-1569 | ✅ |
+| Eval files under `eval/`, skipped by the prune | `prune` :338-345 (`EVAL_PREFIX` skip; `eval/` is never listed) | ✅ |
+| Hook stdout unchanged | the measure goes only to `$measuref`, and jq's stdout is redirected; `test-native-points.sh` is green | ✅ |
+| No live call; no version bump or CHANGELOG | none in the diff | ✅ |
+
+### Audit constraints
+
+The two audits listed in the manifest (archaeology and library) are folded into the Pre-flight amendments. Every
+amendment item 1-9 has a row in the table above. None is unmet.
+
+### Over-build
+
+There is none of substance. `--protocol` and `--pairs` are flags that keep the selftest hermetic, and `--pairs` existed
+before this change.
+
+### For the maintainer to confirm (not an ISSUE)
+
+`SKIPPABLE_SHARE_MIN = 0.25` (`compound-v-jev.py:89`) is pinned into the frozen protocol, and criterion (c) of the
+decision rule uses it. The spec says only "material". This is a decision threshold, not a measurement, so it is not a
+fabricated metric. But it is a number the spec never gave, and the verdict turns on it, so confirm it before the
+`--freeze` that is committed.
+
+## QUALITY
+
+### Revert / mutation checks (scratch copy, one mutation at a time, then restored)
+
+```
+C1 trust: is_error missing accepted          KILLED   FAIL - parse_claude_json: is_error missing is untrusted
+C2 trust: subtype check dropped              SURVIVED
+C3 trust: type check dropped                 SURVIVED
+C4 absent usage token -> 0                   KILLED   FAIL - an absent token or duration field is null, never 0
+C5 codex tokens 0 not null                   KILLED
+C6 total_cost_usd stored                     KILLED   FAIL - JSON result: no money field is read into the result
+C7 --output-format text back                 KILLED
+J1 digest covers labels                      KILLED   (by a FileNotFoundError crash, not the digest row itself)
+J2 prune enters eval- files                  KILLED   FAIL prune keeps a 31-day-old eval-* request and response file
+J3 base repeats 1                            KILLED   FAIL eval --prepare writes 6 requests per row
+J4 min human labels 0                        KILLED   FAIL report: not decidable below the pinned number of human labels
+J5 human falls back to claude/draft          KILLED
+J6 pair drops measure                        KILLED
+J7 measure accepts unknown keys              KILLED
+J8 report overwrites repeats                 KILLED
+J9 merge accepts unknown code                KILLED
+J10 merge accepts missing rows               KILLED
+J11 corpus_changed not detected              KILLED
+J12 no cold split                            KILLED
+J13 skippable ignores demotion               KILLED
+J14 request text in label line               KILLED   FAIL no request text and no money field in any results line
+J15 freeze overwrites                        KILLED
+J16 flips compare the wrong answer           SURVIVED
+H1 hook drops measure to descriptor          KILLED   FAIL JEV SHADOW: the descriptor has the eight contract keys
+H2 hook descriptor key dropped               KILLED
+H3 mod drops --claude-measure-json           KILLED   FAIL plugin test (rc=1)
+H4 mod forwards raw (unvalidated) measure    KILLED   FAIL plugin test (rc=1)
+```
+
+### Findings
+
+1. **TEST_GAP: two of the trust rule's four conjuncts are unguarded.** The global constraint says "Every change ships a
+   test row that fails when reverted". Dropping `obj.get("subtype") == "success"` (C2) or `obj.get("type") == "result"`
+   (C3) from `parse_claude_json` leaves `compound-v-classify-request.py --selftest` green. The only error-subtype fixture,
+   `json_error_subtype` (in the fake-claude script, ~line 1109), also deletes `result`, so the `result is str` conjunct
+   catches it before the subtype conjunct is ever tested. No fixture has `type != "result"`. Failure scenario: an
+   `error_*` subtype that still carries a string `result` (or a non-result object) would be trusted, its numbers stored as
+   a latency sample, and nothing would fail. Fix: one `parse_claude_json` row per conjunct, where only that field is
+   wrong (for example `subtype: "error_max_turns"` with `result: "plumbing"`, and `type: "assistant"` with everything
+   else valid).
+2. **TEST_GAP: order and wording flips are unguarded.** In `_eval_rows` (`compound-v-jev.py` ~2442-2449) every variant
+   answer equals its row's base label, so the asserted `| options reversed | 0/4 |` holds for a `flips()` that returns 0
+   or compares the wrong answer (J16 survived). Spec Eval §5 ("order flips and wording flips compared by label") and AC-2
+   ("the report's new sections on fixtures") have no row that fails. Fix: give at least one variant a different label
+   from the base in the fixture, and assert the non-zero k/n for that variant and for "either alternate wording".
+3. **QUALITY (measurement honesty): `--label-claude` and the report count failed and codex runs as Claude.**
+   `eval_label_claude` (:1055) sets `ran = backend in ("claude", "codex") and not timed_out`. Two consequences:
+   - A claude run that exited non-zero (`error=...`, category fail-closed `unknown`, `classify-request.py:637-647`) with
+     no codex fallback still casts an `unknown` vote. Because `unknown` is the strictest label, it lowers Claude's
+     agreement with the human label, and that is the comparison criterion (b) of the decision rule rests on.
+   - A codex fallback answer is counted as a Claude label, and its `wall_ms` passes the `trusted_runs` filter (:1417,
+     `wall_ms is not None`). It is then printed under "Claude wall_ms, label runs". The same happens for codex-backed
+     shadow pairs under "Claude wall_ms, live shadow pairs" (:1405-1410, :1540), although every pair line records its
+     `backend`.
+
+   The report labels these as Claude measurements, and some of them are not. Fix: count a vote only for
+   `exit_code == 0` with no `error`; keep codex runs out of the Claude latency and token lines (or report them
+   separately), filtering on the `backend` field that is already recorded. Add a selftest row for each.
+4. Note, not an ISSUE: J1 was killed by a crash (`FileNotFoundError`), not by the clean row "corpus digest ignores the
+   label fields" (:2306) failing. The guard exists; it is just not the first thing to trip.
+
+### Other quality checks
+
+- **Fabricated metrics:** none. The report prints only measured counts, Wilson intervals and percentiles of recorded
+  samples. The selftest asserts the anti-ruflo regex and the absence of `cost_usd`.
+- **Reward-hacking:** none. The pinned key-set rows (`test-native-points.sh`, `test-jev-core.sh`) were updated from
+  7 to 8 descriptor keys and to the new pair keys. They were not loosened or deleted, and the old `--output-format text`
+  assertion was inverted to `json`, which is the spec change.
+- **Regression:** none found. All suites are green (INTEGRATION).
+
+## INTEGRATION
+
+### Seams
+
+The measure keeps one closed shape through every hop:
+
+- `classify-request.py` `MEASURE_KEYS`
+- the hook (opaque jq `.measure`)
+- `types/index.d.ts` `JevT3ClaudeMeasure`
+- `jev-t3.tsx` `measureArg` (rebuilds `wall_ms`, `duration_ms`, `duration_api_ms`, `tokens{4}`, `model`)
+- `compound-v-jev.py` `validate_measure`
+
+All five agree on the key set and the model-id regex (`^[A-Za-z0-9._/:\[\]~-]{1,80}$`). Only one job ran, so there is
+no partition leak.
+
+### Tier obligation, derived
+
+`triage.tier: FULL`. Each changed path was matched against `impacted_map`:
+
+- `scripts/compound-v-*.py` matches the py rule.
+- `hooks/*` matches the hooks rule.
+- `commands/v-triage.md` matches `**/*.md`.
+- `tests/*.sh` matches `tests/**`.
+- `types/index.d.ts` matches **no** rule, so `full_command` was owed.
+
+The job result's `tests.command` lists the floor, lint, hooks, py and tests rules, and `full_command` as its sixth line.
+It records `tests.exit_code: 0`, `selected_count: 6` (commands) and `scope: full`. That evidence is confirmed by the
+re-run on the merged tree below.
+
+### AC runs on the merged tree (HEAD `f4b0839`)
+
+```
+=== AC-1 :: /usr/bin/python3 -B scripts/compound-v-classify-request.py --selftest
+SELFTEST PASSED
+--- exit=0
+=== AC-2 :: /usr/bin/python3 -B scripts/compound-v-jev.py --selftest
+selftest: 162 rows ok
+--- exit=0
+=== AC-3a :: bash tests/test-native-points.sh
+159 passed, 0 failed
+OK native-points decision tables green
+--- exit=0
+=== AC-3b :: bash tests/test-jev-core.sh
+all jev-core tests pass
+--- exit=0
+=== AC-3c :: bash tests/test-jev-t3-mod.sh
+tests/test-jev-t3-mod.sh: 14 passed, 0 failed
+--- exit=0
+=== AC-3d :: bash tests/test-hook-recursion-guard.sh
+tests/test-hook-recursion-guard.sh: 20 passed, 0 failed
+--- exit=0
+=== AC-4a :: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+✅ All frontmatter clean
+--- exit=0
+=== AC-4b :: shellcheck hooks/*.sh   (9 files)
+--- exit=0
+=== FLOOR :: bash -c '... classify-request --selftest && ... jev --selftest && echo floor-ok'
+floor-ok
+--- exit=0
+=== AC-4c-FULL :: bash -c 'for s in scripts/compound-v-*.py; ... --selftest ...; for t in tests/*.sh; ...; echo all-tests-ok'
+all-tests-ok
+--- exit=0
+=== git status --porcelain (after)
+ M .../2026-10-08-t3-measurement-and-eval/lane-map.json      (run bookkeeping)
+ M .../2026-10-08-t3-measurement-and-eval/state.json         (run bookkeeping)
+?? docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md   (this file)
+?? .../jobs/spec-review.baseline, .../jobs/spec-review.test-contract.json, .../preexisting/   (lane registration)
+```
+
+### Feature acceptance criteria
+
+| Criterion | Evidence | Status |
+|---|---|---|
+| AC-1 classify-request selftest covers the JSON parse, trust-rule fallbacks, null codex tokens | green; C1, C4-C7 killed; **C2/C3 survive** | ✅ runs green, but the guard is incomplete (QUALITY 1) |
+| AC-2 jev selftest covers pair ± measure, `--freeze` + refusal, `--merge-human`, `--prepare` (6/row, repeat), report sections, no request text | green; J1-J15 killed; **J16 (flips) survives** | ✅ runs green, but the flips guard is missing (QUALITY 2) |
+| AC-3 hook and Phase T pass the measure; hook stdout unchanged; hook tests and test-jev-core green with updated key sets | AC-3a-d green; H1-H4 killed; `commands/v-triage.md` T2b | ✅ |
+| AC-4 full suite, `lint-frontmatter.py .`, `shellcheck hooks/*.sh` green | AC-4a/b/c above | ✅ |
+
+## Verdict
+
+**ISSUES.** SPEC is clean and the build is green, but QUALITY has three open issues. Under Compound V policy the run is
+not DONE until they are fixed and re-reviewed.
+
+1. **TEST_GAP (PASS 2):** `parse_claude_json` trust rule. Removing the `subtype == "success"` or the `type == "result"`
+   conjunct leaves `compound-v-classify-request.py --selftest` green. Add one isolated row per conjunct.
+2. **TEST_GAP (PASS 2):** `eval_report` flips. The `_eval_rows` fixture has zero flips, so `flips()` is unguarded. Plant
+   a variant that differs from the base label and assert its non-zero k/n.
+3. **QUALITY (PASS 2):** `eval_label_claude` counts a non-zero-exit Claude run as an `unknown` vote and a codex answer
+   as a Claude label. `eval_report` prints codex `wall_ms` (label runs and shadow pairs) as "Claude wall_ms". Restrict
+   votes to runs that reported (`exit_code == 0`, no `error`), and split or exclude `backend == "codex"` from the Claude
+   latency and token lines. Add test rows for both.
+
+For the maintainer to confirm, not blocking: the `SKIPPABLE_SHARE_MIN = 0.25` threshold for decision criterion (c).
