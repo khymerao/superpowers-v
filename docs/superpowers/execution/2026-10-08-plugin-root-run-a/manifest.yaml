@@ -34,7 +34,7 @@ test_contract:
   - when: '*.md'
     run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-plugin-root.sh >/dev/null && echo md-ok'
   - when: hooks/session-banner.sh
-    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-plugin-root.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && echo hook-ok'
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-plugin-root.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-session-banner-staleness.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'
   - when: tests/test-plugin-root.sh
     run: bash -c 'shellcheck tests/test-plugin-root.sh && bash tests/test-plugin-root.sh'
 jobs:
