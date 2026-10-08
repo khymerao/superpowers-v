@@ -1,19 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T07:55:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T08:00:00Z",
   "pre_eval_id": "2026-10-08T055405Z-phase-t-in-v-triage-never-asks-jev-commands-v-triage-md-step-e332",
   "jobs": {
     "phase-t-shadow": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_a9335b49-cad-2",
+      "session_id": null,
+      "baseline": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+      "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+      "merged": {
+        "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "5af651087d2ca7c7e2273040407a300a4af895c1"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "phase-t-shadow"
+      ],
+      "merged": [
+        "phase-t-shadow"
+      ],
+      "commit": "5af651087d2ca7c7e2273040407a300a4af895c1",
+      "integrated": true
     }
   }
 }

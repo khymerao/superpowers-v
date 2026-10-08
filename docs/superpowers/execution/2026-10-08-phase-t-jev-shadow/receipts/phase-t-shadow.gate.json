@@ -1,0 +1,74 @@
+{
+  "baseline_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+  "diff_digest": "sha256:d223613e5d1997469868565b6d4e12d4460d388102401d32e46ccbf8a3175f9c",
+  "exit_code": 0,
+  "job_id": "phase-t-shadow",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/phase-t-shadow.patch",
+  "patch_paths": [
+    "commands/v-triage.md",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh",
+    "tests/test-native-points.sh"
+  ],
+  "patch_sha256": "sha256:d223613e5d1997469868565b6d4e12d4460d388102401d32e46ccbf8a3175f9c",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9\",\n  \"changed\": [\n    \"commands/v-triage.md\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"commands/v-triage.md\",\n    \"tests/test-native-points.sh\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-triage.md",
+      "hooks/triage-prompt-nudge.sh",
+      "scripts/compound-v-jev.py",
+      "tests/test-jev-core.sh",
+      "tests/test-native-points.sh"
+    ],
+    "checks": [
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo floor-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo cmd-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo jev-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo tests-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 5 command(s) from 5 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_a9335b49-cad-2"
+}
