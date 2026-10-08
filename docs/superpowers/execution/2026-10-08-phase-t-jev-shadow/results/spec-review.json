@@ -26,6 +26,21 @@
     "scope": "full",
     "selected_count": 2
   },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 209749,
+    "cache_read_input_tokens": 3226577,
+    "input_tokens": 66,
+    "measured": true,
+    "output_tokens": 7116,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a53694e7beb09fe4f.jsonl",
+      "agent-a5c54086f8ce43c6a.jsonl",
+      "agent-aa6b24cfff7c1f917.jsonl"
+    ]
+  },
   "violations": [],
   "worktree": ""
 }
