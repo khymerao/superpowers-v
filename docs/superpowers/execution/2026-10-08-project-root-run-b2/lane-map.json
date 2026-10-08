@@ -1,0 +1,8 @@
+{
+  "agents": {},
+  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-project-root-run-b2/manifest.yaml",
+  "run_id": "2026-10-08-project-root-run-b2",
+  "worktrees": {
+    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_0b5947eb-44d-2": "b2-fix"
+  }
+}

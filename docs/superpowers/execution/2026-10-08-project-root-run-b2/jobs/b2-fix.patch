@@ -1,0 +1,260 @@
+diff --git a/scripts/compound-v-integration-gate.py b/scripts/compound-v-integration-gate.py
+index 3bf6f8b..9c74d21 100755
+--- a/scripts/compound-v-integration-gate.py
++++ b/scripts/compound-v-integration-gate.py
+@@ -1397,7 +1397,9 @@ def build_parser():
+         "until every job resolves to a gate verdict this script derived or verified.",
+     )
+     p.add_argument("--run-dir", help="docs/superpowers/execution/<run-id>")
+-    p.add_argument("--repo-root", help="repo root (default: this script's repo)")
++    p.add_argument("--repo-root",
++                   help="project root (default: the git toplevel of the current "
++                        "directory; outside git without this flag: exit 2)")
+     p.add_argument("--manifest", help="manifest path (default: <run-dir>/manifest.yaml)")
+     p.add_argument("--scope-check", help="path to compound-v-scope-check.py")
+     p.add_argument("--jobs", help="comma-separated job ids to evaluate (default: all)")
+@@ -1411,6 +1413,19 @@ def build_parser():
+     return p
+ 
+ 
++def _project_config(here):
++    """The sibling ``compound-v-project-config.py``, loaded by explicit path (never by
++    name: ``_harden_sys_path`` has dropped this directory from ``sys.path``), for its
++    ``resolve_project_root`` — the one project-root rule, not a second copy of it."""
++    import importlib.util
++
++    path = os.path.join(here, "compound-v-project-config.py")
++    spec = importlib.util.spec_from_file_location("_cv_project_config", path)
++    mod = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(mod)
++    return mod
++
++
+ def main(argv):
+     args = build_parser().parse_args(argv[1:])
+     if not args.run_dir:
+@@ -1421,7 +1436,20 @@ def main(argv):
+         return 2
+ 
+     here = os.path.dirname(os.path.abspath(__file__))
+-    repo_root = os.path.abspath(args.repo_root or os.path.dirname(here))
++    if args.repo_root:
++        repo_root = os.path.abspath(args.repo_root)
++    else:
++        # The PROJECT root by the one shared rule (ADR 0005): the git toplevel of the
++        # current directory. Never this script's own location — that is the PLUGIN root,
++        # and an installed plugin would verify its own cache tree. Outside git: exit 2.
++        try:
++            repo_root = _project_config(here).resolve_project_root()
++        except (ValueError, OSError, ImportError) as exc:
++            print(
++                json.dumps({"integration": "error", "error": str(exc)}),
++                file=sys.stderr,
++            )
++            return 2
+     scope_check = os.path.abspath(
+         args.scope_check or os.path.join(here, "compound-v-scope-check.py")
+     )
+diff --git a/scripts/compound-v-update-memory.py b/scripts/compound-v-update-memory.py
+index 59c1e7f..8745587 100755
+--- a/scripts/compound-v-update-memory.py
++++ b/scripts/compound-v-update-memory.py
+@@ -36,6 +36,10 @@ Two input modes:
+        --run-id R --type T --backend B --model M --status S
+        [--blocked|--no-blocked] [--rework-rounds N]
+ 
++Where the line goes: --out FILE, else <project>/docs/superpowers/memory/
++task-outcomes.jsonl, the project being --repo DIR or the git toplevel of the
++current directory (ADR 0005). Outside git with neither flag it exits 1.
++
+ Python 3.9-safe, stdlib only. Exit 0 on a written line; exit 1 on a usage error.
+ """
+ 
+@@ -64,14 +68,24 @@ def _read_json(path: str) -> Optional[Any]:
+         return None
+ 
+ 
+-def _default_outcomes_path() -> str:
+-    """Default to <repo-root>/docs/superpowers/memory/task-outcomes.jsonl.
++def _default_outcomes_path(repo: Optional[str] = None) -> str:
++    """Default to <project-root>/docs/superpowers/memory/task-outcomes.jsonl.
+ 
+-    Repo root is two levels up from this script (scripts/ -> root).
++    The project root comes from the one shared rule, project-config's
++    ``resolve_project_root`` (ADR 0005): an explicit ``repo``, else the git toplevel
++    of the current directory. Never this script's own location — that is the PLUGIN
++    root. Outside git with no ``repo`` it raises ``ValueError`` naming the problem.
++    The sibling is loaded here, lazily, so ``compound-v-triage-outcomes.py`` (which
++    loads THIS file only for ``append_line``) never pays for a root it does not need.
+     """
++    import importlib.util
++
+     here = os.path.dirname(os.path.abspath(__file__))
+-    root = os.path.dirname(here)
+-    return os.path.join(root, OUTCOMES_RELPATH)
++    spec = importlib.util.spec_from_file_location(
++        "compound_v_project_config", os.path.join(here, "compound-v-project-config.py"))
++    pc = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(pc)
++    return os.path.join(pc.resolve_project_root(repo), OUTCOMES_RELPATH)
+ 
+ 
+ def build_line(args: argparse.Namespace) -> Dict[str, Any]:
+@@ -249,7 +263,10 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
+     p.add_argument("--model", required=True, help="opus | sonnet | gpt-5.5 | ...")
+     p.add_argument("--result", help="Path to the collector's results/<id>.json")
+     p.add_argument("--status", choices=STATUS_VALUES, help="Override/supply status")
+-    p.add_argument("--out", help="Override outcomes file path (default: repo memory dir)")
++    p.add_argument("--out", help="Override outcomes file path (default: the project's "
++                                 "docs/superpowers/memory/task-outcomes.jsonl)")
++    p.add_argument("--repo", help="Project root (default: the git toplevel of the "
++                                  "current directory; outside git, pass this or --out)")
+     p.add_argument("--rework-rounds", type=int, help="Fix/redispatch rounds (>=0, default 0)")
+     blk = p.add_mutually_exclusive_group()
+     blk.add_argument("--blocked", dest="blocked", action="store_true", default=None)
+@@ -272,8 +289,8 @@ def main(argv: List[str]) -> int:
+         sys.stderr.write("error: %s\n" % e)
+         return 1
+ 
+-    out_path = args.out or _default_outcomes_path()
+     try:
++        out_path = args.out or _default_outcomes_path(args.repo)
+         append_line(out_path, line_obj)
+     except (ValueError, OSError) as e:
+         sys.stderr.write("error: %s\n" % e)
+diff --git a/scripts/compound-v-validate-manifest.py b/scripts/compound-v-validate-manifest.py
+index b5709fa..49cb936 100755
+--- a/scripts/compound-v-validate-manifest.py
++++ b/scripts/compound-v-validate-manifest.py
+@@ -3373,9 +3373,6 @@ def main(argv):
+                   "--require-triage need a repository root (pass --repo-root DIR)"
+                   % path, file=sys.stderr)
+             return 2
+-        if repo_root is None:
+-            print("note: no git repository above %s and no --repo-root; checks that "
+-                  "need a repository root are skipped" % path, file=sys.stderr)
+     # Read the RAW bytes so the manifest_digest binding (CR5-6) content-addresses
+     # to exactly what the producer digested; decode for YAML parsing separately.
+     with open(path, "rb") as fh:
+@@ -3386,6 +3383,22 @@ def main(argv):
+         print(json.dumps({"verdict": "error", "error": "manifest is not UTF-8 "
+                           "(%s)" % e}), file=sys.stderr)
+         return 2
++    if repo_root is None:
++        # The note must be TRUE for the manifest in hand: a `fast_path` block is not
++        # skipped without a root, its validation fails closed (`_validate_fast_path`).
++        # The same presence test `validate` applies; an unparseable manifest gets no
++        # note (validate_text reports the parse error).
++        try:
++            _parsed = load_yaml(text)
++        except Exception:  # noqa: BLE001 - the parse error is reported below
++            _parsed = None
++        if isinstance(_parsed, dict) and _parsed.get("fast_path") is not None:
++            print("note: no git repository above %s and no --repo-root; this manifest "
++                  "has a fast_path block, whose validation needs a repository root and "
++                  "fails closed (pass --repo-root DIR)" % path, file=sys.stderr)
++        elif isinstance(_parsed, dict):
++            print("note: no git repository above %s and no --repo-root; checks that "
++                  "need a repository root are skipped" % path, file=sys.stderr)
+     try:
+         problems = validate_text(text, mode=mode, repo_root=repo_root,
+                                  config_path=config_path,
+diff --git a/tests/test-project-root.sh b/tests/test-project-root.sh
+index bb26b70..e0230a5 100755
+--- a/tests/test-project-root.sh
++++ b/tests/test-project-root.sh
+@@ -10,6 +10,9 @@
+ #   - validate-manifest's _find_repo_root returns None instead of the cwd, and its CLI
+ #     caller handles that explicitly
+ #   - precompact-snapshot and brainstorm-trigger0-nudge walk up to the nearest .git
++#   - (run B2) integration-gate and update-memory take the project root from
++#     resolve_project_root, not __file__; validate-manifest's no-root note is true for a
++#     fast_path manifest too
+ set -uo pipefail
+ REPO="$(cd "$(dirname "$0")/.." && pwd)"
+ PY=/usr/bin/python3
+@@ -151,5 +154,84 @@ PYF
+     "$(printf '%s' "$out" | grep -qF "FAKE_REPO=[$HP]" && echo 1 || echo 0)"
+ fi
+ 
++# --- 6. run B2: the last two __file__ project roots, and the no-root note --------------
++# Every row below runs the PLUGIN COPY ($TMP/plugin/scripts) from inside the fixture project,
++# so a root derived from the script's own location is $TMP/plugin -- never the project.
++REALPROJ="$(cd "$PROJ" && pwd -P)"
++NOGIT2="$TMP/nogit2"
++mkdir -p "$NOGIT2"
++
++# integration-gate: with no --repo-root the gate measures the PROJECT (the git toplevel of
++# the cwd). A direct-isolation job is gated at repo_root, so results[0].gate_root shows it.
++IG="$TMP/plugin/scripts/compound-v-integration-gate.py"
++IGRUN="$PROJ/docs/superpowers/execution/2026-01-01-ig"
++mkdir -p "$IGRUN"
++printf 'run_id: 2026-01-01-ig\njobs:\n- id: ig-a\n  isolation: direct\n  write_allowed:\n  - src/a.txt\n' \
++  >"$IGRUN/manifest.yaml"
++(cd "$PROJ/sub/deeper" && "$PY" -B "$IG" --run-dir "$IGRUN" --json >"$TMP/ig1.out" 2>"$TMP/ig1.err")
++got="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["results"][0]["gate_root"])' \
++  "$TMP/ig1.out" 2>/dev/null)"
++check "INTEGRATION-GATE: no --repo-root from a project subdirectory gates the project, not the plugin copy" \
++  "$([ "$got" = "$REALPROJ" ] && echo 1 || echo 0)"
++cp -R "$IGRUN" "$NOGIT2/run"
++(cd "$NOGIT2" && "$PY" -B "$IG" --run-dir "$NOGIT2/run" --json >/dev/null 2>"$TMP/ig2.err")
++rc=$?
++check "INTEGRATION-GATE: outside git with no --repo-root exits 2 with the gate's error JSON" \
++  "$([ "$rc" = 2 ] && grep -q '"integration": "error"' "$TMP/ig2.err" \
++     && grep -q 'not inside a git repository' "$TMP/ig2.err" && echo 1 || echo 0)"
++(cd "$NOGIT2" && "$PY" -B "$IG" --run-dir "$NOGIT2/run" --repo-root "$PROJ" --json >"$TMP/ig3.out" 2>/dev/null)
++got="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["results"][0]["gate_root"])' \
++  "$TMP/ig3.out" 2>/dev/null)"
++check "INTEGRATION-GATE: an explicit --repo-root is used as given (abspath, unchanged)" \
++  "$([ "$got" = "$PROJ" ] && echo 1 || echo 0)"
++rm -rf "$NOGIT2/run"
++
++# update-memory: the outcomes log is the PROJECT's, and outside git it refuses.
++UM="$TMP/plugin/scripts/compound-v-update-memory.py"
++OUTCOMES="$PROJ/docs/superpowers/memory/task-outcomes.jsonl"
++UMARGS="--type implement --backend claude --model opus --status success"
++# shellcheck disable=SC2086
++(cd "$PROJ/sub/deeper" && "$PY" -B "$UM" --run-id RUN-SUB $UMARGS >/dev/null 2>"$TMP/um1.err")
++rc=$?
++check "UPDATE-MEMORY: from a project subdirectory with no --out the line lands in <project>/docs/superpowers/memory/" \
++  "$([ "$rc" = 0 ] && grep -q 'RUN-SUB' "$OUTCOMES" 2>/dev/null && echo 1 || echo 0)"
++check "UPDATE-MEMORY: nothing is written beside the plugin copy" \
++  "$([ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
++# shellcheck disable=SC2086
++(cd "$NOGIT2" && "$PY" -B "$UM" --run-id RUN-NOGIT $UMARGS >/dev/null 2>"$TMP/um2.err")
++rc=$?
++check "UPDATE-MEMORY: outside git with no --repo and no --out fails closed and says why" \
++  "$([ "$rc" != 0 ] && grep -q 'not inside a git repository' "$TMP/um2.err" && echo 1 || echo 0)"
++check "UPDATE-MEMORY: ... and writes nothing (not in the cwd, not beside the copy)" \
++  "$([ -z "$(ls -A "$NOGIT2")" ] && [ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
++# shellcheck disable=SC2086
++(cd "$NOGIT2" && "$PY" -B "$UM" --run-id RUN-REPO --repo "$PROJ" $UMARGS >/dev/null 2>&1)
++rc=$?
++check "UPDATE-MEMORY: an explicit --repo wins from outside git" \
++  "$([ "$rc" = 0 ] && grep -q 'RUN-REPO' "$OUTCOMES" 2>/dev/null && echo 1 || echo 0)"
++# (triage-outcomes' sibling load of this file is exercised by the TRIAGE rows in section 2,
++# which write through update-memory's append_line from the plugin copy.)
++
++# validate-manifest: the no-root note is true for a fast_path manifest too.
++printf 'run_id: x\nfast_path:\n  eligible: true\njobs: []\n' >"$NOGIT2/manifest.yaml"
++(cd "$REPO" && "$PY" -B "$VM" "$NOGIT2/manifest.yaml" >/dev/null 2>"$TMP/vm3.err")
++check "VALIDATE: a fast_path manifest with no root does not claim root checks are skipped" \
++  "$(grep -q 'checks that need a repository root are skipped' "$TMP/vm3.err" && echo 0 || echo 1)"
++# (That the fast_path validation itself fails closed with no root is the in-process
++# "VALIDATE: fast-path validation with no root fails closed" row in section 4.)
++check "VALIDATE: ... it says instead that the fast_path validation fails closed without a root" \
++  "$(grep -q 'note: .*fast_path block, whose validation needs a repository root and fails closed' \
++       "$TMP/vm3.err" && echo 1 || echo 0)"
++rm -f "$NOGIT2/manifest.yaml"
++
++# AC-2 (run B's grep, per file): no project root derived from __file__ outside a selftest.
++AC2='dirname\(os\.path\.dirname\(os\.path\.abspath\(__file__|dirname\(here\)|dirname\(HERE\)|os\.pardir|, *"\.\."'
++awk '/^# selftest/ { exit } { print }' "$REPO/scripts/compound-v-integration-gate.py" >"$TMP/head-ig.py"
++awk '/^def _selftest|^# Selftest/ { exit } { print }' "$REPO/scripts/compound-v-update-memory.py" >"$TMP/head-um.py"
++check "AC-2: integration-gate derives no project root from __file__ outside its selftest" \
++  "$(grep -qE "$AC2" "$TMP/head-ig.py" && echo 0 || echo 1)"
++check "AC-2: update-memory derives no project root from __file__ outside its selftest" \
++  "$(grep -qE "$AC2" "$TMP/head-um.py" && echo 0 || echo 1)"
++
+ echo "test-project-root: $pass passed, $fail failed"
+ [ "$fail" = 0 ]

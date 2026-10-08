@@ -1,19 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T11:35:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T11:40:00Z",
   "pre_eval_id": "2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6",
   "jobs": {
     "b2-fix": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_0b5947eb-44d-2",
+      "session_id": null,
+      "baseline": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+      "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+      "merged": {
+        "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "eb7675fc0ec32098b22cd42fec97761018bb045b"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "b2-fix"
+      ],
+      "merged": [
+        "b2-fix"
+      ],
+      "commit": "eb7675fc0ec32098b22cd42fec97761018bb045b",
+      "integrated": true
     }
   }
 }
