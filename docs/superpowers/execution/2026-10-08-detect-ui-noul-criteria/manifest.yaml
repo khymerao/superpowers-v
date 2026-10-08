@@ -1,0 +1,66 @@
+run_id: 2026-10-08-detect-ui-noul-criteria
+feature: 'detect_ui sends its Noul criteria as the {true, false} object the System One API accepts'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-detect-ui-noul-criteria-design.md
+plan_path: docs/superpowers/plans/2026-10-08-detect-ui-noul-criteria.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-detect-ui-noul-criteria-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-detect-ui-noul-criteria-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T123420Z-the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu-7276
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T12:35:05Z'
+global_constraints:
+- 'Change only `NOUL_CRITERIA` (`scripts/compound-v-jev.py:111`) to an object with string keys `true` and `false`; the `false` text keeps the exclusions (build scripts, documentation tooling, tests, data files).'
+- 'Do not touch the Choice branch of `questions_for`, `_request_meta`, `_parse_answer` or the vault.'
+- 'Selftest row over `questions_for(catalogue_entry(p, v))` for every point and variant: a `noul` question''s `criteria` is absent or an object whose keys are a subset of `{"true", "false"}` with non-empty string values; it fails on the string form. No hand-typed catalogue hash.'
+- 'Python 3.9 stdlib only. No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 compound-v-jev.py --selftest passes; the new row fails with the string form restored.
+- AC-2 tests/test-jev-core.sh and the full suite pass.
+- AC-3 Live, after the cv-dev refresh, a detect_ui request in ~/jev_test returns status ok with a noul answer (orchestrator, post-merge).
+test_contract:
+  floor_command: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && echo floor-ok'
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-jev.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo jev-ok'
+jobs:
+- id: noul
+  title: Task A — Noul criteria as an object
+  type: implement
+  backend: claude
+  tier: deep
+  effort: medium
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-jev.py
+  read_allowed:
+  - '**'
+  acceptance:
+  - The shape row passes and fails on the string form; jev selftest, test-jev-core, test-native-points and test-jev-t3-mod green.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-detect-ui-noul-criteria.md (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-detect-ui-noul-criteria-design.md, its amendments, and both audits first. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec and AC-1..AC-3
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - noul
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-detect-ui-noul-criteria-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 30 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-detect-ui-noul-criteria-review.md with the section skeleton. Review against docs/superpowers/specs/2026-10-08-detect-ui-noul-criteria-design.md and its amendments. AC-3 is post-merge; mark it pending for the orchestrator. Revert checks only in a scratch copy. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/; keep memory frontmatter valid YAML. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

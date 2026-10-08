@@ -2,4 +2,5 @@
 - [Plugin dependency drift facts](drift-plugin-dependencies.md) - dated 2026-10-05 dependencies, userConfig prompt, /plugin configure
 - [System toolchain drift facts](drift-system-toolchain.md) - dated 2026-10-05 Python EOL, git is-ancestor, shellcheck
 - [Host detection drift facts](drift-host-detection.md) - dated 2026-10-08 EXECPATH/ENTRYPOINT undocumented, --version format
+- [Git gate and resolver drift facts](drift-git-gate-and-resolver.md) - dated 2026-10-08 check-ignore exit codes, show-toplevel in worktrees, parse locations
 - [Plugin root drift facts](drift-plugin-root.md) - dated 2026-10-08 inline CLAUDE_PLUGIN_ROOT substitution, cache override, version formats

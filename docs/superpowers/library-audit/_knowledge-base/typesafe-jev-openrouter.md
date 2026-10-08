@@ -25,3 +25,12 @@ Method: repository read only (Context7 absent; no network call about Jev). Sourc
 - Vault reason literals today: `unavailable` = auth, credits, rate_limited, upstream, timeout, disabled, no_key, egress, no_vault; `failed` (wire status `error`) = bad_input, schema. Parser tuples at `compound-v-jev.py:59-61` lack `no_key` (it degrades to `upstream`) until the review-fixes run lands.
 - `parse_response` routes by `http_status` first when it is a non-2xx integer; the vault's `reason` is ignored in that case (`compound-v-jev.py:537-539`). A contract test over reasons must omit `http_status`.
 - `prune` removes old non-directory entries by `lstat` mtime, which includes old symlinks (the link is unlinked, never its target). Spec wording says symlinks are never removed; mismatch recorded in the audit.
+
+## Updated 2026-10-08 - detect-ui-noul-criteria-design
+
+Method: WebFetch of docs.typesafe.ai/api.md only (Context7 needs OAuth; ToolSearch found nothing). Repo read of `scripts/compound-v-jev.py`.
+
+- Noul question (api.md, 2026-10-08): `type` and `instructions` required; `criteria` optional, an object with optional keys `true` ("What a yes (value near 1) means") and `false` ("What a no (value near 0) means"); each value accepts string, object or array. `instructions` also accepts string, object or array. This corrects the 2026-10-05 line above that listed `criteria` generically; Noul `criteria` is NOT a string and NOT an option map.
+- Choice `criteria` (same page): required `map<string, string|object|array|null>`, max 255 options. Unchanged.
+- Live evidence (spec, 2026-10-08, `~/jev_test`): Noul with string `criteria` -> HTTP 400 `bad_input`; three Choice `onboard_layer` calls on the same key -> `ok`. Object form not yet live-confirmed as of this entry.
+- Example response in docs shows `jev-1.13.0`; docs state no changelog, so currency of that version is unconfirmed.

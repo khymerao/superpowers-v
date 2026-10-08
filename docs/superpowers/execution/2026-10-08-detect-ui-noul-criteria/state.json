@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T12:55:00Z",
+  "pre_eval_id": "2026-10-08T123420Z-the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu-7276",
+  "jobs": {
+    "noul": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
