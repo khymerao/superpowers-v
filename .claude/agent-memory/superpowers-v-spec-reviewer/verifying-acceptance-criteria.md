@@ -56,3 +56,67 @@ At `triage.tier: FULL` with a declared, non-empty `impacted_map`, the derived de
 match each entry of the job's `files_changed` against the map yourself. `full_command` is owed only
 for a changed path matching **no** rule. Demanding it of a job whose every path matched is a review
 error. Run it at run level anyway for the integration pass.
+
+## Code quoted in a plan is still code under review
+
+From run `2026-10-05-jev-review-fixes`. Re-verify before relying on it.
+
+A plan can carry finished code that the implementer copies verbatim, and every gate then passes, because the tests
+check what the plan asked for, not how it runs. That run's content filter (`_CRED_ASSIGN_RE` in
+`scripts/compound-v-onboard.py`, used by `_ui_sample`) had an unbounded character-class star on both sides of a name
+alternation and went quadratic on a long run of that class inside the bounded read. The check: time any new
+content-filter regex on one line made only of its own character class, at the reader's cap (`UI_READ_CAP`), against
+the base version of the same function. Plan-supplied code gets the same quality pass as code the implementer wrote.
+
+## A spec amendment can contradict the AC beside it
+
+From run `2026-10-05-engine-c-refinalize-and-lane-guard`. Re-verify before relying on it.
+
+That spec's amendment required the recorded wave commit's own subject (`git log -1`) to be the wave subject, while
+AC-4 named a real wave whose recorded commit is a bookkeeping commit (the finalizer records HEAD when a re-finalize
+has nothing left to commit). The implementer widened the check to the commit's history. Before calling such a
+deviation unjustified, run the AC's live fixture against the amendment's literal rule; if the literal rule fails the
+AC, the finding is a spec amendment for the orchestrator, not a code change.
+
+## A "nothing happened" row does not guard the validation it names
+
+Same run. Row E asserted that no file was planted by a `--output=...` commit value and that the run went `BLOCKED`.
+With the SHA validation removed, git still rejected the value, so the row stayed green and the validation was
+unguarded. Mutate the validation out of a scratch clone and watch whether the row moves; a row about a side effect
+not happening usually passes for an unrelated reason too.
+
+## The clamped Bash surface and the rtk rewrite
+
+A hook rewrites bare `cat`, `ls`, `grep` and `git diff` invocations to `rtk ...`, which the per-spawn clamp then
+refuses. Use the Read and Glob tools for single files, and put everything else in a scratchpad script run with
+`bash <path>`.
+
+## Closed enums split across two jobs
+
+From run `2026-10-05-jev-classifier-foundation`. Re-verify before relying on it.
+
+When one job emits a status or reason literal and another job parses it against its own tuple, each side's tests
+pass alone and the seam still drifts. The vault plugin emitted `unavailable('no_key')`; the Python parser's
+`UNAVAILABLE_REASONS` had no `no_key` and silently rewrote it to `upstream`. Check every such seam by listing
+the literals on the producing side (`grep -o "unavailable('[a-z_]*')"` or the equivalent) and diffing them
+against the consumer's tuple, then feed one unknown value through the parser to see what it does with it.
+
+## Checking that a CLI masks a secret without printing it
+
+From run `2026-10-05-vault-optional-via-init`. Re-verify before relying on it.
+
+A "the step never prints the key" AC needs the real output shape of the command the step parses
+(`claude plugin configure <id> --json` here). Print the shape with every scalar replaced by its type, then test the
+one sensitive field with a boolean only (empty, or made only of mask characters). On 2.1.289 `inputs` carried the
+sensitive option masked; `configured` lists option names. Probe the installed id from `claude plugin list --json`:
+it may not be the `@procoders` id the docs name (on this machine it was `@cv-dev`).
+
+## A mutation anchored on a marker string can hit prose that quotes the marker
+
+From run `2026-10-08-v-init-vault-host-and-desktop`. Re-verify before relying on it.
+
+The test extracted a fenced block by its marker comment (`# cv-host-version` in `commands/v-init.md` step 1g), and
+step 1f's prose quoted that same marker. A scratch mutation that searched for the marker text alone landed in the 1f
+prose, mutated words instead of the block, and every row stayed green, which looked like an unguarded AC. Anchor a
+mutation on the fence plus the marker (```` ```bash\n# cv-host-version ````), assert exactly one match, and print the
+mutated region before trusting a green result.

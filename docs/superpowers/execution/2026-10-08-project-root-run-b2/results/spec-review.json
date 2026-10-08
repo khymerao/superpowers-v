@@ -1,0 +1,44 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "docs/superpowers/dogfood/2026-10-08-project-root-run-b2-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "0be448f803f113c9661fc7cd1b70b0e246074d77",
+    "diff_digest": "sha256:1e57bdeee8997bcb1b362e4b17ebb6b3b4abb28a9fe6f48be6b12a382d67d3ed",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"0be448f803f113c9661fc7cd1b70b0e246074d77\",\n  \"changed\": [\n    \"docs/superpowers/dogfood/2026-10-08-project-root-run-b2-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-project-root-run-b2-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "0be448f803f113c9661fc7cd1b70b0e246074d77",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the B2 spec and AC-1..AC-3",
+  "tests": {
+    "command": "bash tests/test-project-root.sh\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 195457,
+    "cache_read_input_tokens": 3848480,
+    "input_tokens": 82,
+    "measured": true,
+    "output_tokens": 14259,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a0b5e8563cf267e0d.jsonl",
+      "agent-a10dc5be5fce8e40d.jsonl",
+      "agent-adde13f0ee2144d2c.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": ""
+}

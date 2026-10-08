@@ -1,0 +1,87 @@
+run_id: 2026-10-05-vault-optional-via-init
+feature: 'compound-v-vault as an optional plugin: listed in the procoders marketplace and offered by /v:init, with correct key instructions'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-05-vault-optional-via-init-design.md
+plan_path: docs/superpowers/plans/2026-10-05-vault-optional-via-init.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-05-2026-10-05-vault-as-dependency-design.md
+  domain: docs/superpowers/expert/2026-10-05-2026-10-05-vault-as-dependency-design.md
+  library: docs/superpowers/library-audit/2026-10-05-2026-10-05-vault-as-dependency-design.md
+triage:
+  tier: SCOPED
+  flavor: scoped_plus
+  pre_eval_id: 2026-10-05T134203Z-offer-compound-v-vault-as-an-optional-plugin-instead-of-a-de-1491
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-05T13:42:03Z'
+global_constraints:
+- No `dependencies` field in superpowers-v's `.claude-plugin/plugin.json`.
+- The marketplace entry's `version` is byte-equal to the vault plugin.json `version` (`0.1.0`).
+- Never tell users to set the key in `/config`; the documented path is `/plugin configure compound-v-vault@procoders`.
+- '`/v:init` never reads, prints, requests or forwards the key value.'
+- No version bump, CHANGELOG or release.
+- 'Docs: plain words, every claim true of HEAD, no line over 200 characters outside code/tables.'
+- 'Lane discipline; `register-lane` first, with a literal `--cwd`. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 claude plugin validate . and claude plugin validate plugins/compound-v-vault pass, and tests/test-jev-t3-mod.sh stays green.
+- AC-2 The new test rows pass and fail when the marketplace entry is removed or its version changed.
+- AC-3 commands/v-init.md passes lint-frontmatter, and its new step never reads, prints, requests or forwards the key value.
+- AC-4 The manifest full test command passes.
+test_contract:
+  floor_command: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: .claude-plugin/marketplace.json
+    run: bash -c 'jq empty .claude-plugin/marketplace.json && bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mk-ok'
+  - when: tests/test-vault-mod.sh
+    run: bash tests/test-vault-mod.sh
+  - when: hooks/*.tsx
+    run: bash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'
+  - when: commands/*.md
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: '*.md'
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: plugins/compound-v-vault/**
+    run: bash tests/test-vault-mod.sh
+jobs:
+- id: vault-optional
+  title: Task A — optional vault, offered by /v:init
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - .claude-plugin/marketplace.json
+  - commands/v-init.md
+  - plugins/compound-v-vault/README.md
+  - README.md
+  - hooks/jev-t3.tsx
+  - tests/test-vault-mod.sh
+  read_allowed:
+  - '**'
+  acceptance:
+  - test-vault-mod.sh green with the lockstep and README rows, each failing when reverted; test-jev-t3-mod.sh and test-run-band-mod.sh green; both plugin validations pass; lint-frontmatter clean; the /v:init step prints only absent / key set state, never a value.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-05-vault-optional-via-init.md, every step in order. Read the spec docs/superpowers/specs/2026-10-05-vault-optional-via-init-design.md first, and treat the audits of the superseded dependency design as constraints. Read the real `claude plugin configure <id> --json` shape on this machine before writing the probe, and never print an option value. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - vault-optional
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md with the section skeleton. Review the job against docs/superpowers/specs/2026-10-05-vault-optional-via-init-design.md and the plan. Check in particular that the /v:init step cannot print or forward the key. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

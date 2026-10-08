@@ -1,0 +1,56 @@
+{
+  "baseline_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+  "diff_digest": "sha256:fb6810e78a6a8bb959ea2d1160906d70cac513a19e64bb56aec7ff069a6c37cb",
+  "exit_code": 0,
+  "job_id": "jev-core",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/jev-core.patch",
+  "patch_paths": [
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh"
+  ],
+  "patch_sha256": "sha256:fb6810e78a6a8bb959ea2d1160906d70cac513a19e64bb56aec7ff069a6c37cb",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4bd5c495ad217f8d6267815655a3e89afbb8c994\",\n  \"changed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "scripts/compound-v-jev.py",
+      "tests/test-jev-core.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo jev-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-jev-core.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-4"
+}

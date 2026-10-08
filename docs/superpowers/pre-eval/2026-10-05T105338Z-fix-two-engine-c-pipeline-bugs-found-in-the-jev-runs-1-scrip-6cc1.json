@@ -1,0 +1,46 @@
+{
+  "base_commit": "b0d410a12ec04c082dcfdddac29e778aace2a837",
+  "confidence": "localization:exact; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "hooks/lane-guard.sh",
+    "scripts/compound-v-emit-workflow.py",
+    "tests/test-lane-guard.sh"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:76b2535f31706f5801e67ae4cf8a2fc853258d80f89e40000e428ba14bfdb314",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 3,
+    "flags": [
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "hooks/lane-guard.sh",
+      "scripts/compound-v-emit-workflow.py",
+      "tests/test-lane-guard.sh"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
+  "request_slug": "fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip",
+  "session_id": "5a013ec0-f1a9-4ffb-a264-0b0201a3e56b",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-05T10:53:38Z"
+}

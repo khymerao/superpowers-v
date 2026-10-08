@@ -1,0 +1,52 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-triage.md",
+    "hooks/jev-t3.test.tsx",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-classify-request.py",
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh",
+    "tests/test-native-points.sh",
+    "types/index.d.ts"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "126a8ec35f1c96f6b4978d4bdd1b2aca5048c4c1",
+    "diff_digest": "sha256:150c5df956c8457d73cf7158a17254e2c3c5b80f95d5b99d885c74c1865a3e28",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"126a8ec35f1c96f6b4978d4bdd1b2aca5048c4c1\",\n  \"changed\": [\n    \"commands/v-triage.md\",\n    \"hooks/jev-t3.test.tsx\",\n    \"hooks/jev-t3.tsx\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"scripts/compound-v-classify-request.py\",\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\",\n    \"tests/test-native-points.sh\",\n    \"types/index.d.ts\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-classify-request.py\",\n    \"scripts/compound-v-jev.py\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"hooks/jev-t3.tsx\",\n    \"hooks/jev-t3.test.tsx\",\n    \"types/index.d.ts\",\n    \"commands/v-triage.md\",\n    \"tests/test-native-points.sh\",\n    \"tests/test-jev-core.sh\",\n    \"tests/fixtures/jev-t3-corpus.jsonl\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "126a8ec35f1c96f6b4978d4bdd1b2aca5048c4c1",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 Claude classify measure in shadow pairs; frozen human-labelled T3 eval",
+  "tests": {
+    "command": "bash -c '/usr/bin/python3 -B scripts/compound-v-classify-request.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && echo floor-ok'\n/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hooks-ok'\nbash -c 'for s in classify-request jev preeval; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo py-ok'\nbash -c 'bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo tests-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 6
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 404401,
+    "cache_read_input_tokens": 13347413,
+    "input_tokens": 134,
+    "measured": true,
+    "output_tokens": 18186,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a7317d58f7c14c4eb.jsonl",
+      "agent-a766dc696e076c82d.jsonl",
+      "agent-aa55326d15d9bd003.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_6d5bc606-830-2"
+}

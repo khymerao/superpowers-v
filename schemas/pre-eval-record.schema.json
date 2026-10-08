@@ -184,6 +184,39 @@
       "enum": ["unbanded", "demotion", "sensitive"],
       "description": "OPTIONAL (v3.4.1). WHY the light classify was consulted: `unbanded` (T1 could not band the path at all — the pre-3.4.1 case), `demotion` (T1 banded it, but only from a broad directory glob, §A2), or `sensitive` (a small edit on a sensitive path that may reach SCOPED+, §A3). The re-entry is identical in all three cases, so nothing branches on this — it exists so a log or an audit can tell a classify that RESCUED a change from a broad glob apart from one that merely filled a gap."
     },
+    "t3": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["engine", "category"],
+      "description": "OPTIONAL (Jev classifier foundation, spec 1). WHICH engine answered the T3 question, and what it said. Written only when the caller supplied it AND T3 was actually consulted (`T3` in `tiers_signalled`); a record on which T3 was never asked has no `t3` key at all. IT IS EVIDENCE, NEVER A GATE: `decision` is derived from the T3 category passed to the engine, never from this block, and a reader that wants the tier reads `decision`. It is covered by `digest` like every other field, because `build_record` adds it before the digest is computed.",
+      "properties": {
+        "engine": {
+          "type": "string",
+          "enum": ["jev", "claude", "codex", "parent"],
+          "description": "The engine whose answer decided T3: the Claude or Codex classifier, or the parent session. `jev` is reserved: in spec 1 Jev runs only in shadow and never decides, so the triage CLI does not offer it."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["plumbing", "user-facing-minor", "user-facing-major", "unknown"],
+          "description": "The T3 enum the deciding engine answered — the same value the engine scored with."
+        },
+        "probs": {
+          "type": "object",
+          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 },
+          "description": "OPTIONAL. The engine's probability per category label, when it reports one. Keyed by label, because the order an engine returns them in is not stable."
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "OPTIONAL. The model id the engine's response named, as returned (a resolved id, not an alias)."
+        },
+        "catalogue_hash": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "OPTIONAL. The content hash of the question catalogue the request was built from."
+        }
+      }
+    },
     "session_id": {
       "type": ["string", "null"],
       "minLength": 1,

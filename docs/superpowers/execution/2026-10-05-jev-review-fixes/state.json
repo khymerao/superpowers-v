@@ -1,0 +1,79 @@
+{
+  "phase": "MERGED",
+  "updated_at": "2026-10-05T10:05:00Z",
+  "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
+  "jobs": {
+    "ui-sample": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-2",
+      "session_id": null,
+      "baseline": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "merged": {
+        "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3"
+      }
+    },
+    "jev-reasons-prune": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-3",
+      "session_id": null,
+      "baseline": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+      "merged": {
+        "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3"
+      }
+    },
+    "spec-review": {
+      "status": "done",
+      "isolation": "direct",
+      "worktree": "",
+      "session_id": null,
+      "baseline": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+      "realised_commit": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+      "merged": {
+        "realised_commit": "58ab998de716d0d85f2a1e60a3661dd2f966c573",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "7da34bd38a1fa131c85ca36b82d9519e186060b0"
+      }
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "ui-sample",
+        "jev-reasons-prune"
+      ],
+      "merged": [
+        "ui-sample",
+        "jev-reasons-prune"
+      ],
+      "commit": "50f540b044d298df85ea9c905cbf5a3d0798aea3",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "7da34bd38a1fa131c85ca36b82d9519e186060b0",
+      "integrated": true
+    }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-05T094210Z-close-the-three-issues-from-docs-superpowers-dogfood-2026-10-d9a4",
+    "run_id": "2026-10-05-jev-review-fixes"
+  },
+  "merged_at": "2026-10-05T10:05:00Z"
+}

@@ -18,13 +18,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
 repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## You are not the only producer any more (v3.4)
 
@@ -133,8 +137,9 @@ prose: the scoring, the binding, the declared-path vocabulary and the six predic
 implementation, it is covered by `compound-v-preeval.py --selftest`, and a second producer is one
 line rather than a copy.
 
-Add `--t3-category <plumbing|user-facing-minor|user-facing-major|unknown>` on the re-invocation
-after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default taxonomy.
+After a `needs_t3` result the re-invocation adds `--t3-category` and `--t3-engine` (see the
+`needs_t3` bullet below for both values). Add `--taxonomy PATH` only to point at a non-default
+taxonomy.
 
 **Two results are not a tier, and each has one right response:**
 
@@ -146,18 +151,29 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default 
   fingerprint) rather than minting a second. Any error, timeout, or non-enum reply is `unknown`,
   which is FULL.
 
-  **The headless one-shot is the default route** (v3.4.1, finding 50). Write the returned
-  `t3_prompt` to a file and run:
+  **Keep `t3_reason` from this first result** (`unbanded`, `demotion` or `sensitive`; `unbanded`
+  when the field is absent). The re-invocation's output does not carry it, and the Jev step (T2b)
+  needs it. Never invent one.
+
+  **Write the returned `t3_prompt` to a temp file first**, with
+  `PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/cv-t3-prompt.XXXXXX")"`, whichever route answers. It
+  holds the request text: keep it only until T2b ends, then `rm -f` it.
+
+  **The headless one-shot is the default route** (v3.4.1, finding 50). Run it on that file:
 
   ```bash
   python3 "$CV/scripts/compound-v-classify-request.py" --classify-headless \
     --prompt-file "$PROMPT_FILE" --cwd . --timeout 15
   ```
 
-  It prints `{"category", "backend", "timed_out", "exit_code", "model"}`: one nested
-  `claude -p --tools ""` on the resolved `claude`/`light` model (never Haiku), falling back to the
-  read-only `codex` route, both under `compound-v-run-with-timeout.py` with stdin closed. Pass the
-  `category` straight back as `--t3-category`. Prefer it because it is the same route
+  It prints `{"category", "backend", "timed_out", "exit_code", "model", "measure"}`: one nested
+  `claude -p --output-format json --tools ""` on the resolved `claude`/`light` model (never Haiku),
+  falling back to the read-only `codex` route, both under `compound-v-run-with-timeout.py` with
+  stdin closed. Pass the `category` straight back as `--t3-category`. **Keep `measure`** for the
+  Jev step (T2b), as the compact JSON object it is: `wall_ms` (the whole process), `duration_ms`,
+  `duration_api_ms`, the four `tokens` counts and the resolved `model` id. Fields that were not
+  measured are `null`, never `0`; a codex answer carries `wall_ms` only. It holds no money figure
+  and no request text. Prefer it because it is the same route
   `hooks/triage-prompt-nudge.sh` takes, so an attended `/v:triage` and the hook that fires without
   anyone asking reach the same answer by the same path.
 
@@ -174,6 +190,78 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default 
   ```bash
   python3 "$CV/scripts/compound-v-classify-request.py" --parse --reply '<the Task reply>'
   ```
+
+  **The re-invocation** names the category and who answered it, so the record carries a `t3`
+  block (`engine`, `category`). Run it from the repo root with the same request text:
+
+  ```bash
+  V_TRIAGE_REQUEST='<the request text>' python3 "$CV/scripts/compound-v-preeval.py" triage \
+    --request-env V_TRIAGE_REQUEST --repo . \
+    --session-id "${CLAUDE_CODE_SESSION_ID:-}" --base-commit "$(git rev-parse HEAD)" --json \
+    --t3-category <category> --t3-engine <engine>
+  ```
+
+  `<category>` is the enum the classify answered. `<engine>` is the `backend` the headless
+  classify printed (`claude` or `codex`), or `parent` when the Task route answered. A
+  `backend: "none"` or `timed_out: true` result is still not an answer: it never reaches
+  `--t3-category` or `--t3-engine`, and the Task route answers instead (engine `parent`). The engine
+  is evidence only: it never changes the tier.
+
+  **If the re-invocation is refused** with `triage failed: ... already exists with DIFFERENT
+  content`, a record for this request already exists without this `t3` block. Do not edit that
+  record. Re-run the same command without `--t3-engine`, say in the report that the record keeps no
+  `t3` block, and skip T2b.
+
+### T2b. Ask Jev the same question, in shadow
+
+Run this step only when T3 decided the tier: T2 returned `needs_t3: true` and the re-invocation with
+`--t3-engine` wrote the record. Skip it in every other case. It is a shadow: it never changes the
+record, the tier or the next step, and **it never skips T3** — whatever happens here, including a
+failure of any command below, go on to commit the record. Use the same `--repo .` for every command,
+from the repo root. Never print or `cat` the response file, and never print a key.
+
+1. **Find the tool.** `mcp__compound-v-vault__jev_classify` is a deferred tool: load it with
+   ToolSearch (`select:mcp__compound-v-vault__jev_classify`) before you treat it as absent. Absent
+   means the vault is not installed or is disabled here; the step ends.
+2. **Build the request** with the same request text and the prompt file from T2:
+
+   ```bash
+   V_TRIAGE_REQUEST='<the request text>' python3 "$CV/scripts/compound-v-jev.py" t3-request \
+     --repo . --request-env V_TRIAGE_REQUEST --prompt-file "$PROMPT_FILE" --context offline
+   ```
+
+   It prints `{"status": "ok", "request_file": ...}`. Any other status ends the step: `off` means
+   the committed config has Jev disabled or `jev.t3.mode: off`, and nothing was written.
+3. **Call `jev_classify`** with `{"request_file": "<request_file>"}`. It returns the response file's
+   path, or a string such as `refused: disabled`. A result that is not an absolute path to an
+   existing file ends the step.
+4. **Parse the answer** (it writes one metadata-only `calls.jsonl` line, whatever the status):
+
+   ```bash
+   python3 "$CV/scripts/compound-v-jev.py" parse --mode shadow --request-file "<request_file>" \
+     --response-file "<response_file>" --repo .
+   ```
+
+5. **Keep the pair, or drop the request.** When `parse` printed `"status": "unavailable"` with
+   `"reason"` `no_key`, `egress` or `disabled`, Jev is not switched on for this user (no key, or no
+   egress consent for this repository): delete the request file with `rm -f "<request_file>"` and
+   write no pair. Every other status (`ok`, `timeout`, `upstream`, `auth`, ...) is paired:
+
+   ```bash
+   python3 "$CV/scripts/compound-v-jev.py" pair --request-file "<request_file>" \
+     --claude-category <category> --backend <engine> --t3-reason <t3_reason> --repo . \
+     --claude-measure-json '<measure_json>'
+   ```
+
+   `<category>` and `<engine>` are the values the re-invocation passed; `<t3_reason>` is the value
+   kept from the first `needs_t3` result; `<measure_json>` is the headless classify's `measure`,
+   as compact JSON. **On the Task route (engine `parent`) there is no measure: drop the
+   `--claude-measure-json` line** rather than inventing one. `pair` refuses a malformed measure
+   with `bad_input`; if it does, run it again without that line, so the pair is kept.
+
+However the step ends, and also when it is skipped, `rm -f "$PROMPT_FILE"`. Report the step in
+**one line**: what Jev answered (from `parse`'s `status` and `answers`) or why the step ended, and
+whether a pair was written. Then T3.
 
 **On the session id.** `CLAUDE_CODE_SESSION_ID` is the harness session id as a Bash call in this
 session sees it, and it is what the record binds. **If it is empty, say so and continue** — the

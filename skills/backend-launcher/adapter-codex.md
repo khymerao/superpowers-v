@@ -6,16 +6,22 @@ The worker script ships with the plugin, not with the caller's repository. Resol
 once per session before invoking it:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
-installed plugin cache or a checkout of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 The Codex backend is a **Bash-spawned `codex exec` worker** — its own process, its own git worktree. It is never an `agents/` entry and never the experimental `openai-codex` `app-server` broker (that broker is single-flight and returns "busy" mid-turn, so it cannot fan out). The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
 
-Verified live against **codex-cli 0.144.1** on stock macOS (bash 3.2.57, git 2.50.1) — refreshed 2026-07-10 (was 0.130.0). All facts below are pinned — do not re-derive them per run; re-probe only in `/v:init`.
+Verified live against **codex-cli 0.144.1** on stock macOS (bash 3.2.57, git 2.50.1) — refreshed 2026-07-10 (was 0.130.0); **re-verified 2026-09-24 on codex-cli 0.156.1** with `gpt-6-sol`/`gpt-6-luna`, and **2026-09-30 on 0.159.1** with `gpt-6.1-sol`/`gpt-6-astra`, at `model_reasoning_effort=xhigh` (rc 0, `thread.started` event present, `--output-last-message` written). All facts below are pinned — do not re-derive them per run; re-probe only in `/v:init`.
 
 ---
 
@@ -52,7 +58,7 @@ The worker prompt is passed to the script via `--prompt-file <abs-path>` (a file
 
 ---
 
-## Pinned `codex exec` flag set (codex-cli 0.144.1)
+## Pinned `codex exec` flag set (codex-cli 0.144.1, re-verified 0.156.1)
 
 The script uses **exactly** this set — verified present in `codex exec --help`:
 
@@ -70,7 +76,7 @@ python3 "$SUPERVISOR" --timeout "$timeout_sec" -- codex exec \
   "$prompt" </dev/null   # codex stdout (the JSONL stream) → --events-log
 ```
 
-`--json` is added to **both** invocations in the script (the `--output-schema` path and the plain path — the mirror hazard; they must stay identical). It turns codex's stdout into a JSONL event stream whose **first** line is `{"type":"thread.started","thread_id":"<uuid>"}` (live-probed, codex-cli 0.144.1). The worker redirects that stdout to the **events-log** (`--events-log <path>`, default `$ART/codex_events.jsonl`; the dispatcher passes `docs/superpowers/execution/<run-id>/logs/<job-id>.jsonl`) and parses the first `thread.started` event for `thread_id` → `session_id`. `--json` and `--output-last-message` **coexist** — the last-message file is still written verbatim, so the `summary` extraction path is unchanged.
+`--json` is added to **both** invocations in the script (the `--output-schema` path and the plain path — the mirror hazard; they must stay identical). It turns codex's stdout into a JSONL event stream whose **first** line is `{"type":"thread.started","thread_id":"<uuid>"}` (live-probed, codex-cli 0.144.1; re-verified 0.156.1). The worker redirects that stdout to the **events-log** (`--events-log <path>`, default `$ART/codex_events.jsonl`; the dispatcher passes `docs/superpowers/execution/<run-id>/logs/<job-id>.jsonl`) and parses the first `thread.started` event for `thread_id` → `session_id`. `--json` and `--output-last-message` **coexist** — the last-message file is still written verbatim, so the `summary` extraction path is unchanged.
 
 **Stream + scratch handling — verified live, all load-bearing (caught by the v1.0 smoke + e2e tests):**
 - **stdin → `/dev/null`.** The prompt is positional, but `codex exec` still reads stdin when it is not a TTY and will hang on `Reading additional input from stdin...` in a non-interactive / background run. `</dev/null` makes stdin an immediate EOF so only the positional prompt is used.
@@ -83,7 +89,7 @@ python3 "$SUPERVISOR" --timeout "$timeout_sec" -- codex exec \
 | `--sandbox workspace-write` \| `read-only` | OS-level write boundary; `read-only` for read-only jobs |
 | `--skip-git-repo-check` | the worktree is a linked checkout; suppress the repo-root check |
 | `--json` | stdout becomes a JSONL event stream; first line `{"type":"thread.started","thread_id":"<uuid>"}` → the resume id. Added to **both** invocations (mirror hazard). Coexists with `--output-last-message` |
-| `--model "$model"` | execution-layer model (e.g. `gpt-5.6-sol`) — **resolved** from `(backend=codex, tier, effort)` before dispatch; never appears in any frontmatter |
+| `--model "$model"` | execution-layer model (e.g. `gpt-6.1-sol`) — **resolved** from `(backend=codex, tier, effort)` before dispatch; never appears in any frontmatter |
 | `-c model_reasoning_effort=<effort>` | optional; codex's reasoning-effort dimension, set from the job's `effort` hint (`low` \| `medium` \| `high` \| `xhigh` — `xhigh` is codex-only) — see below |
 | `--output-schema "$file"` | optional; strict JSON Schema for the model's final message (drives only `summary`) |
 | `--output-last-message "$file"` | where the agent's last message is written → feeds the human `summary` |
@@ -98,11 +104,13 @@ This is the defect the dogfood pre-flight caught in the PRD's original draft. `-
 
 ### Model + effort: resolved before dispatch, not hardcoded
 
-The dispatcher never hands this adapter a hardcoded model string. It hands a routing **intent** — `tier` (`deep` \| `standard` \| `light`) plus an optional orthogonal `effort` (`low` \| `medium` \| `high` \| `xhigh`, the last codex-only — see below) — and resolves the concrete model **before** dispatch via [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) with `--backend codex --tier <tier> [--effort <effort>] [--config .claude/compound-v.json]`. The resolver reads the config `models.codex.<tier>` map (e.g. `deep` → `gpt-5.6-sol`, `standard` → `gpt-5.6-terra`, `light` → `gpt-5.6-luna` — the GPT-5.6 family, refreshed 2026-07-10) and yields the concrete `--model` value; an explicit manifest `model` override skips resolution and wins. **`gpt-5.6-sol` requires codex-cli >= 0.143.0** — an older client fails loud with a clear 400 `"requires a newer version of Codex"` (not silently; the failure-policy retries once then halts cleanly), so a stale local install surfaces as an actionable error, not a routing misfire. `gpt-5.6-terra`/`gpt-5.6-luna` work on older clients too (verified back to 0.142.5). Codex has **no list command**, so its map is curated + user-overridable (refresh via `/v:models`). The plugin survives model churn because the call sites pass `tier`, never a literal model string.
+The dispatcher never hands this adapter a hardcoded model string. It hands a routing **intent** — `tier` (`frontier` \| `deep` \| `standard` \| `light`) plus an optional orthogonal `effort` (`low` \| `medium` \| `high` \| `xhigh`, the last codex-only — see below) — and resolves the concrete model **before** dispatch via [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) with `--backend codex --tier <tier> [--effort <effort>] [--config .claude/compound-v.json]`. The resolver reads the config `models.codex.<tier>` map — as of 2026-09-24 the default is `frontier` → `gpt-6-astra`, `deep` → `gpt-6.1-sol`, `standard` → `gpt-6.1-sol`, `light` → `gpt-6-luna` (the GPT-6 family, which arrived in Codex 2026-09-22/23 on codex-cli 0.156.0/0.156.1; `deep` and `standard` share the same model and differ only by `effort`, the orthogonal axis) — and yields the concrete `--model` value; an explicit manifest `model` override skips resolution and wins. (History: the map was GPT-5.6 `sol`/`sol`/`terra`/`luna` from 2026-07-10 through 2026-09-23; `gpt-5.6-sol` required codex-cli >= 0.143.0, an older client failing loud with a clear 400 `"requires a newer version of Codex"`. The GPT-5.6 trio is still in the catalog, described as "Older …"; `gpt-5.5` retires 2026-10-14, upgrading to `gpt-5.6-sol`.) Codex now **has** a model-list command: `codex debug models` renders the full catalog as JSON (`slug`, `display_name`, `description`, `visibility`, `priority`, `upgrade.retirement_at`, `supported_reasoning_levels`, `default_reasoning_level`, `context_window`) — so `/v:models` §1b discovers it live via [`scripts/compound-v-discover-models.py`](../../scripts/compound-v-discover-models.py) `--backend codex` instead of maintaining a hand-curated roster (see [`v-models.md`](../../commands/v-models.md)). The plugin survives model churn because the call sites pass `tier`, never a literal model string.
 
 **`--effort` → `-c model_reasoning_effort=<effort>` (codex's effort dimension).** `effort` is orthogonal to `tier`: `tier` picks *which* model, `effort` tunes *how hard it reasons*. The worker script ([`scripts/compound-v-run-codex-worker.sh`](../../scripts/compound-v-run-codex-worker.sh)) takes an optional `--effort low|medium|high|xhigh`. When set, it appends `-c model_reasoning_effort=<effort>` to **both** `codex exec` invocations (the `--output-schema` path and the plain path), word-split safely under bash 3.2. When omitted, the flag vanishes and codex uses the model's default reasoning effort. The dispatcher passes `--effort` to the worker only when the job carries an `effort` value; it is validated against `low|medium|high|xhigh` and the run aborts (usage fault) on any other value. This is the codex-specific surfacing of the effort dimension that the generic resolver/manifest expose backend-agnostically — the claude adapter, by contrast, treats per-call effort as advisory because the `Task` path has no separate effort flag.
 
-**`xhigh` — codex's top effort rung, codex-only.** `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead). It maps to `-c model_reasoning_effort=xhigh`, **live-verified 2026-07-11 on codex-cli 0.144.1** (`codex exec --model gpt-5.6-sol -c model_reasoning_effort=xhigh` → exit 0, normal completion). The rejection is enforced at every layer: [`compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) errors on any non-codex backend + `xhigh`, and [`compound-v-validate-manifest.py`](../../scripts/compound-v-validate-manifest.py) rejects a manifest job pairing `effort: xhigh` with any backend other than `codex`.
+**`xhigh` — codex's top *adopted* effort rung, codex-only.** `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead). It maps to `-c model_reasoning_effort=xhigh`, **live-verified 2026-07-11 on codex-cli 0.144.1** (`codex exec --model gpt-5.6-sol -c model_reasoning_effort=xhigh` → exit 0, normal completion), **re-verified 2026-09-24 on codex-cli 0.156.1** with `gpt-6-sol` and `gpt-6-luna` (rc 0, `thread.started` event present, `--output-last-message` written). The rejection is enforced at every layer: [`compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) errors on any non-codex backend + `xhigh`, and [`compound-v-validate-manifest.py`](../../scripts/compound-v-validate-manifest.py) rejects a manifest job pairing `effort: xhigh` with any backend other than `codex`.
+
+**Not adopted: `max`, `ultra`.** GPT-6's `astra`/`sol` also expose an `ultra` reasoning level above `xhigh` ("Maximum reasoning with automatic task delegation"), and all three GPT-6 models expose `max`. Compound V adopts neither. `max` is simply out of scope this release. `ultra` is a **lane hazard, not merely unadopted**: its automatic delegation spawns sub-agents that write outside this job's declared `write_allowed` lane — writes the git-derived scope gate would BLOCK after the fact, and the `PreToolUse` lane guard cannot see coming at all, because they happen inside codex's own process tree, never through a Claude Code tool call. Never pass `-c model_reasoning_effort=ultra` or `=max`.
 
 ### Other pinned facts
 
@@ -171,7 +179,7 @@ The script parses the **first** `{"type":"thread.started","thread_id":"<uuid>"}`
   --job-id   task-1-editor-ui \
   --repo     /abs/path/to/repo \
   --prompt-file /abs/path/to/jobs/task-1-editor-ui.prompt.md \
-  --model    gpt-5.6-sol \
+  --model    gpt-6.1-sol \
   --write-allowed "src/features/sequences/components/**" \
   --timeout-sec 900 \
   --network  false
@@ -261,3 +269,10 @@ identically across all four external workers. This is the codex-specific invocat
   `--json` event stream, no `session_id`.
 - `--provision-command` is optional. Omit it and this worker's behaviour is unchanged from
   before v3.6 — no provisioning step, no `--preexisting` snapshot, no new timing.
+- **`--toolchain-artifact <glob>` (v3.6.3, repeatable)** is the manifest's `toolchain_artifacts`
+  list, one flag per glob, forwarded to the scope gate unchanged. It is a second, distinct
+  exemption from `--preexisting`: `--preexisting` forgives what provisioning wrote *before* codex
+  starts, while `--toolchain-artifact` forgives a matching gitignored path the test floor writes
+  *during* the job (`tsconfig.tsbuildinfo`, a vitest/jest cache) — subtracted only when `git
+  check-ignore` confirms it is actually gitignored in the gated tree. See
+  [`SKILL.md`](SKILL.md#provisioning----provision-command----provision-timeout-sec-v36).

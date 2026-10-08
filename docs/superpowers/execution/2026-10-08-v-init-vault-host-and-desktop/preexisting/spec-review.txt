@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/.run.lock
+028c3b65aa9079054e17e981e8ffe872c910af31975fd0fca7f9b134f46621e2  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/lane-map.json
+ff07ca7446ba793d9e2440b0b8ea8972032746d5da1934dc2b69111ed79d7e68  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/dispatch.workflow.js
+0313de3816ef45b528c6b0cc60ffd3ce5082aaa6beedf1c1330252f36dddbff6  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/host-desktop.baseline
+f4da3a8a9dce3dda584bbd25c1e7744575339abb3b295c2facc2049aa1c0c45c  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/host-desktop.patch
+908b96373b1cf7364233f118fb281eca759551d42c79a46acf78042a41ced32d  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/host-desktop.prompt.md
+e4732e5de33708d70153f70e9150419b9b4863e5a39f0408347903e51e5d22b5  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/host-desktop.test-contract.json
+e2fc2e39eeb0b4dffc63112fbcc8373447b48bbb793fa4745180230faab40afc  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/spec-review.baseline
+94f1e6d1fbc93d806ef3b308a1b80fbea2e2a75ac47063ecf71780ec34c433fa  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/spec-review.prompt.md
+4a52a2d2194a574f1407f37a6b53316ad435ac8b22d26dc1c17a2add72313e7e  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/spec-review.test-contract.json
+2d90ecb117caee96735734e8709bab96bf15c56a7862bb121ad9dc59a4cbab96  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/manifest.yaml
+691bc6d85ded60ca6e27dacaa5dfd6b1678b9d253b85a8d6c0a37e6ee628d9a4  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/preexisting/spec-review.txt
+0a386817c918841ce9823f709d6c6e12d8aa34658e72af2e0dcc8527c268b25c  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/receipts/host-desktop.gate.json
+c0e8e787a3e612c82d8e2f5dd633b7589b10b802724c3af96d5170476b92bee8  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/results/host-desktop.json
+eb5c31a6deec28605014800dbab9cc00a0cda4fc33ec4a68cfad81d646a8e68c  docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/state.json

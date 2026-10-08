@@ -1,4 +1,4 @@
-# superpowers-v 💉
+# superpowers-v
 
 **Compound V** — a multi-model coding sidekick for [Superpowers](https://github.com/obra/superpowers), running on Claude Code.
 
@@ -18,9 +18,13 @@ Every write is checked against the files that worker was allowed to touch, and a
 /plugin install superpowers-v@procoders
 ```
 
+**Jev is optional.** The `compound-v-vault` plugin holds an OpenRouter key for Jev, TypeSafe's System One classifier; without it nothing changes.
+`/v:init` offers it: `/plugin install compound-v-vault@procoders` (Claude Code 2.1.287 or newer), then `/plugin configure compound-v-vault@procoders`
+to set the key, then `/egress allow` in each repository.
+
 **Other model CLIs are optional.** Install and log into them and Compound V picks them up; without them it runs Claude-only.
 
-- **Codex** (≥ 0.144.6, for the gpt-5.6 family): `npm i -g @openai/codex` → `codex login`
+- **Codex** (≥ 0.156.1, for the gpt-6 family): `npm i -g @openai/codex` → `codex login`
 - **Cursor:** `curl https://cursor.com/install -fsS | bash` → `cursor-agent login`
 - **Antigravity:** install the `agy` CLI → log in
 
@@ -79,6 +83,7 @@ Implementers and the spec-reviewer also call Claude Code's built-in `advisor` at
 | `/v:review-plan <plan>` | Cross-model (Codex) adversarial review of a plan before dispatch |
 | `/v:pr-review [url\|number]` | Two-axis review of a PR, an MR, or a local branch. Never edits code |
 | `/v:adr <decision>` | Record one architecture decision as a thin, human-confirmed ADR |
+| `/v:lessons` | Draft routing lessons from repeated run failures; you accept or reject each one before it is written |
 | `/v:remember "<query>"` | Search the project memory for what this repo already learned |
 | `/v:memory-refresh` | Re-index the memory; `--bootstrap` adds the optional semantic lane |
 | `/v:status [run-id]` | Show a run's phase and per-job table; `--live` watches a running dispatch |
@@ -96,6 +101,7 @@ Implementers and the spec-reviewer also call Claude Code's built-in `advisor` at
 | `PostToolUse` (Write) | Nudges when a plan, spec or recon doc is saved; refreshes the memory index. A saved spec is told to wait for your review — the pre-flights fire later, at `writing-plans` |
 | `PreCompact` / `PostCompact` | Snapshots the run state before a compaction, and reports it after |
 | `Stop` | The triage gate: holds the turn open when code changed and no triage record covers it |
+| run band (mod, Claude Code ≥ 2.1.287) | While a dispatch runs, draws it above the prompt — a segment per job, then a row per job with its status, backend, model and time since last progress — and toasts once when a job stalls or is blocked. No percent, no ETA. Off: `CV_DISABLED_HOOKS=run-band` |
 
 The triage gate is on by default. It is exempt on `docs/superpowers/**`, fires at most once per session, and fails open. To turn it off, put
 `{ "enforcement": { "triage_gate": false } }` in `.claude/compound-v.json` — an explicit `false` is the only value that does it.
@@ -107,9 +113,12 @@ The triage gate is on by default. It is exempt on `docs/superpowers/**`, fires a
 - **Research-grounded brainstorming is guidance, not a mechanism** 🧪 — the skill asks an unfamiliar-topic brainstorm to run a gated recon pass first and to batch independent
   questions into one screen. A hook only reminds; nothing enforces either, and the recon doc is evidence, never a routing input.
 - **Agent memory is off-switchable** — `{"autoMemoryEnabled": false}` turns it off everywhere. `implementer` and `parallel-dispatcher` carry none: a memory write would leave their lane.
+- **A noisy hook is off-switchable too** — `CV_DISABLED_HOOKS=<name>,<name>` (comma-separated basenames, no `.sh`, spaces ignored) turns off individual reminder/nudge hooks, e.g. `CV_DISABLED_HOOKS=triage-prompt-nudge,memory-refresh`. `lane-guard` is exempt — see TROUBLESHOOTING.md.
 - **Marathon mode is still not fire-and-forget.** It drops the checkpoint and adds an arbiter panel, a blocker ledger and breakers, but after a hard death you re-run `/v:epic <epic-id>` yourself.
 
 ## Verification program
+
+**Native evals (3.7.0).** `evals/` is a `claude plugin eval` suite — seven cases on scaffolded fixture repos, graded mostly by regex over the real validator and scope-gate output, with a no-plugin baseline arm. It is a release gate a signed-in human runs (`claude plugin eval . --runs 1 --scaffold --allow-tools Bash Write Edit --threshold 0.8`), not a CI step; `evals/README.md` keeps the last real scores, and until one is recorded there no eval number exists.
 Compound V is dogfooded against its own claims in eight staged cycles, each run against native Claude Code mechanisms rather than trusted from prose. Every cycle's review is recorded in
 [docs/superpowers/dogfood/README.md](docs/superpowers/dogfood/README.md) — a generated index whose footer carries the tally (56 reviews, 11 APPROVED as this was written).
 

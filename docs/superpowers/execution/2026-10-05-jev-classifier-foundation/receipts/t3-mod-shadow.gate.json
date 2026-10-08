@@ -1,0 +1,80 @@
+{
+  "baseline_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+  "diff_digest": "sha256:19bc0053ecba7236987324e6f882a6d4fd1b88234c360e3aeafa8ca7c8c4a7b9",
+  "exit_code": 0,
+  "job_id": "t3-mod-shadow",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/t3-mod-shadow.patch",
+  "patch_paths": [
+    "hooks/hooks.json",
+    "hooks/jev-t3.test.tsx",
+    "hooks/jev-t3.tsx",
+    "skills/compound-v/phase-preeval.md",
+    "tests/test-jev-t3-mod.sh",
+    "tests/test-run-band-mod.sh",
+    "types/index.d.ts"
+  ],
+  "patch_sha256": "sha256:19bc0053ecba7236987324e6f882a6d4fd1b88234c360e3aeafa8ca7c8c4a7b9",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a4654200b86b20c425c77012a6e6e3d3fe5a24c8\",\n  \"changed\": [\n    \"hooks/hooks.json\",\n    \"hooks/jev-t3.test.tsx\",\n    \"hooks/jev-t3.tsx\",\n    \"skills/compound-v/phase-preeval.md\",\n    \"tests/test-jev-t3-mod.sh\",\n    \"tests/test-run-band-mod.sh\",\n    \"types/index.d.ts\"\n  ],\n  \"allowed\": [\n    \"hooks/jev-t3.tsx\",\n    \"hooks/jev-t3.test.tsx\",\n    \"hooks/hooks.json\",\n    \"types/index.d.ts\",\n    \"tests/test-jev-t3-mod.sh\",\n    \"skills/compound-v/phase-preeval.md\",\n    \"tests/test-run-band-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "hooks/hooks.json",
+      "hooks/jev-t3.test.tsx",
+      "hooks/jev-t3.tsx",
+      "skills/compound-v/phase-preeval.md",
+      "tests/test-jev-t3-mod.sh",
+      "tests/test-run-band-mod.sh",
+      "types/index.d.ts"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooksjson-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-jev-t3-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 5 command(s) from 7 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)",
+      "unmapped: tests/test-jev-t3-mod.sh, tests/test-run-band-mod.sh matched no `when` glob \u2014 unknown blast radius resolves to full_command, never to nothing",
+      "scope: labelled `full` \u2014 full_command was added for an unmapped path at this tier, so the whole suite is what ran"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-8"
+}

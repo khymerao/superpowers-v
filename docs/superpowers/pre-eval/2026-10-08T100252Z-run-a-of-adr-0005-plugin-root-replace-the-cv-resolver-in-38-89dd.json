@@ -1,0 +1,55 @@
+{
+  "base_commit": "9c8d791bd6b200024694d11dbab661f286ab334c",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "agents/*.md",
+    "commands/v-*.md",
+    "evals/README.md",
+    "hooks/session-banner.sh:35,51",
+    "skills/backend-launcher/*.md",
+    "skills/compound-v/*.md",
+    "tests/test-plugin-root.sh"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:6bf699d9975021c005a5f5db0a062aad7e2c8ea5c8f9acaed7775befa183b17f",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 7,
+    "flags": [
+      "new_file",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "agents/*.md",
+      "commands/v-*.md",
+      "evals/README.md",
+      "hooks/session-banner.sh:35,51",
+      "skills/backend-launcher/*.md",
+      "skills/compound-v/*.md",
+      "tests/test-plugin-root.sh"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd",
+  "request_slug": "run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T100252Z-run-a-of-adr-0005-plugin-root-replace-the-cv-resolver-in-38-89dd.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T10:02:52Z"
+}

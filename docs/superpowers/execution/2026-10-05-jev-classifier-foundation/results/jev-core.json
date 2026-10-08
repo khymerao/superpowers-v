@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "diff_digest": "sha256:8f7d81b36a9ee6e21122b2f7601f30c0773effaa867631cea45163d79a8a9e9d",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task C \u2014 scripts/compound-v-jev.py",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo jev-ok'\nbash tests/test-jev-core.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-4"
+}

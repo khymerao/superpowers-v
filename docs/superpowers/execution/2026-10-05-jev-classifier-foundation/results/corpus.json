@@ -1,0 +1,30 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "tests/fixtures/README-jev-corpus.md",
+    "tests/fixtures/jev-t3-corpus.jsonl"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "diff_digest": "sha256:6873c022a397480c2c117c0f733602d4304bec54b22d678483c32362a15e9715",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b299eb8717e63955e9632d56cce983eaeb9bd661\",\n  \"changed\": [\n    \"tests/fixtures/README-jev-corpus.md\",\n    \"tests/fixtures/jev-t3-corpus.jsonl\"\n  ],\n  \"allowed\": [\n    \"tests/fixtures/jev-t3-corpus.jsonl\",\n    \"tests/fixtures/README-jev-corpus.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "b299eb8717e63955e9632d56cce983eaeb9bd661",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task K \u2014 synthetic T3 corpus",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B -c \"import json;[json.loads(l) for l in open(\\\"tests/fixtures/jev-t3-corpus.jsonl\\\") if l.strip()]\" && echo corpus-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9e69b4b1-d27-6"
+}

@@ -34,3 +34,6 @@ jobs:
       # floor
 
       The test floor for this run fails on purpose.
+
+# Deliberately planted failure (dogfood test of the gate) — not a real lane failure; excluded from recall-check.
+recall_exclude: true

@@ -28,13 +28,17 @@ not files in your own repository. Resolve the plugin root once per session befor
 them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ---
 
@@ -53,19 +57,24 @@ everywhere else `standard` Claude is `sonnet`; and `cost-aware.claude.frontier` 
 "models": {
   "balanced": {
     "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-    "codex":       { "frontier": "gpt-5.6-sol", "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" }
   },
   "cost-aware": {
     "claude":      { "frontier": "opus",  "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-    "codex":       { "frontier": "gpt-5.6-sol", "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" }
   }
   // claude-only mirrors balanced; conservative keeps standard on opus
 }
 ```
+
+Codex is the one non-claude backend that carries its own `frontier` cell distinct from
+`deep`: GPT-6 ships a dedicated frontier model (`gpt-6-astra`) above the workhorse
+`deep`/`standard` model (`gpt-6.1-sol`, which differ only by `effort`) — every other
+external backend still defaults `frontier` to the same value as `deep`.
 
 `/v:models` writes this **per-stance** shape; the resolver still accepts the **legacy
 flat shape** `{<backend>: {<tier>: model}}` (applied to every stance) for backward-compat.
@@ -90,25 +99,70 @@ Claude resolves a tier to one of its **native model aliases**. The shipped tiers
 There is no list command to run; the alias set is `opus` / `sonnet`. **Never
 `haiku`.** Offer `opus` and `sonnet` as the only choices per tier.
 
-### 1b. codex — curated list (no list command exists)
+### 1b. codex — headless `codex debug models` discovery (real names)
 
-Codex has **no `models` list command**. Maintain a small **curated** roster and let
-the user override any entry by hand (a model the curated list doesn't know about is
-still valid — codex accepts whatever model string you pass to `codex exec --model`).
-Present this curated starting roster:
+Codex (codex-cli ≥ 0.156.1) **does** have a model-list command now: `codex debug models`
+renders the raw catalog as JSON — `slug`, `display_name`, `description`, `visibility`
+(`list`/`hide`), `priority`, `upgrade` (`retirement_at`), `supported_reasoning_levels`,
+`default_reasoning_level`, `context_window`. Pipe it through
+[`scripts/compound-v-discover-models.py`](../scripts/compound-v-discover-models.py)
+`--backend codex` (pure parse + rank — the CALLER fetches the catalog; the script never
+calls a backend), mirroring exactly how §1c handles antigravity, to get a real `proposed`
+frontier/deep/standard/light map plus the full `available` list, which models are
+`retiring`, and which reasoning efforts exist on the catalog but Compound V does not
+adopt (`efforts_not_adopted`):
 
-- `gpt-5.6-sol` — strongest; suggested for `deep` (requires codex-cli >= 0.143.0)
-- `gpt-5.6-terra` — balanced; suggested for `standard`
-- `gpt-5.6-luna` — fast/cheap; suggested for `light`
-
-Confirm codex is even usable first (so you don't write a map the project can't run):
+First, confirm codex is even usable (so you don't write a map the project can't run):
 
 ```bash
 command -v codex && codex exec --help 2>/dev/null | grep -q -- '--model' && echo "codex usable" || echo "codex unavailable"
 ```
 
-If codex is unavailable, say so, keep the existing codex block unchanged, and skip
-its reassignment (the map can still carry codex entries for when it returns).
+Then discover:
+
+```bash
+command -v codex >/dev/null \
+  && codex debug models | python3 "$CV/scripts/compound-v-discover-models.py" --backend codex \
+  || echo "codex unavailable"
+```
+
+- This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, retiring:[...], efforts_not_adopted:[...], note, backend}`.
+  The script keeps only `visibility: list` models, drops any carrying an
+  `upgrade.retirement_at` (reported separately under `retiring` — e.g. `gpt-5.5` retires
+  2026-10-14; the catalog names its upgrade target, `gpt-6.1-sol` as of 0.160.0), and assigns tiers by the ROLE in each slug —
+  `-astra` frontier, `-sol` deep/standard, `-luna` light — taking the newest version of
+  each role (`gpt-6.1-sol` over `gpt-6-sol`). `priority` is not used for this: it is the
+  picker's display order, and on codex-cli 0.159.1 the new workhorse `gpt-6.1-sol` sits at
+  priority 1 above `gpt-6-astra` at 2. Against that live catalog (2026-09-30: `gpt-6.1-sol`
+  "Latest workhorse model", `gpt-6-astra` "Frontier intelligence for the most demanding
+  work.", `gpt-6-sol` "Previous generation workhorse model.", `gpt-6-luna` "Fast and
+  affordable model for easier tasks."; the GPT-5.6 trio listed as "Older …") the proposal is **frontier: `gpt-6-astra`, deep: `gpt-6.1-sol`,
+  standard: `gpt-6.1-sol`, light: `gpt-6-luna`** — `deep` and `standard` share the model and
+  differ only by `effort` (the orthogonal axis; see Step 5). Unlike antigravity/opencode
+  (where `frontier` defaults to the same value as `deep` because no vendor there ships a
+  rung above its own top model), codex's `frontier` is a real, distinct rung: GPT-6 ships
+  a dedicated frontier model (`astra`) above the workhorse (`sol`).
+  **Show the user the `available` catalog and the `proposed` map**, then let them confirm
+  or override (Step 2).
+- `efforts_not_adopted` reports catalog reasoning efforts Compound V doesn't use: `ultra`
+  (astra/sol only — "Maximum reasoning with automatic task delegation") is a **lane
+  hazard**, never adopted — automatic delegation spawns sub-agents that write outside the
+  job's declared lane, which the scope gate would BLOCK only after the fact and the
+  `PreToolUse` lane guard cannot see coming at all; `max` is simply not adopted this
+  release. Compound V keeps `low|medium|high|xhigh` (`xhigh` remains codex-only).
+- To write the confirmed proposal straight into the config, use the `--write-config`
+  form (it merges into `models.codex`, preserving the other backends):
+
+  ```bash
+  codex debug models | python3 "$CV/scripts/compound-v-discover-models.py" \
+    --backend codex --write-config .claude/compound-v.json
+  ```
+
+- If codex is **unavailable** (absent, or `codex debug models` fails), say so plainly,
+  keep the existing codex block unchanged, and skip its reassignment (the map can still
+  carry codex entries for when it returns). The user may still hand-override any cell
+  with any model string — codex accepts whatever you pass to `codex exec --model`, known
+  to the catalog or not.
 
 ### 1c. antigravity — headless `agy models` discovery (real names)
 
@@ -125,11 +179,11 @@ command -v agy >/dev/null \
   || echo "agy unavailable"
 ```
 
-- This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, note, backend}`. For every external backend `frontier` is the same value as `deep` — no vendor here ships a rung above its own top model.
+- This prints JSON `{available:[...], proposed:{frontier,deep,standard,light}, note, backend}`. For antigravity (and every other external backend except codex) `frontier` is the same value as `deep` — no vendor there ships a rung above its own top model. Codex is the one exception: GPT-6 ships a dedicated frontier model (`gpt-6-astra`) above its workhorse `deep`/`standard` model (`gpt-6.1-sol`) — see §1b.
   **Show the user the `available` catalog and the `proposed` map**, then let them
   confirm or override (Step 2). The proposal is real, current model names — no more
-  placeholders. Against the live catalog (agy 1.1.22, 2026-09-03: Gemini 3.6/3.7/3.8 Flash
-  Low/Medium/High, Gemini 3.1 Pro Low/High, Claude Opus/Sonnet 4.6 Thinking, GPT-OSS 120B
+  placeholders. Against the live catalog (agy, re-read 2026-10-05: Gemini 3.6/3.7/3.8 Flash
+  Low/Medium/High, Gemini 3.1 Pro Low/High, Claude Opus/Sonnet 5.5 Low/Medium/High, GPT-OSS 120B
   Medium — printed as `id<TAB>Display Name`; the script ranks on the display column) the
   proposal is **frontier/deep: `Gemini 3.1 Pro (High)`, standard: `Gemini 3.1 Pro (Low)`,
   light: `Gemini 3.8 Flash (Low)`**. Seeding a `/v:init`-shaped config (per-stance `models`)
@@ -165,8 +219,9 @@ command -v cursor-agent && cursor-agent status </dev/null >/dev/null 2>&1 && ech
 - **Free plan (or unsure):** keep `{deep,standard,light} = "auto"`. Tiering is a no-op (Auto
   picks the model) — that is expected, not a bug.
 - **Paid plan:** the user may assign named ids per tier (e.g. `sonnet-4`, `gpt-5`,
-  `sonnet-4-thinking`) — a curated roster like codex (no discovery; whatever the plan accepts
-  via `cursor-agent --model` is valid). Only offer named models if the user confirms a paid plan.
+  `sonnet-4-thinking`) — a hand-curated, user-overridable roster (no discovery command;
+  whatever the plan accepts via `cursor-agent --model` is valid). Only offer named models
+  if the user confirms a paid plan.
 
 ### 1f. opencode — real discovery command, but curated + user-confirmed assignment
 
@@ -188,8 +243,8 @@ resolver's selftest asserts every `opencode` tier cell contains `/`); a bare mod
 will likely fail opencode's own model resolution even though `--model` accepts the
 string syntactically. The built-in fallback map (curated, user-overridable):
 
-- `deep` → `anthropic/claude-opus-4-6`
-- `standard` → `openai/gpt-5.6-terra`
+- `deep` → `anthropic/claude-opus-5-5`
+- `standard` → `openai/gpt-6.1-sol`
 - `light` → `opencode/mimo-v2.5-free`
 
 If opencode is unavailable/unauthenticated, say so and keep the existing opencode block
@@ -210,9 +265,9 @@ fast/cheap option → `light`). Example shape:
 | Backend | Available now | deep | standard | light |
 |---|---|---|---|---|
 | claude | opus, sonnet | opus | opus | sonnet |
-| codex | gpt-5.6-sol, gpt-5.6-terra, gpt-5.6-luna | gpt-5.6-sol | gpt-5.6-terra | gpt-5.6-luna |
+| codex | gpt-6-astra, gpt-6.1-sol, gpt-6-luna | gpt-6.1-sol | gpt-6.1-sol | gpt-6-luna |
 | antigravity | *(from `agy models </dev/null`)* | Gemini 3.1 Pro (High) | Gemini 3.1 Pro (Low) | Gemini 3.8 Flash (Low) |
-| opencode | *(from `opencode models </dev/null`)* | anthropic/claude-opus-4-6 | openai/gpt-5.6-terra | opencode/mimo-v2.5-free |
+| opencode | *(from `opencode models </dev/null`)* | anthropic/claude-opus-5-5 | openai/gpt-6.1-sol | opencode/mimo-v2.5-free |
 
 Then **let the user assign** each tier per backend — accept the suggestion as-is, or
 override any cell with any model name the discovery surfaced (or, for codex, any
@@ -252,17 +307,17 @@ Resulting shape (only `models` is this command's responsibility) — write the
   "models": {
     "balanced": {
       "claude":      { "deep": "opus",    "standard": "opus",    "light": "sonnet" },
-      "codex":       { "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "…",       "standard": "…",       "light": "…" },
       "cursor":      { "deep": "auto",    "standard": "auto",    "light": "auto" },
-      "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }
+      "opencode":    { "deep": "anthropic/claude-opus-5-5", "standard": "openai/gpt-6.1-sol", "light": "opencode/mimo-v2.5-free" }
     },
     "cost-aware": {
       "claude":      { "deep": "opus",    "standard": "sonnet",  "light": "sonnet" },
-      "codex":       { "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "…",       "standard": "…",       "light": "…" },
       "cursor":      { "deep": "auto",    "standard": "auto",    "light": "auto" },
-      "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }
+      "opencode":    { "deep": "anthropic/claude-opus-5-5", "standard": "openai/gpt-6.1-sol", "light": "opencode/mimo-v2.5-free" }
     }
     // claude-only mirrors balanced; conservative keeps standard on opus
   }
@@ -312,8 +367,9 @@ returns.)
 ## Step 5 — Report
 
 Summarize per backend: what discovery returned (the real catalog from
-`agy models </dev/null` for antigravity, or that the backend was unavailable), the
-final `deep`/`standard`/`light` assignment, and the path written
+`agy models </dev/null` for antigravity, `codex debug models` for codex, or that the
+backend was unavailable), the final `frontier`/`deep`/`standard`/`light` assignment
+(noting codex's `retiring` and `efforts_not_adopted` findings when non-empty), and the path written
 (`.claude/compound-v.json`). Note that the dispatcher now resolves these via
 [`scripts/compound-v-resolve-model.py`](../scripts/compound-v-resolve-model.py) and
 that `effort` (`low`/`medium`/`high`/`xhigh`) is an **orthogonal** dimension chosen
@@ -321,10 +377,10 @@ per task-type in [`routing-policy.md`](../skills/compound-v/routing-policy.md), 
 set here. `xhigh` is valid **iff** `backend: codex`; every other backend rejects it
 with a clear error naming the rule (use `high` instead).
 
-**Honesty rules:** report only what discovery actually returned. `agy models </dev/null`
-and `opencode models </dev/null` both run headlessly and return live catalogs, so
-report the discovered models as discovered. Only if the CLI is **absent** do we fall
-back to the built-in map — say so plainly when that happens, rather than passing the
+**Honesty rules:** report only what discovery actually returned. `agy models </dev/null`,
+`codex debug models`, and `opencode models </dev/null` all run headlessly and return live
+catalogs, so report the discovered models as discovered. Only if the CLI is **absent** do we
+fall back to the built-in map — say so plainly when that happens, rather than passing the
 fallback off as discovered. Never print token or cost numbers (anti-ruflo). Never assign
 `haiku`. Always remind the user that `opencode` is a worker-only backend —
 whatever they assign here never seats it on an arbiter/review panel.

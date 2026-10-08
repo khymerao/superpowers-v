@@ -15,6 +15,14 @@
 # proves the job is not blocked by files the model never wrote. Revert the provisioning
 # support and this case fails — either the flag is rejected outright, or the installed
 # files come back as ignored writes outside write_allowed.
+#
+# Case 4 covers provisioning failure (below). Case 5 covers --toolchain-artifact (v3.6.3):
+# a stub `codex` that writes a gitignored build/cache.json DURING the job (unlike
+# provisioning, which runs BEFORE the model). 5a proves the flag forgives it (job not
+# blocked, path forgiven at the scope-check layer too); 5b is the anti-vacuity half — the
+# SAME stub, SAME write, WITHOUT the flag, must BLOCK, so 5a cannot pass because the stub
+# wrote nothing. Case 6 proves an empty --toolchain-artifact value is rejected before any
+# worker is launched.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../scripts" && pwd -P)"
@@ -166,6 +174,132 @@ fi
 
 git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provjob" >/dev/null 2>&1 || true
 git -C "$PREPO" worktree remove -f "$TMP/compound-v/provrun/provfail" >/dev/null 2>&1 || true
+
+# --- case 5: --toolchain-artifact forgiveness -------------------------------------------
+# A separate fixture repo: `build/` is gitignored and committed BEFORE the worker ever
+# runs, so a fresh `git worktree add HEAD` already carries the .gitignore. The stub `codex`
+# below writes build/cache.json DURING the (fake) job -- this is the case toolchain_artifacts
+# exists for: a test floor's own first-run artifact, distinct from --provision-command's
+# pre-model install.
+TAREPO="$TMP/tarepo"
+mkdir -p "$TAREPO/src"
+git -C "$TAREPO" init -q
+git -C "$TAREPO" config user.email t@t.co
+git -C "$TAREPO" config user.name t
+printf 'build/\n' > "$TAREPO/.gitignore"
+printf 'base\n' > "$TAREPO/src/base.ts"
+git -C "$TAREPO" add -A
+git -C "$TAREPO" commit -qm base >/dev/null
+TA_BASE="$(git -C "$TAREPO" rev-parse HEAD)"
+
+printf 'src/**\n' > "$TMP/allow_src"
+
+# Stub `codex`: parses --cd itself (it must not rely on an inherited cwd) and drops a
+# gitignored build artifact into the worktree it was told to use, then exits 0.
+TASTUB="$TMP/tastub"
+mkdir -p "$TASTUB"
+cat > "$TASTUB/codex" <<'STUBEOF'
+#!/bin/sh
+wt=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --cd) wt="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [ -n "$wt" ]; then
+  mkdir -p "$wt/build"
+  printf '{}' > "$wt/build/cache.json"
+fi
+exit 0
+STUBEOF
+chmod +x "$TASTUB/codex"
+
+# --- case 5a: WITH --toolchain-artifact 'build/**' -> forgiven, job not blocked ---------
+set +e
+TA_JSON="$(
+  TMPDIR="$TMP" PATH="$TASTUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
+    --run-id tarun --job-id ta5a --repo "$TAREPO" \
+    --prompt-file "$TMP/prompt.md" --model stub-model \
+    --write-allowed 'src/**' --timeout-sec 120 \
+    --toolchain-artifact 'build/**' 2>"$TMP/ta5a.err"
+)"
+ta_rc=$?
+set -e
+
+ta_status="$(printf '%s' "$TA_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
+ta_blocked="$(printf '%s' "$TA_JSON" | jq -r 'if has("blocked") then (.blocked | tostring) else "MISSING" end' 2>/dev/null || echo PARSE_FAIL)"
+ta_has_cache="$(printf '%s' "$TA_JSON" \
+  | jq -r '[(.files_changed // [])[], (.violations // [])[]] | any(. == "build/cache.json")' 2>/dev/null || echo PARSE_FAIL)"
+ta_wt="$(printf '%s' "$TA_JSON" | jq -r '.worktree // ""' 2>/dev/null || echo "")"
+
+# Independently re-run the SAME deterministic gate the worker delegated to, directly
+# against the resulting worktree, so the assertion is against the gate's own JSON report
+# (`.toolchain_artifacts` / `.violations`) and not just the worker's summary of it.
+ta_gate_json=""
+if [ -n "$ta_wt" ] && [ -d "$ta_wt" ]; then
+  ta_gate_json="$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
+    --worktree "$ta_wt" --baseline "$TA_BASE" --allow-file "$TMP/allow_src" \
+    --toolchain-artifact 'build/**' 2>/dev/null || true)"
+fi
+ta_gate_forgiven="$(printf '%s' "$ta_gate_json" | jq -r '(.toolchain_artifacts // []) | any(. == "build/cache.json")' 2>/dev/null || echo PARSE_FAIL)"
+ta_gate_not_violation="$(printf '%s' "$ta_gate_json" | jq -r '(.violations // []) | any(. == "build/cache.json") | not' 2>/dev/null || echo PARSE_FAIL)"
+
+if [ "$ta_rc" = "0" ] && [ "$ta_status" = "success" ] && [ "$ta_blocked" = "false" ] \
+   && [ "$ta_has_cache" = "false" ] && [ "$ta_gate_forgiven" = "true" ] \
+   && [ "$ta_gate_not_violation" = "true" ]; then
+  echo "  case5a toolchain-artifact: forgiven build/cache.json does not block the job ✅"
+else
+  echo "  case5a FAIL: rc=$ta_rc status=$ta_status blocked=$ta_blocked has_cache=$ta_has_cache" \
+       "gate_forgiven=$ta_gate_forgiven gate_not_violation=$ta_gate_not_violation"
+  echo "    stdout: $TA_JSON"
+  echo "    gate:   $ta_gate_json"
+  echo "    stderr: $(cat "$TMP/ta5a.err" 2>/dev/null || true)"
+  fail=1
+fi
+
+# --- case 5b (anti-vacuity): SAME stub, SAME write, WITHOUT the flag -> BLOCKED ---------
+# Without this half, 5a could pass vacuously if the stub had never written the file at all.
+set +e
+TB_JSON="$(
+  TMPDIR="$TMP" PATH="$TASTUB:$PATH" "$SCRIPT_DIR/compound-v-run-codex-worker.sh" \
+    --run-id tarun --job-id ta5b --repo "$TAREPO" \
+    --prompt-file "$TMP/prompt.md" --model stub-model \
+    --write-allowed 'src/**' --timeout-sec 120 2>"$TMP/ta5b.err"
+)"
+tb_rc=$?
+set -e
+
+tb_status="$(printf '%s' "$TB_JSON" | jq -r '.status // "MISSING"' 2>/dev/null || echo PARSE_FAIL)"
+tb_blocked="$(printf '%s' "$TB_JSON" | jq -r 'if has("blocked") then (.blocked | tostring) else "MISSING" end' 2>/dev/null || echo PARSE_FAIL)"
+tb_viol_has_cache="$(printf '%s' "$TB_JSON" \
+  | jq -r '(.violations // []) | any(. == "build/cache.json")' 2>/dev/null || echo PARSE_FAIL)"
+
+if [ "$tb_rc" = "0" ] && [ "$tb_status" = "blocked" ] && [ "$tb_blocked" = "true" ] \
+   && [ "$tb_viol_has_cache" = "true" ]; then
+  echo "  case5b anti-vacuity: same write WITHOUT the flag BLOCKS on build/cache.json ✅"
+else
+  echo "  case5b FAIL: rc=$tb_rc status=$tb_status blocked=$tb_blocked viol_has_cache=$tb_viol_has_cache"
+  echo "    stdout: $TB_JSON"
+  echo "    stderr: $(cat "$TMP/ta5b.err" 2>/dev/null || true)"
+  fail=1
+fi
+
+git -C "$TAREPO" worktree remove -f "$TMP/compound-v/tarun/ta5a" >/dev/null 2>&1 || true
+git -C "$TAREPO" worktree remove -f "$TMP/compound-v/tarun/ta5b" >/dev/null 2>&1 || true
+
+# --- case 6: --toolchain-artifact '' is rejected, no worker is launched ----------------
+set +e
+EMPTY_OUT="$("$SCRIPT_DIR/compound-v-run-codex-worker.sh" --toolchain-artifact '' 2>"$TMP/ta_empty.err")"
+empty_rc=$?
+set -e
+
+if [ "$empty_rc" != "0" ] && [ -z "$EMPTY_OUT" ]; then
+  echo "  case6 toolchain-artifact validation: empty glob dies before launch ✅"
+else
+  echo "  case6 FAIL: rc=$empty_rc stdout=[$EMPTY_OUT] stderr=$(cat "$TMP/ta_empty.err" 2>/dev/null || true)"
+  fail=1
+fi
 
 if [ "$fail" = "0" ]; then
   echo "SELFTEST PASSED"

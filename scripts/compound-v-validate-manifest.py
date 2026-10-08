@@ -26,7 +26,8 @@ Invariants enforced (from PRD §5.1/§5.5 + plan §5/§6)
    If present, ``tier`` ∈ {frontier, deep, standard, light} and ``effort`` ∈
    {low, medium, high, xhigh}. ``effort: xhigh`` is valid iff
    ``backend: codex`` (codex's kernel model_reasoning_effort accepts it —
-   live-verified 2026-07-11 on codex-cli 0.144.1); any other backend with
+   verified 2026-07-11 on codex-cli 0.144.1, re-verified 2026-09-24 on 0.156.1);
+   any other backend with
    xhigh is a violation naming the rule.
 
 Required-field + enum validation (before invariant checks)
@@ -776,8 +777,9 @@ REVIEWER_TOKENS = ("review", "reviewer", "spec_review", "quality", "integration"
 
 # Intent vocabulary (mirrors compound-v-resolve-model.py). Stable; never
 # changes when concrete models churn. `xhigh` is valid iff backend == "codex"
-# (codex's kernel model_reasoning_effort accepts it — live-verified 2026-07-11
-# on codex-cli 0.144.1); validate() rejects xhigh on every other backend.
+# (codex's kernel model_reasoning_effort accepts it — verified 2026-07-11 on
+# codex-cli 0.144.1, re-verified 2026-09-24 on 0.156.1); validate() rejects
+# xhigh on every other backend.
 # `frontier` (v3.0.5) is the extreme seat — on claude it resolves to Fable. It is
 # what a failed re-attempt escalates INTO; a planner assigning it up front is
 # valid but unusual. Reviewers are NOT satisfied by it: Invariant 3 still
@@ -1615,7 +1617,10 @@ def _validate_fast_path(manifest, fp, mode, repo_root, config_path, receipt_path
     Returns a list of violation strings."""
     problems = []
     if repo_root is None:
-        repo_root = os.getcwd()
+        # Every fast-path invariant below reads the repository (run state, receipts,
+        # the config): no root is fail-closed, never the current directory as a guess.
+        return ["fast_path validation needs a repository root and none was given "
+                "(pass --repo-root DIR); fail-closed"]
     if not isinstance(fp, dict):
         return ["fast_path block must be a mapping"]
     if fp.get("eligible") is not True:
@@ -2372,6 +2377,74 @@ def _string_list_problems(value, label):
     return problems
 
 
+# A glob is a catch-all if, after stripping a leading './' or '/', it reduces
+# to one of these — i.e. it would match every path in the tree. Kept as a
+# closed tuple (mirrors RETRY_ALLOWED_KEYS etc.) rather than a "looks broad"
+# heuristic, so the rule stays boring and inspectable.
+_CATCH_ALL_TOOLCHAIN_GLOBS = ("*", "**", "**/*")
+
+
+def _validate_toolchain_artifacts(manifest):
+    """Return violations for the optional top-level ``toolchain_artifacts``
+    list (issue #22): globs naming build/test-tool bookkeeping paths (a
+    TypeScript incremental build cache, a Vitest results cache under
+    ``node_modules/.vite/``, ...) that a downstream toolchain's own first run
+    drops into a fresh worktree, gitignored, after the scope gate's
+    post-provisioning snapshot was taken. ``write_allowed`` cannot name them
+    without widening a job's disjoint lane, so this list is a SEPARATE,
+    human-reviewed exemption the scope gate (``compound-v-scope-check.py``)
+    only honours when ``git check-ignore`` independently reconfirms the path
+    is actually gitignored at gate time — this validator checks only the
+    manifest's SHAPE, never git state.
+
+    ABSENT or ``None`` is valid — every manifest committed before this field
+    existed has neither key, and a bare ``toolchain_artifacts:`` line parses to
+    None (same absent-vs-null rule as ``global_constraints``).
+
+    Beyond the shared list-of-non-empty-strings shape check, two further rules
+    apply, because a permissive shape check alone would let a reviewer wave
+    through a glob that quietly defeats the gate:
+      * a CATCH-ALL glob is refused outright — one of ``*``, ``**``, ``**/*``,
+        ``/**``, ``./**``, or any entry whose form (after stripping one leading
+        ``./`` or ``/``) reduces to ``*``, ``**``, or ``**/*``. Such a glob would
+        exempt every gitignored write in the entire tree, which is exactly the
+        blanket carve-out the scope gate's docstring says it never originates
+        on its own — a catch-all here would make this manifest originate one
+        instead.
+      * an entry containing a newline is refused — the same single-line
+        discipline ``_validate_provision`` applies to ``provision_command``,
+        so a multi-line string can't smuggle a second (unreviewed) glob past a
+        reviewer skimming one line per bullet."""
+    if "toolchain_artifacts" not in manifest:
+        return []
+    value = manifest.get("toolchain_artifacts")
+    if value is None:
+        return []
+    problems = _string_list_problems(value, "manifest 'toolchain_artifacts'")
+    if not isinstance(value, list):
+        return problems
+    for idx, item in enumerate(value):
+        if not isinstance(item, str):
+            continue  # already reported by _string_list_problems
+        if "\n" in item:
+            problems.append(
+                "manifest 'toolchain_artifacts'[%d] must be a single-line "
+                "string (got %r)" % (idx, item)
+            )
+            continue
+        normalized = item
+        if normalized.startswith("./"):
+            normalized = normalized[2:]
+        normalized = normalized.lstrip("/")
+        if normalized in _CATCH_ALL_TOOLCHAIN_GLOBS:
+            problems.append(
+                "manifest 'toolchain_artifacts'[%d] is a catch-all glob (%r) "
+                "— this would exempt every gitignored write in the tree; name "
+                "the specific toolchain-artifact paths instead" % (idx, item)
+            )
+    return problems
+
+
 def _validate_global_constraints(manifest):
     """Return violations for the optional top-level ``global_constraints`` list
     (v3.4.17): the plan's ``## Global Constraints`` lines, copied VERBATIM.
@@ -2526,6 +2599,11 @@ def validate(manifest, mode=None, repo_root=None, config_path=None,
     # provision_command / provision_timeout_s: same reasoning as the blocks above —
     # checked before the jobs early-return so a broken manifest never hides them.
     problems.extend(_validate_provision(manifest))
+
+    # toolchain_artifacts (issue #22): same reasoning as the blocks above —
+    # checked before the jobs early-return so a broken manifest never hides a
+    # catch-all glob or a malformed list.
+    problems.extend(_validate_toolchain_artifacts(manifest))
 
     jobs = manifest.get("jobs")
     if not isinstance(jobs, list) or not jobs:
@@ -2973,6 +3051,118 @@ def unnamespaced_agent_memory_name(glob):
     return agent
 
 
+# --------------------------------------------------------------------------- #
+# WAVE_EXCEEDS_RUNTIME_CONCURRENCY (v3.6.4) — advisory only, never a violation.
+#
+# The native Workflow runtime runs "up to 16 concurrent agents by default,
+# fewer when Claude Code has fewer CPUs available, including inside a
+# CPU-limited container"; `CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS` (1-256,
+# Claude Code >= 2.1.269) raises it (docs: code.claude.com/docs/en/workflows,
+# "Behavior and limits", fetched 2026-09-21).
+#
+# TRANSPORT_AGENT_HEADROOM = 0, DERIVED, not guessed — from
+# `scripts/compound-v-emit-workflow.py`'s own JS_TEMPLATE:
+#   - `pipeline(wave, implementStage, gateStage, recordStage)` (l.3493) chains
+#     the three stages PER ITEM: `gateStage(prev, job)` (l.3093) and
+#     `recordStage(verdict, job)` (l.3226) each take the PRIOR stage's awaited
+#     result, so a job is in exactly one of {Implement, Gate, Record} at a time.
+#   - Every retry path is itself a sequential `await`: `withRetry` (l.2895)
+#     loops attempts with `await fn()`, and the one-shot reviewer escalation in
+#     `implementStage` (l.3013-3031) `await`s its lifted attempt after the
+#     first has already exhausted — never alongside it.
+#   - `register-lane` is NOT a spawned agent: it is the Implement agent's own
+#     FIRST BASH COMMAND (l.2592), run inside that same agent, not a second one.
+#   - `alreadyIntegratedIds()` (the one-off Continuity agent) runs ONCE, before
+#     wave 0 (l.3466); `finalizeWave` runs once per wave, AFTER `pipeline()` has
+#     already resolved (l.3538 `await pipeline(...)`, l.3538+ `await
+#     finalizeWave(...)`). Neither overlaps a wave's own job agents.
+#   - `IMPLEMENT_DISALLOWED` (l.205) denies `Task`/`Agent` to every implementer,
+#     so a job cannot fan out a nested agent that would add to the count either.
+# So the emitter's own peak concurrent-agent count for a wave of W jobs is
+# exactly W — never a multiple of it — and the runtime's 16-agent default
+# applies to wave WIDTH directly, with no headroom to subtract.
+RUNTIME_CONCURRENCY_DEFAULT = 16
+TRANSPORT_AGENT_HEADROOM = 0
+
+
+def _emit_workflow_module():
+    """Load ``compound-v-emit-workflow.py``'s ``topo_waves`` by path (read-only
+    sibling reuse, the pattern this project already uses elsewhere — e.g.
+    ``compound-v-classify-request.py``'s ``_resolve_model_module``) so the
+    WAVE_EXCEEDS_RUNTIME_CONCURRENCY advisory groups jobs into EXACTLY the
+    waves Engine C would dispatch, instead of forking a second copy of that
+    grouping algorithm. Cached after the first load. ``None`` on any failure —
+    degrade-safe, same as every other advisory: the hard invariant checks above
+    already own dangling-ref/cycle/type problems, so a wave computation that
+    cannot run here costs nothing but this one extra hint.
+    """
+    global _EMIT_WORKFLOW_MODULE
+    if _EMIT_WORKFLOW_MODULE is not None:
+        return _EMIT_WORKFLOW_MODULE
+    import importlib.util
+
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "compound-v-emit-workflow.py")
+    try:
+        spec = importlib.util.spec_from_file_location("_cv_emit_workflow_wavecheck", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _EMIT_WORKFLOW_MODULE = mod
+        return mod
+    except Exception:  # noqa: BLE001 — never let this sink the whole validator
+        return None
+
+
+_EMIT_WORKFLOW_MODULE = None
+
+
+def wave_concurrency_advisories(manifest):
+    """Return WAVE_EXCEEDS_RUNTIME_CONCURRENCY advisory strings — never
+    violations, never verdict-changing (see the module docstring at the top of
+    the ADVISORIES section). Fires when a dependency wave `topo_waves()` would
+    actually dispatch has more jobs than
+    ``RUNTIME_CONCURRENCY_DEFAULT - TRANSPORT_AGENT_HEADROOM`` (16 - 0 = 16
+    today). Silent (returns []) on anything that isn't a clean, already-valid
+    DAG with an int ``max_parallel`` — the hard checks above own a dangling
+    ref, a cycle, or a malformed field, and this advisory must never be the
+    thing that raises on a broken manifest.
+    """
+    out = []
+    if not isinstance(manifest, dict):
+        return out
+    jobs = manifest.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        return out
+    mp = manifest.get("max_parallel")
+    try:
+        max_parallel = int(mp)
+    except (TypeError, ValueError):
+        return out
+    mod = _emit_workflow_module()
+    if mod is None:
+        return out
+    try:
+        waves = mod.topo_waves(jobs, max_parallel)
+    except Exception:  # noqa: BLE001 — cycles/dangling refs are reported elsewhere
+        return out
+    limit = RUNTIME_CONCURRENCY_DEFAULT - TRANSPORT_AGENT_HEADROOM
+    for idx, wave in enumerate(waves, start=1):
+        width = len(wave)
+        if width <= limit:
+            continue
+        ids = ", ".join(sorted(j.get("id") or "<no id>" for j in wave
+                               if isinstance(j, dict)))
+        out.append(
+            "wave %d (%s): %d jobs exceeds the native Workflow runtime's default "
+            "concurrency cap of %d concurrent agents — the run will queue rather "
+            "than fail, but the wave will not actually run at %d-wide unless you "
+            "raise CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS (1-256, Claude Code "
+            ">= 2.1.269) before launching"
+            % (idx, ids, width, RUNTIME_CONCURRENCY_DEFAULT, width)
+        )
+    return out
+
+
 def advisories(manifest):
     """Return a list of ADVISORY strings. Never violations; never verdict-changing.
 
@@ -3032,6 +3222,7 @@ def advisories(manifest):
             "no_work; pair the memory glob with the job's real output lane or declare "
             "write_allowed: []" % (jid,)
         )
+    out.extend(wave_concurrency_advisories(manifest))
     return out
 
 
@@ -3096,14 +3287,15 @@ def validate_text(text, mode=None, repo_root=None, config_path=None,
 
 def _find_repo_root(start):
     """Walk up from ``start`` to the nearest dir containing ``.git`` (a dir OR a
-    worktree ``.git`` file); fall back to the CWD when none is found."""
+    worktree ``.git`` file); ``None`` when there is none. Never the current directory
+    as a guess (ADR 0005): the caller decides what a missing root means."""
     d = os.path.abspath(start)
     while True:
         if os.path.exists(os.path.join(d, ".git")):
             return d
         parent = os.path.dirname(d)
         if parent == d:
-            return os.getcwd()
+            return None
         d = parent
 
 
@@ -3174,6 +3366,13 @@ def main(argv):
         return 2
     if repo_root is None:
         repo_root = _find_repo_root(os.path.dirname(os.path.abspath(path)))
+        if repo_root is None and (mode is not None or require_triage):
+            # A fast-path mode and the triage check both REQUIRE a repository root
+            # (run state, receipts, the taxonomy, the pre-eval record): fail closed.
+            print("error: no git repository above %s and no --repo-root; --mode and "
+                  "--require-triage need a repository root (pass --repo-root DIR)"
+                  % path, file=sys.stderr)
+            return 2
     # Read the RAW bytes so the manifest_digest binding (CR5-6) content-addresses
     # to exactly what the producer digested; decode for YAML parsing separately.
     with open(path, "rb") as fh:
@@ -3184,6 +3383,22 @@ def main(argv):
         print(json.dumps({"verdict": "error", "error": "manifest is not UTF-8 "
                           "(%s)" % e}), file=sys.stderr)
         return 2
+    if repo_root is None:
+        # The note must be TRUE for the manifest in hand: a `fast_path` block is not
+        # skipped without a root, its validation fails closed (`_validate_fast_path`).
+        # The same presence test `validate` applies; an unparseable manifest gets no
+        # note (validate_text reports the parse error).
+        try:
+            _parsed = load_yaml(text)
+        except Exception:  # noqa: BLE001 - the parse error is reported below
+            _parsed = None
+        if isinstance(_parsed, dict) and _parsed.get("fast_path") is not None:
+            print("note: no git repository above %s and no --repo-root; this manifest "
+                  "has a fast_path block, whose validation needs a repository root and "
+                  "fails closed (pass --repo-root DIR)" % path, file=sys.stderr)
+        elif isinstance(_parsed, dict):
+            print("note: no git repository above %s and no --repo-root; checks that "
+                  "need a repository root are skipped" % path, file=sys.stderr)
     try:
         problems = validate_text(text, mode=mode, repo_root=repo_root,
                                  config_path=config_path,
@@ -3847,7 +4062,7 @@ jobs:
     title: "opencode slice"
     type: large_isolated
     backend: opencode
-    model: "gpt-5.6"
+    model: "gpt-6"
     isolation: worktree
     run: serial
     write_allowed: [src/opencode/**]
@@ -5076,7 +5291,7 @@ def _selftest():
     # explicit model override is REJECTED before dispatch.
     opencode_bare_bad = validate_text(OPENCODE_BARE_MODEL_MANIFEST)
     expect(
-        "bare opencode model 'gpt-5.6' REJECTED (not provider/model)",
+        "bare opencode model 'gpt-6' REJECTED (not provider/model)",
         any("not a valid 'provider/model' string" in p for p in opencode_bare_bad),
     )
     opencode_malformed_bad = validate_text(OPENCODE_MALFORMED_MODEL_MANIFEST)
@@ -5968,6 +6183,68 @@ def _selftest():
            unnamespaced_agent_memory_name(
                ".claude/agent-memory/superpowers-v-spec-reviewer/**") is None)
 
+    # --- ADVISORIES: WAVE_EXCEEDS_RUNTIME_CONCURRENCY (v3.6.4) -----------------
+    # The native Workflow runtime's default cap is 16 concurrent agents, and the
+    # emitter's own peak-concurrency arithmetic (see the constant's docstring
+    # above `wave_concurrency_advisories`) is 1 agent per job in flight at a
+    # time — so a wave this wide queues rather than dispatching all at once.
+    def _wave_manifest(n_jobs, max_parallel):
+        jobs = "\n".join(
+            "  - id: task-w%d\n"
+            "    title: \"wave job %d\"\n"
+            "    type: bounded_crud\n"
+            "    backend: claude\n"
+            "    tier: standard\n"
+            "    effort: medium\n"
+            "    isolation: worktree\n"
+            "    run: parallel\n"
+            "    write_allowed: [src/wave%d/**]\n"
+            "    read_allowed: [src/**]\n"
+            "    acceptance: [\"builds\"]"
+            % (i, i, i)
+            for i in range(n_jobs)
+        )
+        return """
+run_id: 2026-09-21-wave
+feature: "wave width"
+spec_path: docs/superpowers/specs/2026-09-21-wave.md
+plan_path: docs/superpowers/plans/2026-09-21-wave.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-09-21-wave.md
+  domain: docs/superpowers/expert/2026-09-21-wave.md
+  library: docs/superpowers/library-audit/2026-09-21-wave.md
+routing_stance: balanced
+max_parallel: %d
+acceptance_criteria:
+  - "ships"
+jobs:
+%s
+""" % (max_parallel, jobs)
+
+    _wide = _wave_manifest(17, 20)
+    _wide_msgs = advisories_text(_wide)
+    expect("advisory: a 17-job single wave raises WAVE_EXCEEDS_RUNTIME_CONCURRENCY",
+           any("17 jobs exceeds" in w and "wave 1" in w for w in _wide_msgs))
+    expect("advisory: the warning names the runtime default and the env var",
+           bool(_wide_msgs) and any(
+               "concurrency cap of 16" in w
+               and "CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS" in w
+               for w in _wide_msgs))
+    expect("advisory: WAVE_EXCEEDS_RUNTIME_CONCURRENCY does NOT change the verdict",
+           validate_text(_wide) == [])
+
+    _narrow = _wave_manifest(4, 4)
+    expect("advisory: a 4-job wave does NOT raise WAVE_EXCEEDS_RUNTIME_CONCURRENCY",
+           not any("exceeds" in w and "concurrency cap" in w
+                   for w in advisories_text(_narrow)))
+    expect("wave-width test manifest (4-job) is itself a clean PASS",
+           validate_text(_narrow) == [])
+
+    # exactly-at-the-limit (16) must NOT warn; one over (17) must.
+    expect("advisory: exactly 16 jobs in one wave does NOT warn",
+           not any("concurrency cap" in w
+                   for w in advisories_text(_wave_manifest(16, 20))))
+
     # --- v3.6: provision_command / provision_timeout_s -------------------------
     def _prov(extra):
         return _v3_manifest() + extra
@@ -5994,6 +6271,48 @@ def _selftest():
     expect("provision: provision_command with a newline is FAIL",
            any("provision_command" in p for p in
                _validate_provision({"provision_command": "npm ci\nrm -rf /"})))
+
+    # --- issue #22: top-level toolchain_artifacts ------------------------------
+    expect("toolchain_artifacts: absent is valid (no key at all)",
+           validate_text(_v3_manifest()) == [])
+    expect("toolchain_artifacts: a valid list of specific globs is PASS",
+           validate_text(_prov(
+               'toolchain_artifacts: ["tsconfig.tsbuildinfo", '
+               '"node_modules/.vite/**"]\n')) == [])
+    expect("toolchain_artifacts: a bare string (not a list) is FAIL",
+           any("toolchain_artifacts" in p for p in
+               validate_text(_prov('toolchain_artifacts: "x"\n'))))
+    expect("toolchain_artifacts: [\"**\"] (catch-all) is FAIL",
+           any("toolchain_artifacts" in p and "catch-all" in p for p in
+               validate_text(_prov('toolchain_artifacts: ["**"]\n'))))
+    expect("toolchain_artifacts: [\"\"] (empty entry) is FAIL",
+           any("toolchain_artifacts" in p for p in
+               validate_text(_prov('toolchain_artifacts: [""]\n'))))
+    expect("toolchain_artifacts: null (bare key) is valid (same absent-vs-null "
+           "rule as global_constraints)",
+           validate_text(_prov("toolchain_artifacts:\n")) == [])
+    # Every other catch-all spelling is refused too, not just bare "**".
+    for _glob in ("*", "**/*", "/**", "./**"):
+        expect("toolchain_artifacts: %r is a catch-all and FAILS" % _glob,
+               any("catch-all" in p for p in _validate_toolchain_artifacts(
+                   {"toolchain_artifacts": [_glob]})))
+    # A catch-all mixed in with legitimate globs still fails the whole list —
+    # one bad entry is enough, the good ones don't dilute it.
+    expect("toolchain_artifacts: a catch-all mixed with valid globs still FAILS",
+           any("catch-all" in p for p in _validate_toolchain_artifacts(
+               {"toolchain_artifacts": ["tsconfig.tsbuildinfo", "**"]})))
+    # A newline inside one entry is refused, same single-line discipline as
+    # provision_command.
+    expect("toolchain_artifacts: an entry with a newline is FAIL",
+           any("toolchain_artifacts" in p and "single-line" in p
+               for p in _validate_toolchain_artifacts(
+                   {"toolchain_artifacts": ["tsconfig.tsbuildinfo\nrm -rf /"]})))
+    # A non-string entry (bool/int) is caught by the shared shape check, not the
+    # catch-all check crashing on a non-string.
+    expect("toolchain_artifacts: a non-string entry (True) is FAIL, not a crash",
+           any("toolchain_artifacts" in p for p in _validate_toolchain_artifacts(
+               {"toolchain_artifacts": [True]})))
+
     # The SHIPPED example must not trip the advisory it documents.
     _ex = os.path.join(_repo3, "examples", "manifest.example.yaml")
     if os.path.isfile(_ex):

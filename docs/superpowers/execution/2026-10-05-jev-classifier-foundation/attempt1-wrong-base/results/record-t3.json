@@ -1,0 +1,33 @@
+{
+  "blocked": true,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "schemas/pre-eval-record.schema.json",
+    "scripts/compound-v-preeval.py"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+    "diff_digest": "sha256:04858303d57f17f7f282f1c12aefb8f8537a390e7864f5f591ee7128d41790d6",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4bd5c495ad217f8d6267815655a3e89afbb8c994\",\n  \"changed\": [\n    \"schemas/pre-eval-record.schema.json\",\n    \"scripts/compound-v-preeval.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-preeval.py\",\n    \"schemas/pre-eval-record.schema.json\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "4bd5c495ad217f8d6267815655a3e89afbb8c994",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "blocked",
+  "summary": "Task A \u2014 record t3 block and --request-file",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'\nbash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'",
+    "exit_code": 1,
+    "failures": [
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo schemas-ok'",
+      "bash -c '/usr/bin/python3 -B scripts/compound-v-preeval.py --selftest >/dev/null && bash tests/test-native-points.sh >/dev/null && echo preeval-ok'"
+    ],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_f9a228c2-79d-2"
+}

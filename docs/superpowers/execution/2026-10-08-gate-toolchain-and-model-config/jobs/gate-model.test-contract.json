@@ -1,0 +1,12 @@
+{
+  "scope": "full",
+  "resolved_commands": [
+    "bash -c 'bash tests/test-integration-gate.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-resolve-model.py --selftest >/dev/null && echo floor-ok'",
+    "bash -c 'for s in scope-check integration-gate emit-workflow resolve-model; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && bash tests/test-agent-memory.sh >/dev/null && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-transcript-watch.sh >/dev/null && echo py-ok'",
+    "bash -c 'bash tests/test-integration-gate.sh >/dev/null && for t in tests/test-resolve-model.sh; do [ -f \"$t\" ] && bash \"$t\" >/dev/null; done; echo tests-ok'",
+    "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'"
+  ],
+  "floor_command": "bash -c 'bash tests/test-integration-gate.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-resolve-model.py --selftest >/dev/null && echo floor-ok'",
+  "full_command": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+  "timeout_s": 540
+}

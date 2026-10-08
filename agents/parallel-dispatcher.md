@@ -31,13 +31,17 @@ The executable spec you implement is [`skills/compound-v/phase-3-parallel-opus-d
 the caller's repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## Required inputs (the caller should provide)
 
@@ -134,8 +138,11 @@ worktree path is absolute.)
 
    ```bash
    # Resolve (backend, tier, effort, config) -> concrete model.
-   # --config points at the project .claude/compound-v.json (its `models` map
-   # overrides the built-in defaults per cell); omit it to use built-in defaults.
+   # The project's .claude/compound-v.json (its `models` map overrides the
+   # built-in defaults per cell) is read even WITHOUT --config: omitting it means
+   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
+   # the built-in table. --repo-dir "$PWD" pins that root (this runs from the
+   # project root), and the maxEffortLevel cap is read from the same root.
    # Build the flag list with explicit if/else (portable across bash AND zsh —
    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
    # Read `routing_stance` once from the manifest and pass `--stance` on every
@@ -144,6 +151,7 @@ worktree path is absolute.)
    set -- --backend "$BACKEND" --tier "$TIER"
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
+   set -- "$@" --repo-dir "$PWD"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
@@ -151,7 +159,7 @@ worktree path is absolute.)
    ```
 
    - A `claude` job resolves tier→model (`frontier`→fable, `deep`→opus, `standard`/`light`→sonnet; `standard`→opus under `conservative`); pass the resolved model to the `Task` call. `effort` on the claude path is advisory — the `Task` call has no separate effort flag.
-   - A `codex` job resolves tier→model (e.g. `deep`→`gpt-5.6-sol`) and passes `--model <resolved>` **and** `--effort <effort>` to [`scripts/compound-v-run-codex-worker.sh`](../scripts/compound-v-run-codex-worker.sh) (`--effort` becomes `-c model_reasoning_effort=<effort>`; codex is the one backend where `xhigh` is accepted). The execution-layer model **never** appears in any frontmatter. **When the job entry carries `timeout_sec`, pass it through as `--timeout-sec <n>`** (see the timeout rule in step 3); omit the flag when the field is absent so the worker script's own `DEFAULT_TIMEOUT_SEC=900` applies. Also pass an **absolute** `--events-log "$REPO/docs/superpowers/execution/<run-id>/logs/<job-id>.jsonl"` (absolute so a dispatcher invoked from any cwd writes and monitors the same file; the worker writes its `--json` event stream there — it is transient run telemetry, gitignored, not committed substrate) and record **that same path** into `state.json jobs[<id>].log` — the liveness sweep (Step 2d) reads it.
+   - A `codex` job resolves tier→model (e.g. `deep`→`gpt-6.1-sol`) and passes `--model <resolved>` **and** `--effort <effort>` to [`scripts/compound-v-run-codex-worker.sh`](../scripts/compound-v-run-codex-worker.sh) (`--effort` becomes `-c model_reasoning_effort=<effort>`; codex is the one backend where `xhigh` is accepted). The execution-layer model **never** appears in any frontmatter. **When the job entry carries `timeout_sec`, pass it through as `--timeout-sec <n>`** (see the timeout rule in step 3); omit the flag when the field is absent so the worker script's own `DEFAULT_TIMEOUT_SEC=900` applies. Also pass an **absolute** `--events-log "$REPO/docs/superpowers/execution/<run-id>/logs/<job-id>.jsonl"` (absolute so a dispatcher invoked from any cwd writes and monitors the same file; the worker writes its `--json` event stream there — it is transient run telemetry, gitignored, not committed substrate) and record **that same path** into `state.json jobs[<id>].log` — the liveness sweep (Step 2d) reads it.
    - **Structured session capture (no stdout preamble):** the worker's stdout is exactly one canonical `job_result` JSON; read `session_id` straight from `job_result.session_id` (the worker parses it from the first `thread.started` event's `thread_id`, UUID-validated — this replaced the old stderr UUID-scrape; there is no `COMPOUND_V_SESSION_ID=` line to strip). Then **persist it into the durable per-job state**: write both `state.json jobs[<id>].session_id = <uuid>` (empty ⇒ resume-fresh) **and** `state.json jobs[<id>].failure_class = <class|null>` from the returned `job_result.failure_class`. These two state fields — not `results/<id>.json` — are what `/v:resume` reads to apply the resume-eligibility rule below.
    - An `antigravity` job resolves tier→model (a Gemini name) and passes `--model <resolved>` (omitted when empty; no effort flag) to [`scripts/compound-v-run-antigravity-worker.sh`](../scripts/compound-v-run-antigravity-worker.sh), plus `--timeout-sec <n>` when the job entry carries `timeout_sec`; always `worktree`, lower-trust.
    - A `cursor` job resolves tier→model (default `auto`; named models are a paid-plan opt-in — a Free plan can only use Auto) and passes `--model <resolved>` (no effort flag) to [`scripts/compound-v-run-cursor-worker.sh`](../scripts/compound-v-run-cursor-worker.sh), plus `--timeout-sec <n>` when the job entry carries `timeout_sec`; always `worktree`, lower-trust, requires an authenticated `cursor-agent`.

@@ -4,3 +4,16 @@
 {"ts": "2026-07-11T01:31:00Z", "topic": "off-negative-control", "outcome": "off"}
 {"ts": "2026-07-11T01:31:00Z", "topic": "engine-failure-injected", "outcome": "no_engine"}
 {"ts": "2026-07-11T01:31:52Z", "topic": "fts5-cyrillic-tokenizer", "outcome": "consumed", "path": "docs/superpowers/recon/2026-07-11-fts5-cyrillic-tokenizer.md"}
+{"ts": "2026-10-05T00:00:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "fired", "engine": "websearch"}
+{"ts": "2026-10-05T00:10:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "saved", "engine": "websearch", "path": "docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md"}
+{"ts": "2026-10-05T00:15:00Z", "topic": "jev-system-one-classifier-via-openrouter", "outcome": "consumed", "path": "docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md"}
+{"ts": "2026-10-05T09:44:20Z", "topic": "jev-review-issues-fix", "outcome": "kb_skip", "reason": "strong hit: same-day review, spec, plan and recon docs/superpowers/recon/2026-10-05-jev-system-one-classifier-via-openrouter.md cover this domain and code"}
+{"ts": "2026-10-05T10:54:14Z", "topic": "engine-c-refinalize-and-lane-guard-prefix", "outcome": "kb_skip", "reason": "strong hit: TROUBLESHOOTING lane guard, CHANGELOG 3.4.2 finding 68 lane map, archaeology 2026-09-11 shared state; repo-internal plumbing of this plugin"}
+{"ts": "2026-10-05T13:29:31Z", "topic": "vault-as-plugin-dependency", "outcome": "kb_skip", "reason": "strong hit: same-day foundation spec on the vault split, plus a sourced docs check of dependencies and option export"}
+{"ts": "2026-10-08T05:40:00Z", "topic": "vault-jev-classify-flat-tool-arguments", "outcome": "kb_skip", "reason": "strong hit: handoff docs/superpowers/research/2026-10-05-jev-next-stage.md FIRST section plus the engine types of 2.1.293 (ToolCallInput: the tool arguments beside them) settle the contract; repo-internal plugin bug"}
+{"ts": "2026-10-08T06:40:00Z", "topic": "v-init-vault-host-and-desktop", "outcome": "kb_skip", "reason": "strong hit: handoff sections on the desktop finding and the maintainer decision, plus the 2026-10-08 live evidence (terminal ok, desktop no_key on 2.1.293); repo-internal command prose"}
+{"ts": "2026-10-08T07:40:00Z", "topic": "phase-t-jev-shadow", "outcome": "kb_skip", "reason": "strong hit: handoff section on the shadow covering only the hook path, the spec 1 design (C3) and the hook and module sources; repo-internal plumbing"}
+{"ts": "2026-10-08T09:55:00Z", "topic": "plugin-root-resolver", "outcome": "kb_skip", "reason": "strong hit: handoff section on the plugin-root resolver bug, with the 2026-10-05 field observation; repo-internal plumbing, the inventory is code archaeology"}
+{"ts": "2026-10-08T12:45:00Z", "topic": "detect-ui-noul-criteria", "outcome": "kb_skip", "reason": "strong hit: the API reference read live today plus the jev_test smoke-test request and response"}
+{"ts": "2026-10-08T12:45:00Z", "topic": "gate-toolchain-and-model-config", "outcome": "kb_skip", "reason": "strong hit: handoff harness-bug section, code confirmation and a fixture reproduction today"}
+{"ts": "2026-10-08T16:20:00Z", "topic": "t3-measurement-and-eval", "outcome": "kb_skip", "reason": "web research done in-session today (LiteLLM, Classmethod, Wavect, reviews); findings folded into the spec"}

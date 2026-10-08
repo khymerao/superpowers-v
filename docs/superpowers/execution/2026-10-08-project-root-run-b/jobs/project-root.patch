@@ -1,0 +1,942 @@
+diff --git a/hooks/brainstorm-trigger0-nudge.sh b/hooks/brainstorm-trigger0-nudge.sh
+index a9d0b96..31d385b 100755
+--- a/hooks/brainstorm-trigger0-nudge.sh
++++ b/hooks/brainstorm-trigger0-nudge.sh
+@@ -72,6 +72,24 @@ skill_name=$(echo "$input" | jq -r '.tool_input.skill // empty' 2>/dev/null || e
+ topic=$(echo "$input" | jq -r 'if (.tool_input.args|type) == "string" then .tool_input.args else empty end' 2>/dev/null || echo "")
+ hook_cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null || echo "")
+ 
++# The PROJECT root: walk UP from the hook cwd to the nearest ancestor holding `.git`
++# (a directory, or a linked worktree's `.git` file); fall back to the cwd itself.
++# Bounded to 40 levels — the same rule, bound and not-found result as
++# hooks/postcompact-resume.sh, duplicated because hooks share no library.
++_project_root() {
++  local d="$1" i=0
++  while [ "$i" -lt 40 ]; do
++    [ -e "$d/.git" ] && { printf '%s' "$d"; return 0; }
++    [ "$d" = "/" ] && break
++    d="$(dirname "$d")" || break
++    [ -n "$d" ] || break
++    i=$((i + 1))
++  done
++  printf '%s' "$1"
++}
++hook_root=""
++if [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then hook_root="$(_project_root "$hook_cwd")"; fi
++
+ # Fire only for the Skill tool
+ [ "$tool_name" = "Skill" ] || exit 0
+ 
+@@ -131,7 +149,7 @@ if [ -n "$topic" ] && command -v python3 >/dev/null 2>&1; then
+   if [ -f "$helper" ]; then
+     set -- python3 -B "$helper" "--recall-query=$topic" --recall-engine "$engine" \
+       --recall-top 3 --recall-timeout 3 --no-embed
+-    if [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then set -- "$@" --repo "$hook_cwd"; fi
++    if [ -n "$hook_root" ] && [ -d "$hook_root" ]; then set -- "$@" --repo "$hook_root"; fi
+     recall_block=$(PYTHONDONTWRITEBYTECODE=1 _bounded 40 "$@" || true)
+   fi
+ fi
+diff --git a/hooks/precompact-snapshot.sh b/hooks/precompact-snapshot.sh
+index b7491a0..79359ce 100755
+--- a/hooks/precompact-snapshot.sh
++++ b/hooks/precompact-snapshot.sh
+@@ -131,6 +131,23 @@ snapshot_path() {
+   printf '%s/snap-%s' "$(_store_dir)" "$key"
+ }
+ 
++# From the canonicalized cwd, walk UP to the nearest ancestor holding `.git` (a
++# directory, or a linked worktree's `.git` file); fall back to the cwd itself.
++# Bounded to 40 levels. DUPLICATED from hooks/postcompact-resume.sh on purpose —
++# same bound, same not-found result — so a session started in a subdirectory
++# snapshots the same project that hook reads back.
++_project_root() {
++  local d="$1" i=0
++  while [ "$i" -lt 40 ]; do
++    [ -e "$d/.git" ] && { printf '%s' "$d"; return 0; }
++    [ "$d" = "/" ] && break
++    d="$(dirname "$d")" || break
++    [ -n "$d" ] || break
++    i=$((i + 1))
++  done
++  printf '%s' "$1"
++}
++
+ hook_main() {
+   trap - EXIT
+   command -v jq >/dev/null 2>&1 || return 1
+@@ -174,10 +191,15 @@ EOF
+   local rootv
+   rootv="$(cd "$cwdv" 2>/dev/null && pwd -P)" || return 1
+   [ -n "$rootv" ] || return 1
++  # The snapshot stays KEYED on the canonical cwd (postcompact-resume.sh keys its
++  # read on the same value); the PROJECT it describes is the nearest `.git` above.
++  local projv
++  projv="$(_project_root "$rootv")"
++  [ -n "$projv" ] || return 1
+ 
+   # Present-only, exactly like the dashboard: a project that never adopted
+   # Compound V gets nothing written and nothing said.
+-  [ -d "${cwdv}/docs/superpowers" ] || [ -f "${cwdv}/.claude/compound-v.json" ] || return 1
++  [ -d "${projv}/docs/superpowers" ] || [ -f "${projv}/.claude/compound-v.json" ] || return 1
+ 
+   local py=""
+   for c in python3 /usr/bin/python3; do
+@@ -229,7 +251,7 @@ EOF
+   # under the outer one, so the hook always gets to fail silently on its own terms.
+   local line
+   line="$(_bounded "$_PRECOMPACT_QUERY_TIMEOUT" "$py" "$dash" resume \
+-            --execution-root "${cwdv}/docs/superpowers/execution")" || return 1
++            --execution-root "${projv}/docs/superpowers/execution")" || return 1
+   line="$(printf '%s' "$line" | sed '/^$/d')"
+   [ -n "$line" ] || return 1
+ 
+diff --git a/hooks/run-band.test.tsx b/hooks/run-band.test.tsx
+index 3669f90..bdf4de0 100644
+--- a/hooks/run-band.test.tsx
++++ b/hooks/run-band.test.tsx
+@@ -113,6 +113,38 @@ test('draws nothing when no run is active', async ($, on) => {
+   expect(await ui.drawn()).toMatchObject({ type: 'Text' })
+ })
+ 
++test('a session started in a subdirectory reads the project root execution directory', async ($, on) => {
++  const clock = mock.clock(on)
++  const calls: string[][] = []
++  on('session.start', () => ({ cwd: '/repo/sub/deeper' }))
++  on('env.get', () => ({ value: undefined }))
++  on('session.cwd', () => ({ value: '/repo/sub/deeper' }))
++  on('fs.stat', ($$, e) => {
++    const p = String(e.path)
++    if (p === '/repo/.git') {
++      return { value: { kind: 'dir' as const, size: 1, mtimeMs: 1, isLink: false } }
++    }
++    if (p === '/repo/docs/superpowers/execution') {
++      return { value: { kind: 'dir' as const, size: 1, mtimeMs: 1, isLink: false } }
++    }
++    if (p.endsWith('.py')) {
++      return { value: { kind: 'file' as const, size: 1, mtimeMs: 1, isLink: false } }
++    }
++    throw new Error('ENOENT')
++  })
++  on('process.run', ($$, e) => {
++    calls.push([...e.argv])
++
++    return { value: { exitCode: 0, stdout: '{"run": null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
++  })
++
++  await $.session.start({ cwd: '/repo/sub/deeper', surface: 'terminal', isInteractive: true })
++  await clock.advance(60_000)
++  const hud = calls.find(a => a.includes('hud')) ?? []
++  const i = hud.indexOf('--execution-root')
++  expect(i === -1 ? 'no --execution-root' : hud[i + 1]).toBe('/repo/docs/superpowers/execution')
++})
++
+ test('CV_DISABLED_HOOKS=run-band starts no poller', async ($, on) => {
+   const clock = mock.clock(on)
+   let runs = 0
+diff --git a/hooks/run-band.tsx b/hooks/run-band.tsx
+index ed2a323..9531b7f 100644
+--- a/hooks/run-band.tsx
++++ b/hooks/run-band.tsx
+@@ -46,12 +46,47 @@ async function scriptPath($: EngineInterface, name: string): Promise<string | nu
+   }
+ }
+ 
+-async function readHud($: EngineInterface, runId?: string): Promise<{ run: HudRun | null } | null> {
++// The PROJECT root: walk UP from the session cwd to the nearest ancestor holding `.git` (a
++// directory, or a linked worktree's `.git` file); fall back to the cwd itself. Bounded to
++// 40 levels — the same rule, bound and not-found result as hooks/postcompact-resume.sh.
++const ROOT_WALK_MAX = 40
++
++async function projectRoot($: EngineInterface, cwd: string): Promise<string> {
++  let d = cwd
++  for (let i = 0; i < ROOT_WALK_MAX; i++) {
++    try {
++      await $.fs.stat(`${d === '/' ? '' : d}/.git`)
++
++      return d
++    } catch {
++      // not here: keep walking
++    }
++    if (d === '/' || d === '') {
++      break
++    }
++    const cut = d.lastIndexOf('/')
++    d = cut <= 0 ? '/' : d.slice(0, cut)
++  }
++
++  return cwd
++}
++
++function parentDir(path: string): string {
++  const cut = path.lastIndexOf('/')
++
++  return cut <= 0 ? '' : path.slice(0, cut)
++}
++
++async function readHud($: EngineInterface, executionRoot: string, runId?: string): Promise<{ run: HudRun | null } | null> {
+   const script = await scriptPath($, 'compound-v-dashboard.py')
+   if (script === null) {
+     return null
+   }
+-  const argv = ['python3', '-B', script, 'hud', ...(runId ? ['--run', runId] : [])]
++  const argv = [
++    'python3', '-B', script, 'hud',
++    ...(executionRoot ? ['--execution-root', executionRoot] : []),
++    ...(runId ? ['--run', runId] : []),
++  ]
+   try {
+     const { exitCode, stdout } = await $.process.run(argv, { timeoutMs: READER_TIMEOUT_MS })
+     if (exitCode !== 0) {
+@@ -158,7 +193,8 @@ function closingLine(run: HudRun): string {
+ 
+ // The poller's own bookkeeping. Module variables start over on a hot reload, which is
+ // what we want: the next tick re-reads everything.
+-const mem = { isBusy: false, ticks: 0, stateMtime: -1, livenessAt: 0 }
++// `rootCwd`/`root` cache the walk-up per session cwd, so the idle cost stays one stat.
++const mem = { isBusy: false, ticks: 0, stateMtime: -1, livenessAt: 0, rootCwd: '', root: '' }
+ 
+ async function step($: EngineInterface): Promise<void> {
+   const now = await $.clock.now()
+@@ -174,16 +210,23 @@ async function step($: EngineInterface): Promise<void> {
+       return
+     }
+     // A repository that never ran Compound V has no execution directory: one stat every
+-    // 30 s, and no reader process at all.
++    // 30 s, and no reader process at all. The directory is the PROJECT's, found by walking
++    // up from the cwd, so a session started in a subdirectory still sees its run.
++    let executionRoot = ''
+     try {
+-      const root = `${await $.session.cwd()}/docs/superpowers/execution`
+-      if ((await $.fs.stat(root)).kind !== 'dir') {
++      const cwd = await $.session.cwd()
++      if (mem.rootCwd !== cwd || mem.root === '') {
++        mem.root = await projectRoot($, cwd)
++        mem.rootCwd = cwd
++      }
++      executionRoot = `${mem.root}/docs/superpowers/execution`
++      if ((await $.fs.stat(executionRoot)).kind !== 'dir') {
+         return
+       }
+     } catch {
+       return
+     }
+-    const doc = await readHud($)
++    const doc = await readHud($, executionRoot)
+     if (doc?.run) {
+       mem.stateMtime = -1
+       mem.livenessAt = 0
+@@ -212,7 +255,7 @@ async function step($: EngineInterface): Promise<void> {
+   let run: HudRun = tracked
+   if (hasChanged) {
+     mem.stateMtime = mtime
+-    const doc = await readHud($)
++    const doc = await readHud($, parentDir(tracked.run_dir))
+     if (doc === null) {
+       await update($, band, b => ({ ...(b ?? EMPTY), error: 'run state unreadable' }))
+ 
+@@ -220,7 +263,7 @@ async function step($: EngineInterface): Promise<void> {
+     }
+     if (doc.run === null || doc.run.id !== tracked.id) {
+       // The tracked run left the active set: say how it ended, for a minute.
+-      const last = (await readHud($, tracked.id))?.run ?? tracked
++      const last = (await readHud($, parentDir(tracked.run_dir), tracked.id))?.run ?? tracked
+       mem.stateMtime = -1
+       mem.livenessAt = 0
+       await update($, band, () => ({
+diff --git a/scripts/compound-v-fastpath-materialize.py b/scripts/compound-v-fastpath-materialize.py
+index 7c9dab4..535b2b8 100644
+--- a/scripts/compound-v-fastpath-materialize.py
++++ b/scripts/compound-v-fastpath-materialize.py
+@@ -87,7 +87,6 @@ import tempfile
+ # --------------------------------------------------------------------------- #
+ EXEC_DIR_REL = os.path.join("docs", "superpowers", "execution")
+ PRE_EVAL_DIR_REL = os.path.join("docs", "superpowers", "pre-eval")
+-TRIAGE_STREAM_REL = os.path.join("docs", "superpowers", "memory", "triage-outcomes.jsonl")
+ 
+ IMPL_JOB_ID = "task-fastpath-impl"          # never a reviewer token (review/quality/…)
+ PHASE_FASTPATH_DISPATCHED = "FASTPATH_DISPATCHED"
+@@ -139,6 +138,12 @@ def _triage():
+     return _load_sibling("compound-v-triage-outcomes.py", "compound_v_triage_outcomes")
+ 
+ 
++def _stream_rel():
++    """The triage-outcomes stream path relative to the project root: triage-outcomes'
++    ``STREAM_RELPATH``, the single definition (never a second copy here)."""
++    return _triage().STREAM_RELPATH
++
++
+ def _validator():
+     return _load_sibling("compound-v-validate-manifest.py", "compound_v_validate_manifest")
+ 
+@@ -705,10 +710,10 @@ def _ensure_bind(git, repo, pre_eval_id, run_id, ts=None):
+     """Append the ``bind`` event if not already present (idempotent across resume — a crash
+     after append-before-commit is handled: the line is present so we skip re-append but the
+     commit below still captures the uncommitted stream), then commit the stream."""
+-    stream_full = os.path.join(repo, TRIAGE_STREAM_REL)
++    stream_full = os.path.join(repo, _stream_rel())
+     if not _bind_present(stream_full, pre_eval_id, run_id):
+         _triage().bind_run(pre_eval_id, run_id, ts=ts, stream_path=stream_full)
+-    _commit_paths(git, repo, [TRIAGE_STREAM_REL],
++    _commit_paths(git, repo, [_stream_rel()],
+                   "chore(v2.9): bind fast-path run %s to %s" % (run_id, pre_eval_id))
+ 
+ 
+@@ -899,12 +904,12 @@ def _selftest():
+         git(repo, ["add", "-A"])
+         git(repo, ["commit", "-q", "-m", "seed: taxonomy + target"])
+ 
+-        stream = os.path.join(repo, TRIAGE_STREAM_REL)
++        stream = os.path.join(repo, _stream_rel())
+         fake = (lambda req, r, taxonomy: {"resolved_paths": [target], "fan_out": 1,
+                                           "flags": [], "confidence": "exact"})
+         res = pe.run_preeval(request, repo=repo, _localize=fake, ts=ts, stream_path=stream)
+         # Commit the pre-eval artifacts + the predicted stream line.
+-        git(repo, ["add", "docs/superpowers/pre-eval", TRIAGE_STREAM_REL])
++        git(repo, ["add", "docs/superpowers/pre-eval", _stream_rel()])
+         git(repo, ["commit", "-q", "-m", "pre-eval: %s" % res["pre_eval_id"]])
+         return res
+ 
+@@ -978,11 +983,11 @@ def _selftest():
+                    i_state < i_bind < i_art)
+ 
+         # --- bind committed BEFORE state (proven by ordering) + present in the stream. ---
+-        stream_full = os.path.join(repo, TRIAGE_STREAM_REL)
++        stream_full = os.path.join(repo, _stream_rel())
+         expect("bind event present in the triage stream",
+                _bind_present(stream_full, pid, run_id))
+         expect("bind stream is committed",
+-               _git_tracked(git, repo, TRIAGE_STREAM_REL))
++               _git_tracked(git, repo, _stream_rel()))
+ 
+         # --- state.json is NOT in the artifacts commit — the commit that FIRST added it
+         #     must be the dedicated (last) state commit. ---
+@@ -1051,13 +1056,13 @@ def _selftest():
+         expect("crash@artifacts: state.json not yet committed",
+                not _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json")))
+         expect("crash@artifacts: bind not yet present",
+-               not _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
++               not _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
+         # Reconcile: a fresh full run completes deterministically (same run-id).
+         out = run_materialize(repo, pid)
+         expect("crash@artifacts reconciles to materialized", out["status"] == "materialized")
+         expect("crash@artifacts: same deterministic run-id", out["run_id"] == run_id)
+         expect("crash@artifacts: bind now present + before state",
+-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
++               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
+         subs = commit_subjects(repo)
+         i_bind = subs.index("chore(v2.9): bind fast-path run %s to %s" % (run_id, pid))
+         i_state = subs.index("chore(v2.9): fast-path run %s dispatched (state)" % run_id)
+@@ -1075,18 +1080,18 @@ def _selftest():
+         expect("stop_after=bind: bind committed, state not yet",
+                stop["status"] == "stopped_after_bind")
+         expect("crash@bind: bind present + committed",
+-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id)
+-               and _git_tracked(git, repo, TRIAGE_STREAM_REL))
++               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id)
++               and _git_tracked(git, repo, _stream_rel()))
+         expect("crash@bind: state.json not yet committed",
+                not _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json")))
+         out = run_materialize(repo, pid)
+         expect("crash@bind reconciles to materialized", out["status"] == "materialized")
+         expect("crash@bind: committed state.json => bind durable (invariant holds)",
+                _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json"))
+-               and _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
++               and _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
+         # No duplicate bind lines were appended on reconcile.
+         expect("crash@bind: bind is not duplicated on reconcile",
+-               _bind_count(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id) == 1)
++               _bind_count(os.path.join(repo, _stream_rel()), pid, run_id) == 1)
+ 
+     # ============================ (6) Crash after STATE (full) =================== #
+     with tempfile.TemporaryDirectory() as td:
+@@ -1101,7 +1106,7 @@ def _selftest():
+         expect("crash@state (complete): resume is a no-op",
+                out["status"] == "already_complete" and count_commits(repo) == before)
+         expect("invariant: committed state => bind present (never state-without-bind)",
+-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
++               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
+ 
+     # ============================ (7) Block-YAML emitter sanity ================== #
+     m = {"a": "x:y", "n": 1, "b": True, "lst": ["p/q", "r"],
+diff --git a/scripts/compound-v-preeval.py b/scripts/compound-v-preeval.py
+index 1cdbf5e..cac6042 100644
+--- a/scripts/compound-v-preeval.py
++++ b/scripts/compound-v-preeval.py
+@@ -1617,17 +1617,13 @@ def triage_request(request, repo=".", session_id=None, base_commit=None,
+     sid = (session_id or "").strip() or None
+     base = (base_commit or "").strip() or None
+ 
+-    # THE OUTCOME STREAM BELONGS TO THE REPO THE RECORD BELONGS TO, and it has to be
+-    # said out loud here: `compound-v-triage-outcomes.default_stream_path()` derives its
+-    # path from the MODULE's location (the parent of `scripts/`), not from `repo`. In a
+-    # dogfooding checkout those are the same directory and the difference is invisible;
+-    # for `hooks/triage-prompt-nudge.sh`, which runs an installed plugin's engine against
+-    # a different project, they are not, and the `predicted` event would land in the
+-    # plugin checkout while the record it keys landed in the project. Pinning it from
+-    # `repo` keeps the pair together. A caller that knows better still wins.
++    # THE OUTCOME STREAM BELONGS TO THE REPO THE RECORD BELONGS TO. Pinning it from
++    # `repo` keeps the record and its `predicted` event together even when this engine
++    # runs from an installed plugin against a different project (as
++    # `hooks/triage-prompt-nudge.sh` does). The relative path is triage-outcomes' own
++    # `STREAM_RELPATH`, the single definition. A caller that knows better still wins.
+     kwargs.setdefault("stream_path",
+-                      os.path.join(repo or ".", "docs", "superpowers", "memory",
+-                                   "triage-outcomes.jsonl"))
++                      os.path.join(repo or ".", _triage_mod().STREAM_RELPATH))
+ 
+     binding = {"session_id": sid, "base_commit": base}
+ 
+@@ -2528,8 +2524,7 @@ def _selftest():
+         tax_file = os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml")
+         with open(tax_file, "w", encoding="utf-8") as fh:
+             fh.write(_EXAMPLE_TAXONOMY_TEXT)
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+ 
+         # (a) AC-1 end-to-end: shared-token 'make button red' → FULL via override #3.
+         fk = fake_localize_factory(_loc(["src/ui/button.css", "src/ui/card.css"],
+@@ -2580,8 +2575,7 @@ def _selftest():
+         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
+                   encoding="utf-8") as fh:
+             fh.write(_EXAMPLE_TAXONOMY_TEXT)
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+ 
+         # (c) FASTPATH_ELIGIBLE end-to-end: trivial local CSS → eligible record validates,
+         # and carries a non-null taxonomy_ref/digest (the schema if/then requirement).
+@@ -2822,8 +2816,7 @@ def _selftest():
+ 
+     # (e) Absent-taxonomy end-to-end: no taxonomy file → FULL, null taxonomy fields, valid.
+     with tempfile.TemporaryDirectory() as repo:
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+         fk_any = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
+         resa = run_preeval("make button red", repo=repo, _localize=fk_any,
+                            t3_category="plumbing", ts="2026-07-12T10:19:00Z",
+@@ -2880,8 +2873,7 @@ def _selftest():
+         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
+                   encoding="utf-8") as fh:
+             fh.write(malformed_tax_text)
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+         fk = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
+         resm = run_preeval("tweak local button padding", repo=repo, _localize=fk,
+                            t3_category="plumbing", ts="2026-07-12T10:20:00Z",
+@@ -2903,7 +2895,7 @@ def _selftest():
+         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
+                   encoding="utf-8") as fh:
+             fh.write(_EXAMPLE_TAXONOMY_TEXT)
+-        return os.path.join(repo, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
++        return os.path.join(repo, _triage_mod().STREAM_RELPATH)
+ 
+     # (a) enabled:false → the whole stage is a no-op → FULL_PIPELINE, NO artifacts written.
+     with tempfile.TemporaryDirectory() as repo:
+@@ -3035,8 +3027,7 @@ def _selftest():
+         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
+                   encoding="utf-8") as fh:
+             fh.write(_EXAMPLE_TAXONOMY_TEXT)
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+         fk_fp = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
+ 
+         # (a) No run_dir => advisor sensor OFF (fail-open) => trivial change stays FASTPATH
+@@ -3092,8 +3083,7 @@ def _selftest():
+             fh.write(_EXAMPLE_TAXONOMY_TEXT
+                      + "\nauto_route_allow:\n  - \"src/ui/**/*.css\"\n"
+                      + "auto_route_max_lines: 20\n")
+-        stream = os.path.join(repo, "docs", "superpowers", "memory",
+-                              "triage-outcomes.jsonl")
++        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
+ 
+         fk_t = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
+         t = triage_request("tweak local button padding", repo=repo,
+@@ -3217,7 +3207,7 @@ def _selftest():
+         with open(os.path.join(repo, ".claude", "compound-v-impact-taxonomy.yaml"), "w",
+                   encoding="utf-8") as fh:
+             fh.write(text)
+-        return os.path.join(repo, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
++        return os.path.join(repo, _triage_mod().STREAM_RELPATH)
+ 
+     def _t3_run(text, paths, flags, cat, pid, request, **kw):
+         """One run_preeval in a fresh repo. Returns (result, stream lines)."""
+diff --git a/scripts/compound-v-project-config.py b/scripts/compound-v-project-config.py
+index 8ca6287..ea32a80 100644
+--- a/scripts/compound-v-project-config.py
++++ b/scripts/compound-v-project-config.py
+@@ -33,6 +33,7 @@ Usage:
+ 
+ import json
+ import os
++import subprocess
+ import sys
+ 
+ # Config file location relative to the repo root.
+@@ -119,6 +120,36 @@ def config_path_for_repo(repo):
+     return os.path.join(repo or ".", CONFIG_RELPATH)
+ 
+ 
++def resolve_project_root(repo=None, start=None):
++    """The project root, by one rule (ADR 0005, rules 5-8).
++
++    An explicit ``repo`` wins: its real path, which must be a directory. Otherwise the
++    git toplevel of ``start`` (default: the current directory), via
++    ``git -C <start> rev-parse --show-toplevel``, as a real path — that also resolves a
++    linked worktree, whose ``.git`` is a file. Outside a git repository this raises
++    ``ValueError`` naming the problem. It never consults this module's own location and
++    never returns the current directory as a guess: a script's location is the PLUGIN
++    root, which is a different directory whenever the plugin is installed."""
++    if repo is not None:
++        real = os.path.realpath(str(repo))
++        if not os.path.isdir(real):
++            raise ValueError("project root %r is not a directory" % (repo,))
++        return real
++    base = start if start is not None else os.getcwd()
++    try:
++        proc = subprocess.run(["git", "-C", str(base), "rev-parse", "--show-toplevel"],
++                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                              universal_newlines=True, timeout=10)
++    except (OSError, subprocess.SubprocessError) as e:
++        raise ValueError("cannot resolve the project root from %s: git did not run (%s); "
++                         "pass --repo <project-root>" % (base, e))
++    top = (proc.stdout or "").strip()
++    if proc.returncode != 0 or not top:
++        raise ValueError("%s is not inside a git repository; pass --repo <project-root>"
++                         % (base,))
++    return os.path.realpath(top)
++
++
+ def load_project_config(repo):
+     """Fail-closed load of ``<repo>/.claude/compound-v.json`` -> dict.
+ 
+@@ -572,6 +603,58 @@ def _selftest():
+         expect("CLI surfaces the jev warnings",
+                any("1.5" in w for w in out.get("warnings", [])))
+ 
++    # resolve_project_root: one rule (ADR 0005). GIT_CEILING_DIRECTORIES keeps git from
++    # finding a repository ABOVE the temp dir, so "outside git" means outside git.
++    _env_saved = os.environ.get("GIT_CEILING_DIRECTORIES")
++    with tempfile.TemporaryDirectory() as td:
++        os.environ["GIT_CEILING_DIRECTORIES"] = os.path.realpath(td)
++        try:
++            proj = os.path.join(td, "proj")
++            sub = os.path.join(proj, "a", "b")
++            os.makedirs(sub)
++            real_proj = os.path.realpath(proj)
++            expect("explicit repo wins (real path)",
++                   resolve_project_root(repo=proj, start=td) == real_proj)
++            expect("explicit repo that is not a directory raises",
++                   raises(lambda: resolve_project_root(repo=os.path.join(td, "nope"))))
++            expect("outside git with no repo raises",
++                   raises(lambda: resolve_project_root(start=sub)))
++            try:
++                resolve_project_root(start=sub)
++                msg = ""
++            except ValueError as e:
++                msg = str(e)
++            expect("outside git: the message names the problem",
++                   "not inside a git repository" in msg)
++            gq = ["git", "-c", "user.email=t@t", "-c", "user.name=t",
++                  "-c", "commit.gpgsign=false"]
++            subprocess.run(gq + ["init", "-q", proj], check=True)
++            expect("git toplevel from a subdirectory",
++                   resolve_project_root(start=sub) == real_proj)
++            expect("never the start directory as a guess",
++                   resolve_project_root(start=sub) != os.path.realpath(sub))
++            subprocess.run(gq + ["-C", proj, "commit", "-q", "--allow-empty", "-m", "x"],
++                           check=True)
++            wt = os.path.join(td, "wt")
++            subprocess.run(gq + ["-C", proj, "worktree", "add", "-q", wt],
++                           check=True, stdout=subprocess.DEVNULL,
++                           stderr=subprocess.DEVNULL)
++            expect("a linked worktree (.git is a file) resolves to the worktree",
++                   os.path.isfile(os.path.join(wt, ".git"))
++                   and resolve_project_root(start=wt) == os.path.realpath(wt))
++            cwd_saved = os.getcwd()
++            try:
++                os.chdir(sub)
++                expect("start defaults to the current directory",
++                       resolve_project_root() == real_proj)
++            finally:
++                os.chdir(cwd_saved)
++        finally:
++            if _env_saved is None:
++                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
++            else:
++                os.environ["GIT_CEILING_DIRECTORIES"] = _env_saved
++
+     if failures:
+         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
+         return 1
+diff --git a/scripts/compound-v-triage-outcomes.py b/scripts/compound-v-triage-outcomes.py
+index f6fa753..93819f8 100644
+--- a/scripts/compound-v-triage-outcomes.py
++++ b/scripts/compound-v-triage-outcomes.py
+@@ -252,13 +252,16 @@ def _tier_rank():
+ # ---------------------------------------------------------------------------- #
+ # Paths + config.
+ # ---------------------------------------------------------------------------- #
+-def _repo_root():
+-    here = os.path.dirname(os.path.abspath(__file__))
+-    return os.path.dirname(here)
++def _project_root(repo=None):
++    """The PROJECT root by the one shared rule (project-config ``resolve_project_root``):
++    an explicit ``repo`` wins, else the git toplevel of the current directory; outside a
++    git repository it raises ``ValueError``. Never this script's own location — that is
++    the plugin root, a different directory whenever the plugin is installed."""
++    return _project_config().resolve_project_root(repo)
+ 
+ 
+-def default_stream_path():
+-    return os.path.join(_repo_root(), STREAM_RELPATH)
++def default_stream_path(repo=None):
++    return os.path.join(_project_root(repo), STREAM_RELPATH)
+ 
+ 
+ def resolve_min_sample_count(repo=None, override=None):
+@@ -269,9 +272,9 @@ def resolve_min_sample_count(repo=None, override=None):
+         return int(override)
+     pc = _project_config()
+     try:
+-        cfg = pc.load_project_config(repo if repo is not None else _repo_root())
++        cfg = pc.load_project_config(_project_root(repo))
+     except ValueError:
+-        cfg = {}  # malformed config → safe defaults (caller may warn separately)
++        cfg = {}  # malformed config / no project root → safe defaults (never fail open)
+     values, _warnings = pc.resolve_pre_eval(cfg)
+     return int(values["min_sample_count"])
+ 
+@@ -636,7 +639,7 @@ def _make_git_ctx(exec_dir, stream_path=None):
+     root = _git_toplevel(exec_dir)
+     ctx["repo_root"] = root
+     if root:
+-        sp = os.path.abspath(stream_path or default_stream_path())
++        sp = os.path.abspath(stream_path or default_stream_path(root))
+         ctx["stream_committed"] = _git_path_committed(ctx, sp)
+     return ctx
+ 
+@@ -746,8 +749,7 @@ def _resolve_exec_dir(stream_path=None, exec_dir=None, repo=None):
+     if stream_path:
+         sp = os.path.abspath(stream_path)
+         return os.path.join(os.path.dirname(os.path.dirname(sp)), "execution")
+-    base = repo if repo is not None else _repo_root()
+-    return os.path.join(base, _EXEC_RELPATH)
++    return os.path.join(_project_root(repo), _EXEC_RELPATH)
+ 
+ 
+ def _read_run_state(ctx, exec_dir, run_id):
+@@ -875,7 +877,7 @@ def _cohorts(stream_path=None, exec_dir=None, repo=None):
+     """
+     exec_dir = _resolve_exec_dir(stream_path, exec_dir, repo)
+     ctx = _make_git_ctx(exec_dir, stream_path)
+-    stream_abspath = os.path.abspath(stream_path or default_stream_path())
++    stream_abspath = os.path.abspath(stream_path or default_stream_path(repo))
+     # CRIT-1: reduce the COMMITTED blob at HEAD, never the mutable working-tree file — an
+     # uncommitted appended / overriding event must not affect precision / Tier-2.
+     state = _reduce_committed(ctx, stream_abspath)
+@@ -1133,9 +1135,9 @@ def resolve_breaker_policy(repo=None, window=None, max_rate=None):
+         return _coerce_window(window), _coerce_max_rate(max_rate)
+     pc = _project_config()
+     try:
+-        cfg = pc.load_project_config(repo if repo is not None else _repo_root())
++        cfg = pc.load_project_config(_project_root(repo))
+     except ValueError:
+-        cfg = {}  # malformed config → the safe declared defaults, never fail open
++        cfg = {}  # malformed config / no project root → the safe declared defaults
+     block = cfg.get("pre_eval")
+     if not isinstance(block, dict):
+         block = {}
+@@ -1347,12 +1349,14 @@ def main(argv):
+     p_pred.add_argument("--taxonomy-sha")
+     p_pred.add_argument("--field", action="append", help="extra k=v (repeatable)")
+     p_pred.add_argument("--stream")
++    p_pred.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
+ 
+     p_bind = sub.add_parser("bind")
+     p_bind.add_argument("--pre-eval-id", required=True)
+     p_bind.add_argument("--run-id", required=True)
+     p_bind.add_argument("--escalation-child", action="store_true")
+     p_bind.add_argument("--stream")
++    p_bind.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
+ 
+     p_act = sub.add_parser("actual")
+     p_act.add_argument("--pre-eval-id", required=True)
+@@ -1372,6 +1376,7 @@ def main(argv):
+     p_act.add_argument("--demotion-reason")
+     p_act.add_argument("--field", action="append", help="extra k=v (repeatable)")
+     p_act.add_argument("--stream")
++    p_act.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
+ 
+     for name in ("precision", "tier2", "cohorts"):
+         q = sub.add_parser(name)
+@@ -1406,6 +1411,12 @@ def main(argv):
+         return 2
+ 
+     try:
++        # The stream belongs to the PROJECT (explicit --repo, else the git toplevel of
++        # the cwd), resolved once, before anything is read or written. Outside a git
++        # repository with neither --repo nor --stream this raises, and the command exits
++        # non-zero having written nothing.
++        if args.stream is None:
++            args.stream = default_stream_path(args.repo)
+         if args.cmd == "predicted":
+             obj = append_predicted(
+                 args.pre_eval_id, decision=args.decision,
+@@ -2357,6 +2368,41 @@ def _selftest():
+         expect("every event is one appended JSON line", len(_ev_lines) == 3
+                and all(json.loads(l)["event"] in EVENTS for l in _ev_lines))
+ 
++    # ADR 0005: the default stream is the PROJECT's (explicit repo / git toplevel of the
++    # cwd), never derived from this script's location, and outside git it refuses.
++    with tempfile.TemporaryDirectory() as td:
++        _ceil = os.environ.get("GIT_CEILING_DIRECTORIES")
++        os.environ["GIT_CEILING_DIRECTORIES"] = os.path.realpath(td)
++        try:
++            expect("no _repo_root derived from the script's location",
++                   "_repo_root" not in globals())
++            expect("default_stream_path(repo) is <repo>/" + STREAM_RELPATH,
++                   default_stream_path(td)
++                   == os.path.join(os.path.realpath(td), STREAM_RELPATH))
++            _nog = os.path.join(td, "nogit")
++            os.makedirs(_nog)
++            _cwd = os.getcwd()
++            os.chdir(_nog)
++            try:
++                _err = io.StringIO()
++                _saved_err = sys.stderr
++                sys.stderr = _err
++                try:
++                    _rc = main(["compound-v-triage-outcomes.py", "predicted",
++                                "--pre-eval-id", "PID-NOGIT"])
++                finally:
++                    sys.stderr = _saved_err
++                expect("outside git with no --repo/--stream: non-zero, nothing written",
++                       _rc != 0 and os.listdir(_nog) == []
++                       and "not inside a git repository" in _err.getvalue())
++            finally:
++                os.chdir(_cwd)
++        finally:
++            if _ceil is None:
++                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
++            else:
++                os.environ["GIT_CEILING_DIRECTORIES"] = _ceil
++
+     if failures:
+         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
+         return 1
+diff --git a/scripts/compound-v-validate-manifest.py b/scripts/compound-v-validate-manifest.py
+index 3be0bb1..b5709fa 100755
+--- a/scripts/compound-v-validate-manifest.py
++++ b/scripts/compound-v-validate-manifest.py
+@@ -1617,7 +1617,10 @@ def _validate_fast_path(manifest, fp, mode, repo_root, config_path, receipt_path
+     Returns a list of violation strings."""
+     problems = []
+     if repo_root is None:
+-        repo_root = os.getcwd()
++        # Every fast-path invariant below reads the repository (run state, receipts,
++        # the config): no root is fail-closed, never the current directory as a guess.
++        return ["fast_path validation needs a repository root and none was given "
++                "(pass --repo-root DIR); fail-closed"]
+     if not isinstance(fp, dict):
+         return ["fast_path block must be a mapping"]
+     if fp.get("eligible") is not True:
+@@ -3284,14 +3287,15 @@ def validate_text(text, mode=None, repo_root=None, config_path=None,
+ 
+ def _find_repo_root(start):
+     """Walk up from ``start`` to the nearest dir containing ``.git`` (a dir OR a
+-    worktree ``.git`` file); fall back to the CWD when none is found."""
++    worktree ``.git`` file); ``None`` when there is none. Never the current directory
++    as a guess (ADR 0005): the caller decides what a missing root means."""
+     d = os.path.abspath(start)
+     while True:
+         if os.path.exists(os.path.join(d, ".git")):
+             return d
+         parent = os.path.dirname(d)
+         if parent == d:
+-            return os.getcwd()
++            return None
+         d = parent
+ 
+ 
+@@ -3362,6 +3366,16 @@ def main(argv):
+         return 2
+     if repo_root is None:
+         repo_root = _find_repo_root(os.path.dirname(os.path.abspath(path)))
++        if repo_root is None and (mode is not None or require_triage):
++            # A fast-path mode and the triage check both REQUIRE a repository root
++            # (run state, receipts, the taxonomy, the pre-eval record): fail closed.
++            print("error: no git repository above %s and no --repo-root; --mode and "
++                  "--require-triage need a repository root (pass --repo-root DIR)"
++                  % path, file=sys.stderr)
++            return 2
++        if repo_root is None:
++            print("note: no git repository above %s and no --repo-root; checks that "
++                  "need a repository root are skipped" % path, file=sys.stderr)
+     # Read the RAW bytes so the manifest_digest binding (CR5-6) content-addresses
+     # to exactly what the producer digested; decode for YAML parsing separately.
+     with open(path, "rb") as fh:
+diff --git a/tests/test-project-root.sh b/tests/test-project-root.sh
+new file mode 100755
+index 0000000..bb26b70
+--- /dev/null
++++ b/tests/test-project-root.sh
+@@ -0,0 +1,155 @@
++#!/usr/bin/env bash
++# One project-root rule (ADR 0005, rules 5-8; run B). The project root is an explicit
++# --repo, else the git toplevel of the current directory -- never a script's own location
++# (that is the PLUGIN root) and never the current directory as a guess. Each row below
++# fails when its change is reverted:
++#   - project-config resolve_project_root (its selftest)
++#   - triage-outcomes writes the PROJECT's stream, not one beside the script, and refuses
++#     outside git with no --repo / --stream
++#   - preeval and fastpath-materialize carry no second copy of the stream path
++#   - validate-manifest's _find_repo_root returns None instead of the cwd, and its CLI
++#     caller handles that explicitly
++#   - precompact-snapshot and brainstorm-trigger0-nudge walk up to the nearest .git
++set -uo pipefail
++REPO="$(cd "$(dirname "$0")/.." && pwd)"
++PY=/usr/bin/python3
++export PYTHONDONTWRITEBYTECODE=1
++
++pass=0; fail=0
++check() {
++  if [ "$2" = 1 ]; then echo "PASS $1"; pass=$((pass + 1)); else echo "FAIL $1"; fail=$((fail + 1)); fi
++}
++
++TMP="$(mktemp -d)"
++trap 'rm -rf "$TMP"' EXIT
++# Keep git from finding any repository ABOVE the sandbox: "outside git" means outside git.
++export GIT_CEILING_DIRECTORIES="$TMP"
++gitq() { git -c user.email=t@t -c user.name=t -c commit.gpgsign=false "$@"; }
++
++# --- 1. the helper ------------------------------------------------------------------
++"$PY" -B "$REPO/scripts/compound-v-project-config.py" --selftest >"$TMP/pc.log" 2>&1
++rc=$?
++check "HELPER: project-config selftest (explicit repo, subdir toplevel, worktree, outside git)" \
++  "$([ "$rc" = 0 ] && echo 1 || echo 0)"
++check "HELPER: resolve_project_root exists in project-config" \
++  "$(grep -q '^def resolve_project_root(repo=None, start=None):' "$REPO/scripts/compound-v-project-config.py" && echo 1 || echo 0)"
++
++# --- 2. triage-outcomes: the stream is the project's ---------------------------------
++# A COPY of the scripts, placed outside the fixture repository: an installed plugin.
++mkdir -p "$TMP/plugin"
++cp -R "$REPO/scripts" "$TMP/plugin/scripts"
++TO="$TMP/plugin/scripts/compound-v-triage-outcomes.py"
++PROJ="$TMP/proj"
++mkdir -p "$PROJ/sub/deeper"
++gitq init -q "$PROJ"
++STREAM="$PROJ/docs/superpowers/memory/triage-outcomes.jsonl"
++
++(cd "$PROJ/sub/deeper" && "$PY" -B "$TO" predicted --pre-eval-id PID-SUB >/dev/null 2>"$TMP/to1.err")
++rc=$?
++check "TRIAGE: run from a project subdirectory with no --stream succeeds" "$([ "$rc" = 0 ] && echo 1 || echo 0)"
++check "TRIAGE: the event lands in <project>/docs/superpowers/memory/triage-outcomes.jsonl" \
++  "$(grep -q 'PID-SUB' "$STREAM" 2>/dev/null && echo 1 || echo 0)"
++check "TRIAGE: nothing is written beside the plugin copy" \
++  "$([ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
++
++NOGIT="$TMP/nogit"
++mkdir -p "$NOGIT"
++(cd "$NOGIT" && "$PY" -B "$TO" predicted --pre-eval-id PID-NOGIT >/dev/null 2>"$TMP/to2.err")
++rc=$?
++check "TRIAGE: outside git with no --repo and no --stream exits non-zero" \
++  "$([ "$rc" != 0 ] && echo 1 || echo 0)"
++check "TRIAGE: ... and says why" \
++  "$(grep -q 'not inside a git repository' "$TMP/to2.err" && echo 1 || echo 0)"
++check "TRIAGE: ... and writes nothing (not in the cwd, not beside the copy)" \
++  "$([ -z "$(ls -A "$NOGIT")" ] && [ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
++
++(cd "$NOGIT" && "$PY" -B "$TO" predicted --pre-eval-id PID-REPO --repo "$PROJ" >/dev/null 2>&1)
++rc=$?
++check "TRIAGE: an explicit --repo wins from outside git" \
++  "$([ "$rc" = 0 ] && grep -q 'PID-REPO' "$STREAM" 2>/dev/null && echo 1 || echo 0)"
++check "TRIAGE: _repo_root() is gone" \
++  "$(grep -qE '^def _repo_root|_repo_root\(\)' "$REPO/scripts/compound-v-triage-outcomes.py" && echo 0 || echo 1)"
++
++# --- 3. one stream path ---------------------------------------------------------------
++# Outside selftests (above `def _selftest`), neither script may spell the stream path.
++# (Written to a file first: `grep -q` closing a pipe early would trip pipefail.)
++for f in compound-v-preeval.py compound-v-fastpath-materialize.py; do
++  awk '/^def _selftest/ { exit } { print }' "$REPO/scripts/$f" >"$TMP/head-$f"
++  check "ONE STREAM PATH: $f has no hard-coded triage-outcomes.jsonl outside its selftest" \
++    "$(grep -qE "[\"']triage-outcomes\.jsonl[\"']|\"memory\", *\"triage" "$TMP/head-$f" && echo 0 || echo 1)"
++  check "ONE STREAM PATH: $f uses triage-outcomes' STREAM_RELPATH" \
++    "$(grep -q 'STREAM_RELPATH' "$TMP/head-$f" && echo 1 || echo 0)"
++done
++check "ONE STREAM PATH: no second constant for it in fastpath-materialize" \
++  "$(grep -q 'TRIAGE_STREAM_REL *=' "$REPO/scripts/compound-v-fastpath-materialize.py" && echo 0 || echo 1)"
++
++# --- 4. validate-manifest: no cwd fallback --------------------------------------------
++VM="$REPO/scripts/compound-v-validate-manifest.py"
++got="$("$PY" -B - "$VM" "$NOGIT" <<'PYX'
++import importlib.util, sys
++spec = importlib.util.spec_from_file_location("cv_vm_root", sys.argv[1])
++m = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(m)
++print(repr(m._find_repo_root(sys.argv[2])))
++fp = m._validate_fast_path({}, {"eligible": True}, "pre-dispatch", None, None, None)
++print("FP-NOROOT" if any("needs a repository root" in p for p in fp) else "FP-GUESSED")
++PYX
++)"
++check "VALIDATE: a start path with no .git above yields no root (None, not the cwd)" \
++  "$([ "$(printf '%s\n' "$got" | head -1)" = None ] && echo 1 || echo 0)"
++check "VALIDATE: fast-path validation with no root fails closed instead of using the cwd" \
++  "$(printf '%s' "$got" | grep -q 'FP-NOROOT' && echo 1 || echo 0)"
++printf 'run_id: x\njobs: []\n' >"$NOGIT/manifest.yaml"
++(cd "$REPO" && "$PY" -B "$VM" --require-triage "$NOGIT/manifest.yaml" >/dev/null 2>"$TMP/vm1.err")
++rc=$?
++check "VALIDATE: --require-triage with no root fails closed (exit 2, says why)" \
++  "$([ "$rc" = 2 ] && grep -q 'no git repository above' "$TMP/vm1.err" && echo 1 || echo 0)"
++(cd "$REPO" && "$PY" -B "$VM" "$NOGIT/manifest.yaml" >/dev/null 2>"$TMP/vm2.err")
++check "VALIDATE: with no flag needing a root it reports the missing root and goes on" \
++  "$(grep -q 'checks that need a repository root are skipped' "$TMP/vm2.err" && echo 1 || echo 0)"
++
++# --- 5. hooks walk up -----------------------------------------------------------------
++if ! command -v jq >/dev/null 2>&1; then
++  check "HOOKS: jq is required for the hook rows" 0
++else
++  # precompact writes in a subdirectory; postcompact, in the same subdirectory, reads the
++  # snapshot back. The disk is changed in between, so only a snapshot explains the line.
++  HP="$TMP/hookproj"
++  RUNDIR="$HP/docs/superpowers/execution/2026-01-01-x"
++  mkdir -p "$RUNDIR" "$HP/sub/deeper" "$TMP/store"
++  gitq init -q "$HP"
++  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
++  jq -n --arg ts "$now" '{run_id:"2026-01-01-x", phase:"DISPATCHED", updated_at:$ts,
++      jobs:{"a":{status:"pending"},"b":{status:"done"}}}' >"$RUNDIR/state.json"
++  printf 'run_id: 2026-01-01-x\n' >"$RUNDIR/manifest.yaml"
++  ev() { jq -n --arg cwd "$1" --arg ev "$2" \
++    '{hook_event_name:$ev,session_id:"pr-1",cwd:$cwd,trigger:"auto",compact_summary:"x"}'; }
++  ev "$HP/sub/deeper" PreCompact | TMPDIR="$TMP/store" CLAUDE_PLUGIN_ROOT="$REPO" \
++    bash "$REPO/hooks/precompact-snapshot.sh" >/dev/null 2>&1
++  check "PRECOMPACT: a subdirectory session takes a snapshot of the project" \
++    "$([ -n "$(find "$TMP/store" -name 'snap-*' 2>/dev/null)" ] && echo 1 || echo 0)"
++  jq '.phase="MERGED" | .jobs |= map_values(.status="done")' "$RUNDIR/state.json" >"$TMP/st.json" \
++    && mv "$TMP/st.json" "$RUNDIR/state.json"
++  out="$(ev "$HP/sub/deeper" PostCompact | TMPDIR="$TMP/store" CLAUDE_PLUGIN_ROOT="$REPO" \
++    bash "$REPO/hooks/postcompact-resume.sh" 2>/dev/null)"
++  check "PRECOMPACT/POSTCOMPACT: same key from a subdirectory (postcompact reports the snapshot)" \
++    "$(printf '%s' "$out" | grep -q 'UNFINISHED COMPOUND V WORK' && echo 1 || echo 0)"
++
++  # trigger0 nudge: the recall helper is handed the PROJECT root, not the subdirectory.
++  FAKE="$TMP/fakeplug"
++  mkdir -p "$FAKE/scripts"
++  cat >"$FAKE/scripts/compound-v-emit-preflight.py" <<'PYF'
++import sys
++a = sys.argv[1:]
++print("FAKE_REPO=[%s]" % (a[a.index("--repo") + 1] if "--repo" in a else ""))
++PYF
++  payload="$(jq -n --arg cwd "$HP/sub/deeper" \
++    '{tool_name:"Skill",session_id:"pr-2",cwd:$cwd,tool_input:{skill:"superpowers:brainstorming",args:"a topic"}}')"
++  out="$(printf '%s' "$payload" | TMPDIR="$TMP/store" CLAUDE_PLUGIN_ROOT="$FAKE" \
++    bash "$REPO/hooks/brainstorm-trigger0-nudge.sh" 2>/dev/null)"
++  check "TRIGGER0 NUDGE: a subdirectory session passes the project root as --repo" \
++    "$(printf '%s' "$out" | grep -qF "FAKE_REPO=[$HP]" && echo 1 || echo 0)"
++fi
++
++echo "test-project-root: $pass passed, $fail failed"
++[ "$fail" = 0 ]

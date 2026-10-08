@@ -11,10 +11,21 @@ No backend-specific routing logic is baked in here — every backend is just a
 ``{tier -> model}`` map. Three layers of precedence, lowest to highest:
 
   1. BUILT-IN default map (below) so the resolver works with NO config file.
-  2. ``models.<backend>.<tier>`` in the --config JSON, if present, OVERRIDES
+  2. ``models.<backend>.<tier>`` in the project config, if present, OVERRIDES
      the built-in value for that single (backend, tier) cell.
   3. ``--explicit-model M`` (a manifest-level model override) always wins and
      skips the map entirely.
+
+The project config is ``--config`` when given. OMITTING ``--config`` DOES NOT
+MEAN THE BUILT-IN DEFAULTS: the CLI then reads ``<root>/.claude/compound-v.json``,
+where root is ``--repo-dir`` when given, else the git toplevel of the current
+directory (``resolve_project_root``, ADR 0005). A missing file means the built-in
+map. The same root locates the ``maxEffortLevel`` settings below, so the models
+and the effort cap come from one place. Outside a git repository with neither
+``--config`` nor ``--repo-dir`` the CLI fails closed (exit 2), except that
+``--explicit-model`` needs no config and works anywhere. This default lives in
+``main()`` only: ``resolve()`` and ``load_config_models`` read exactly what they
+are handed, as before.
 
 Vocabulary (never changes when models churn):
   tier   ∈ { frontier, deep, standard, light }
@@ -27,15 +38,25 @@ Vocabulary (never changes when models churn):
                                     error naming the rule; use `high` instead)
 
 Output: a single JSON object on stdout, e.g.
-  {"backend": "codex", "tier": "deep", "model": "gpt-5.6-sol", "effort": "high"}
+  {"backend": "codex", "tier": "deep", "model": "gpt-6.1-sol", "effort": "high"}
+
+For `backend: claude`, the CLI (not the `resolve()` function — see
+`apply_effort_cap`) also reads the project's and user's Claude Code
+`settings.json`/`settings.local.json` for a `maxEffortLevel` cap
+(Claude Code 2.1.267+) and adds `effort_capped`:
+  {"backend": "claude", "tier": "deep", "model": "opus", "effort": "medium",
+   "effort_capped": {"requested": "high", "cap": "medium",
+                      "source": ".claude/settings.json"}}
+`effort_capped` is `null` when nothing capped the request (including on every
+non-claude backend, which `maxEffortLevel` cannot affect).
 
 Exit non-zero if a tier cannot be resolved for a backend (and no
 --explicit-model was given).
 
 Usage
 -----
-    compound-v-resolve-model.py --backend codex --tier deep
-    compound-v-resolve-model.py --backend claude --tier light --effort low
+    compound-v-resolve-model.py --backend codex --tier deep      # project config from the git toplevel
+    compound-v-resolve-model.py --backend claude --tier light --effort low --repo-dir /path/to/project
     compound-v-resolve-model.py --backend codex --tier standard --config .claude/compound-v.json
     compound-v-resolve-model.py --backend codex --tier deep --explicit-model gpt-5.6
     compound-v-resolve-model.py --selftest
@@ -73,12 +94,29 @@ _CLAUDE_CONSERVATIVE = {"frontier": "fable", "deep": "opus",
 # Cost-aware never reaches for the most expensive seat; its ceiling is Opus.
 _CLAUDE_COST_AWARE = {"frontier": "opus", "deep": "opus",
                       "standard": "sonnet", "light": "sonnet"}
-# GPT-5.6 family (Sol/Terra/Luna), verified live 2026-07-10: all three confirmed working on
-# codex-cli 0.144.1. gpt-5.6-sol specifically requires codex-cli >= 0.143.0 (confirmed: broken
-# with a clear 400 "requires a newer version of Codex" on 0.142.5, works on 0.144.1) -- an
-# under-floor client fails LOUD (not silent; the failure-policy retries once then halts cleanly).
-_CODEX = {"frontier": "gpt-5.6-sol", "deep": "gpt-5.6-sol",
-          "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna"}
+# GPT-6 family (Astra/Sol/Luna), probed 2026-09-24 on codex-cli 0.156.1 via
+# `codex debug models` (the raw catalog dump; Codex now HAS a model-list command --
+# several docs in this repo used to say otherwise, which is now false). Catalog
+# order by priority: gpt-6-astra ("Frontier intelligence for the most demanding
+# work"), gpt-6-sol ("Workhorse model for coding and everyday work"), gpt-6-luna
+# ("Fast and affordable model for easier tasks") -- there is no gpt-6-terra. All
+# three answered a trivial `codex exec` with this repo's pinned flag set (rc 0,
+# `thread.started` present), so the flag set is re-verified on 0.156.1.
+# 2026-09-30, codex-cli 0.159.1: `gpt-6.1-sol` ("Latest workhorse model for coding and
+# everyday work") joined at priority 1, gpt-6-sol became "Previous generation workhorse",
+# and gpt-6-astra (priority 2) is still the frontier model. gpt-6.1-sol and gpt-6-astra
+# both answered with the pinned flag set at xhigh (rc 0, `thread.started`), so
+# deep/standard move to gpt-6.1-sol and frontier stays on Astra.
+# `deep` and `standard` deliberately SHARE gpt-6.1-sol and differ only by effort --
+# tier and effort are orthogonal axes in this resolver, and Sol has no separate
+# "standard-strength" sibling the way Astra/Sol/Luna cover frontier/deep/light.
+# The older GPT-5.6 family (Sol/Terra/Luna, verified live 2026-07-10 on codex-cli
+# 0.144.1) is listed "Older ..." in the catalog and still works -- gpt-5.5 is
+# also still listed but retires 2026-10-14 (upgrade target per the catalog: gpt-6.1-sol as of 0.160.0). An
+# under-floor client fails LOUD (not silent; the failure-policy retries once
+# then halts cleanly).
+_CODEX = {"frontier": "gpt-6-astra", "deep": "gpt-6.1-sol",
+          "standard": "gpt-6.1-sol", "light": "gpt-6-luna"}
 # Antigravity (agy): FALLBACK default; the live catalog is discoverable headlessly
 # (`agy models </dev/null`), and /v:models/+/v:init pipe it through
 # compound-v-discover-models.py to OVERRIDE this map in .claude/compound-v.json. Names
@@ -94,7 +132,7 @@ _ANTIGRAVITY = {"frontier": "Gemini 3.1 Pro (High)", "deep": "Gemini 3.1 Pro (Hi
 # Lower-trust tier (no kernel sandbox; headless -f required).
 _CURSOR = {"frontier": "auto", "deep": "auto", "standard": "auto", "light": "auto"}
 # opencode (opencode-ai): provider-agnostic router -- every cell is a full "provider/model"
-# string (e.g. "anthropic/claude-opus-4-6"), and the provider is allowed to DIFFER per
+# string (e.g. "anthropic/claude-opus-5-5"), and the provider is allowed to DIFFER per
 # cell (unlike every other backend's single-vendor map) -- this is the key design point
 # from the research: the resolver treats every model string as opaque, so no schema
 # change is needed. `light` legitimately points at one of opencode's own curated
@@ -104,10 +142,15 @@ _CURSOR = {"frontier": "auto", "deep": "auto", "standard": "auto", "light": "aut
 # per its own docs, defaults to allowing all operations -- see
 # skills/backend-launcher/adapter-opencode.md for the mandatory env-scrub + pinned
 # opencode.json mitigation. NEVER haiku anywhere (light is a free model, not haiku).
+# 2026-10-05: frontier/deep -> anthropic/claude-opus-5-5 and standard -> openai/gpt-6.1-sol
+# (were claude-opus-4-6 and gpt-5.6-terra). Checked against models.dev, the registry
+# opencode reads its catalog from: both ids are listed under their providers there.
+# NOT run through `opencode run` -- this machine has no anthropic/openai provider
+# configured in opencode -- so treat them as registry-verified, not live-verified.
 _OPENCODE = {
-    "frontier": "anthropic/claude-opus-4-6",
-    "deep": "anthropic/claude-opus-4-6",
-    "standard": "openai/gpt-5.6-terra",
+    "frontier": "anthropic/claude-opus-5-5",
+    "deep": "anthropic/claude-opus-5-5",
+    "standard": "openai/gpt-6.1-sol",
     "light": "opencode/mimo-v2.5-free",
 }
 
@@ -140,8 +183,15 @@ BACKENDS = ("claude", "codex", "antigravity", "cursor", "opencode")
 TIERS = ("frontier", "deep", "standard", "light")
 # `xhigh` is valid iff backend == "codex": it maps to codex's kernel
 # model_reasoning_effort dimension, which live-accepts xhigh (verified
-# 2026-07-11 on codex-cli 0.144.1). resolve() rejects xhigh for every other
-# backend with a clear error naming the rule.
+# 2026-07-11 on codex-cli 0.144.1, re-verified 2026-09-24 on 0.156.1).
+# resolve() rejects xhigh for every other backend with a clear error naming
+# the rule. The 2026-09-24 GPT-6 catalog probe (`codex debug models`) also
+# lists `ultra` (astra/sol only -- "Maximum reasoning with automatic task
+# delegation") and `max` above xhigh on the ladder; NEITHER is adopted into
+# this vocabulary. `ultra` auto-delegates to sub-agents that would write
+# outside a job's declared lane, breaking the scope-gate model; `max` is
+# simply not adopted this release. Both stay routable only by an explicit
+# --explicit-model / manifest override, never through the tier/effort map.
 EFFORTS = ("low", "medium", "high", "xhigh")
 # Stance vocabulary — DUPLICATED on purpose from compound-v-validate-manifest.py:VALID_STANCES.
 # Both scripts are standalone, stdlib-only CLIs; do NOT introduce a shared import. Keep in sync.
@@ -151,6 +201,190 @@ VALID_STANCES = ("balanced", "conservative", "cost-aware", "claude-only")
 # task-type by passing --effort explicitly; this is only the fallback.
 DEFAULT_EFFORT_FOR_TIER = {"frontier": "high", "deep": "high",
                            "standard": "medium", "light": "low"}
+
+# --------------------------------------------------------------------------- #
+# Effort cap from Claude Code's own `maxEffortLevel` setting (2.1.267+).
+#
+# Verified against https://code.claude.com/docs/en/settings-reference (fetched
+# via curl of the `.md` source; WebFetch's own summary of this page truncated
+# before the actual `### maxEffortLevel` / `### modelSettings` bodies, so the
+# quotes below come straight from the underlying markdown):
+#
+#   maxEffortLevel: "Cap the effort level a session can use, leaving lower
+#   levels available. Any higher level runs at the cap instead, including one
+#   from /effort, the /model picker, --effort, CLAUDE_CODE_EFFORT_LEVEL, a
+#   skill's or subagent's `effort` frontmatter, or the model's own default. ...
+#   Scope: Any file. ... When several scopes set a cap, the lowest applies, so
+#   a cap set in one scope can't be raised from another. Type: string, one of
+#   "low", "medium", "high", "xhigh", or "max". A "max" value sets no cap. ...
+#   Per-model caps: add maxEffortLevel to a model's modelSettings entry. That
+#   entry REPLACES this key for the model only within the settings source that
+#   sets both ... Set "max" there to exempt the model from that source's cap;
+#   Claude Code still applies caps from other sources."
+#
+#   modelSettings: "Type: object mapping a model name to an object with an
+#   effortLevel field ..., a maxEffortLevel field, or both." Claude Code itself
+#   "matches that model's alias, date-suffixed, [1m], and recognized
+#   provider-specific IDs to the same entry" — that alias table is internal to
+#   Claude Code; this script has no access to it (see _alias_matches_model_key).
+#
+# NOTE on the task's original phrasing ("takes the LOWEST maxEffortLevel found,
+# top-level or per-model when present"): a naive min-of-everything gets the
+# doc's own worked example wrong (top-level "medium" + per-model "max" on one
+# model means UNCAPPED for that model, not "medium"). The correct algorithm,
+# implemented below, is per-file first (per-model REPLACES top-level within
+# that one file), then MIN across files.
+#
+# This only ever caps `backend: claude` jobs — `maxEffortLevel` is a Claude
+# Code client setting; it has no meaning for a codex/antigravity/cursor/
+# opencode worker process, which Claude Code never applies it to.
+# --------------------------------------------------------------------------- #
+
+# Same ladder the doc states for maxEffortLevel. `max` is a cap-only sentinel
+# ("sets no cap") — this resolver's own EFFORTS never produces "max" as a
+# *requested* value — but it still needs a rank, above xhigh, purely so the
+# MIN-across-files comparison below treats an exempting per-model "max" as
+# "never the tightest cap in the room."
+EFFORT_RANK = {"low": 0, "medium": 1, "high": 2, "xhigh": 3, "max": 4}
+
+
+def _user_claude_dir():
+    """``~/.claude`` unless overridden — the exact precedence
+    ``compound-v-transcript-watch.py:session_roots`` already uses for the same
+    directory (mirrored here, not imported: that script is a standalone CLI
+    with no shared-library role, per CONVENTIONS.md keep-in-sync-by-comment
+    style already used elsewhere in this file)."""
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+
+
+def _project_claude_dir(config_path=None, repo_dir=None):
+    """The project ``.claude/`` directory to read ``settings.json`` /
+    ``settings.local.json`` from. Every real caller already passes
+    ``--config .claude/compound-v.json`` (execution-manifest.md), so prefer the
+    directory that already holds ``--config`` — no new flag needed on existing
+    call sites. Falls back to ``<repo_dir or cwd>/.claude`` for a caller that
+    passes neither (e.g. an explicit-model-only resolution)."""
+    if config_path:
+        parent = os.path.dirname(os.path.abspath(config_path))
+        if os.path.basename(parent) == ".claude":
+            return parent
+    return os.path.join(os.path.abspath(repo_dir or os.getcwd()), ".claude")
+
+
+def default_settings_paths(config_path=None, repo_dir=None):
+    """Ordered ``[(path, label), ...]`` of the Claude Code settings files this
+    resolver reads **read-only** to compute an effort cap: project settings,
+    project LOCAL settings, then the user's own settings. This does **not**
+    reach organization-managed settings (a separate, OS-specific path — see
+    /docs/en/managed-settings) — a managed ``maxEffortLevel`` still applies at
+    runtime; this resolver just can't see it, so a job can still get silently
+    capped by the harness even when this function reports ``effort_capped:
+    null``. Order only decides the tie-break for which path lands in
+    ``effort_capped.source`` when two files set the identical lowest cap — the
+    cap value itself is a MIN over every file (see effective_effort_cap), so
+    read order never changes the *answer*, only its attribution."""
+    claude_dir = _project_claude_dir(config_path, repo_dir)
+    user_dir = _user_claude_dir()
+    project = os.path.join(claude_dir, "settings.json")
+    local = os.path.join(claude_dir, "settings.local.json")
+    user = os.path.join(user_dir, "settings.json")
+    return [(project, project), (local, local), (user, user)]
+
+
+def _load_settings_file(path):
+    """Parsed dict for one settings JSON file, or ``None`` if it is missing,
+    unreadable, not valid JSON, or its root is not an object. Read-only; never
+    raises — a settings file this resolver can't parse degrades to "sets no
+    cap", never a crash (this is a routing side-lookup, not the resolver's
+    contract)."""
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _alias_matches_model_key(model, key):
+    """Best-effort match between the resolver's own tier alias (``opus`` /
+    ``sonnet`` / ``fable``) and a ``modelSettings`` key a human wrote in their
+    OWN settings file. Claude Code's real alias table (canonical id, dated
+    snapshot, ``[1m]`` suffix, provider-specific id — settings-reference.md
+    `modelSettings`) is internal and unavailable here, so this is deliberately
+    narrower: an exact match, or a key whose ``-``-separated segments contain
+    the alias (covers the realistic case of a canonical id like
+    ``claude-opus-5`` written for the alias ``opus``). A cap this narrower
+    match misses is invisible to THIS script but still applies at runtime."""
+    if key == model:
+        return True
+    return model in key.split("-")
+
+
+def _file_effort_cap(settings, model):
+    """The effective ``maxEffortLevel`` ONE settings dict sets for ``model``,
+    or ``None`` if it sets none. A matching ``modelSettings.<key>`` entry
+    REPLACES the top-level ``maxEffortLevel`` for that model within this one
+    file — it does not additionally lower it — so a per-model ``"max"`` here
+    means this file sets NO cap for the model even under a stricter top-level
+    key. Malformed values (wrong type, unrecognized level name) are ignored."""
+    if not isinstance(settings, dict):
+        return None
+    model_settings = settings.get("modelSettings")
+    if isinstance(model_settings, dict):
+        for key, entry in model_settings.items():
+            if not isinstance(entry, dict) or not _alias_matches_model_key(model, str(key)):
+                continue
+            per_model = entry.get("maxEffortLevel")
+            if isinstance(per_model, str) and per_model in EFFORT_RANK:
+                return per_model  # replaces the top-level key for this model
+    top = settings.get("maxEffortLevel")
+    if isinstance(top, str) and top in EFFORT_RANK:
+        return top
+    return None
+
+
+def effective_effort_cap(model, settings_paths):
+    """``(cap, source)`` — the LOWEST per-file effective cap (see
+    ``_file_effort_cap``) across ``settings_paths`` for ``model``, or
+    ``(None, None)`` if none of them cap it. An overall winning cap of
+    ``"max"`` means, per the doc, no cap at all — return ``(None, None)`` for
+    it rather than a cap named "max"."""
+    best_cap = None
+    best_source = None
+    for path, label in settings_paths:
+        cap = _file_effort_cap(_load_settings_file(path), model)
+        if cap is None:
+            continue
+        if best_cap is None or EFFORT_RANK[cap] < EFFORT_RANK[best_cap]:
+            best_cap, best_source = cap, label
+    if best_cap == "max":
+        return None, None
+    return best_cap, best_source
+
+
+def apply_effort_cap(result, settings_paths):
+    """Return a NEW result dict with ``effort_capped`` added, lowering
+    ``effort`` to the cap when the resolved effort ranks above it. Only
+    ``backend: claude`` results are affected — ``maxEffortLevel`` is a Claude
+    Code client setting with no meaning for an external worker process.
+
+    Deliberately kept OUT of ``resolve()``: that function is imported and
+    called directly (not just via subprocess) by
+    ``compound-v-epic-arbiter.py`` and ``compound-v-classify-request.py``, and
+    it must stay a pure function of its arguments — no filesystem reads. Only
+    ``main()`` calls this, after ``resolve()`` returns."""
+    out = dict(result)
+    if out.get("backend") != "claude":
+        out["effort_capped"] = None
+        return out
+    requested = out.get("effort")
+    cap, source = effective_effort_cap(out.get("model"), settings_paths)
+    if cap is not None and requested in EFFORT_RANK and EFFORT_RANK[requested] > EFFORT_RANK[cap]:
+        out["effort_capped"] = {"requested": requested, "cap": cap, "source": source}
+        out["effort"] = cap
+    else:
+        out["effort_capped"] = None
+    return out
 
 
 def _project_config_module():
@@ -306,19 +540,60 @@ def main(argv):
     parser.add_argument("--effort", default=None, choices=list(EFFORTS))
     parser.add_argument("--stance", default="balanced", choices=list(VALID_STANCES),
                         help="routing stance (default balanced)")
-    parser.add_argument("--config", default=None, help="path to compound-v.json")
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "path to compound-v.json; default is <root>/.claude/compound-v.json, "
+            "root = --repo-dir or the git toplevel (a missing file means the "
+            "built-in map)"
+        ),
+    )
     parser.add_argument(
         "--explicit-model",
         default=None,
         help="manifest model override; always wins, skips resolution",
     )
     parser.add_argument(
+        "--repo-dir",
+        default=None,
+        help=(
+            "project root: without --config, its .claude/compound-v.json is the "
+            "config AND its .claude/settings.json / settings.local.json give the "
+            "maxEffortLevel cap; default is the git toplevel of the current "
+            "directory (outside git, pass this, --config or --explicit-model). "
+            "With --config, the settings come from --config's own directory when "
+            "it ends in .claude, else from this root or the current directory"
+        ),
+    )
+    parser.add_argument(
         "--selftest", action="store_true", help="run built-in self-tests"
     )
     args = parser.parse_args(argv[1:])
 
+    # THE PROJECT'S CONFIG BY DEFAULT (this CLI only; resolve() and
+    # load_config_models keep their in-process behaviour). With no --config the
+    # config is <root>/.claude/compound-v.json, root = --repo-dir or the git
+    # toplevel (ADR 0005 rule 5), and the same root locates the effort-cap
+    # settings, so models and cap never come from two different places. Until
+    # this default existed, a caller that left --config off got the built-in
+    # table even in a project whose config said otherwise.
+    config_path = args.config
+    settings_repo_dir = args.repo_dir
+    if config_path is None:
+        root, root_err = _cli_project_root(args.repo_dir)
+        if root is not None:
+            settings_repo_dir = root
+            if not args.explicit_model:
+                config_path = os.path.join(root, ".claude", "compound-v.json")
+        elif not args.explicit_model:
+            # Fail closed: guessing the built-in table here is what this default
+            # exists to stop. --explicit-model needs no config, so it never lands here.
+            print(json.dumps({"error": root_err}), file=sys.stderr)
+            return 2
+
     try:
-        config_models = load_config_models(args.config)
+        config_models = load_config_models(config_path)
     except Exception as e:  # noqa: BLE001 - report config errors cleanly
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 2
@@ -336,8 +611,30 @@ def main(argv):
         print(json.dumps({"error": str(e)}), file=sys.stderr)
         return 1
 
+    settings_paths = default_settings_paths(config_path=config_path,
+                                            repo_dir=settings_repo_dir)
+    result = apply_effort_cap(result, settings_paths)
+
     print(json.dumps(result))
     return 0
+
+
+def _cli_project_root(repo_dir):
+    """(root, error) for ``main()``'s config default: ``--repo-dir`` when given,
+    else the git toplevel of the current directory, by the shared
+    ``resolve_project_root`` (loaded by explicit path like the config loader).
+    ``(None, message)`` when the sibling cannot be loaded or no root exists."""
+    mod = _project_config_module()
+    fn = getattr(mod, "resolve_project_root", None) if mod is not None else None
+    if not callable(fn):
+        return None, ("cannot locate the project config: compound-v-project-config.py "
+                      "(resolve_project_root) could not be loaded; pass --config or "
+                      "--explicit-model")
+    try:
+        return fn(repo=repo_dir), None
+    except ValueError as e:
+        return None, ("cannot locate the project config: %s (or pass --config, "
+                      "--repo-dir or --explicit-model)" % e)
 
 
 # --------------------------------------------------------------------------- #
@@ -385,8 +682,8 @@ def _selftest():
     # one backend where that opaque string legitimately varies its provider prefix
     # per tier).
     expect(
-        "opencode/deep -> anthropic/claude-opus-4-6",
-        resolve("opencode", "deep")["model"] == "anthropic/claude-opus-4-6",
+        "opencode/deep -> anthropic/claude-opus-5-5",
+        resolve("opencode", "deep")["model"] == "anthropic/claude-opus-5-5",
     )
     expect(
         "opencode/light -> credential-free opencode/* model",
@@ -420,8 +717,8 @@ def _selftest():
     )
     expect(
         "opencode explicit provider/model accepted",
-        resolve("opencode", "deep", explicit_model="anthropic/claude-opus-4-6")["model"]
-        == "anthropic/claude-opus-4-6",
+        resolve("opencode", "deep", explicit_model="anthropic/claude-opus-5-5")["model"]
+        == "anthropic/claude-opus-5-5",
     )
     expect(
         "non-opencode backend is NOT shape-checked (bare model fine)",
@@ -588,6 +885,148 @@ def _selftest():
            all(isinstance(DEFAULT_MODELS_BY_STANCE[st][b].get(t), str)
                and DEFAULT_MODELS_BY_STANCE[st][b][t].strip()
                for st in VALID_STANCES for b in BACKENDS for t in TIERS))
+    # Pin the literal codex default map (2026-09-24 GPT-6 update) -- the structural checks
+    # above ("frontier resolves", "no haiku", "every cell populated") pass regardless of
+    # WHICH model each cell names, so a stale or wrong string would slip through unnoticed
+    # without this exact-match guard. frontier/light are the distinct rungs (astra/luna);
+    # deep and standard deliberately share gpt-6.1-sol, differing only by effort.
+    expect("codex default map matches the 2026-09-24 GPT-6 decision",
+           DEFAULT_MODELS["codex"] == {"frontier": "gpt-6-astra", "deep": "gpt-6.1-sol",
+                                       "standard": "gpt-6.1-sol", "light": "gpt-6-luna"})
+
+    # --- effort cap from Claude Code settings (Fact 1, maxEffortLevel 2.1.267+) ---
+    def _write_json(path, obj):
+        with open(path, "w") as fh:
+            json.dump(obj, fh)
+
+    with tempfile.TemporaryDirectory() as _sd:
+        _proj = os.path.join(_sd, "settings.json")
+        _local = os.path.join(_sd, "settings.local.json")
+        _user = os.path.join(_sd, "user-settings.json")
+        _paths = [(_proj, ".claude/settings.json"),
+                  (_local, ".claude/settings.local.json"),
+                  (_user, "~/.claude/settings.json")]
+
+        _write_json(_proj, {"maxEffortLevel": "medium"})
+        _write_json(_local, {})
+        _write_json(_user, {})
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)  # default effort: high
+        expect(
+            "cap below request -> capped with source",
+            capped["effort"] == "medium"
+            and capped["effort_capped"] == {
+                "requested": "high", "cap": "medium", "source": ".claude/settings.json",
+            },
+        )
+
+        _write_json(_proj, {"maxEffortLevel": "xhigh"})
+        capped = apply_effort_cap(resolve("claude", "light"), _paths)  # default effort: low
+        expect(
+            "cap above request -> effort_capped null",
+            capped["effort"] == "low" and capped["effort_capped"] is None,
+        )
+
+        _write_json(_proj, {
+            "maxEffortLevel": "xhigh",
+            "modelSettings": {"opus": {"maxEffortLevel": "low"}},
+        })
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)  # -> opus, effort high
+        expect(
+            "per-model cap overrides top-level when lower",
+            capped["effort"] == "low" and capped["effort_capped"]["cap"] == "low",
+        )
+
+        # Doc's own worked example: a per-model "max" REPLACES (never intersects
+        # with) a stricter top-level cap within the SAME file, so the model is
+        # fully exempt from this file even though its top-level cap is stricter.
+        _write_json(_proj, {
+            "maxEffortLevel": "medium",
+            "modelSettings": {"opus": {"maxEffortLevel": "max"}},
+        })
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)
+        expect(
+            "per-model max exempts the model despite a stricter top-level cap",
+            capped["effort"] == "high" and capped["effort_capped"] is None,
+        )
+
+        # modelSettings keyed by a canonical id (not the bare alias) still
+        # matches, via the narrower segment-based heuristic.
+        _write_json(_proj, {"modelSettings": {"claude-opus-5": {"maxEffortLevel": "low"}}})
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)
+        expect(
+            "canonical-id modelSettings key matches the opus alias",
+            capped["effort_capped"] is not None and capped["effort_capped"]["cap"] == "low",
+        )
+
+        # Malformed settings (wrong types) are ignored, never a crash.
+        _write_json(_proj, {"maxEffortLevel": 3})
+        _write_json(_local, {"modelSettings": "not-a-map"})
+        _write_json(_user, "not-an-object")
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)
+        expect(
+            "malformed settings ignored, no crash",
+            capped["effort_capped"] is None and capped["effort"] == "high",
+        )
+
+        # A non-claude backend is never capped, even with a matching restrictive
+        # file present.
+        _write_json(_proj, {"maxEffortLevel": "low"})
+        _write_json(_local, {})
+        _write_json(_user, {})
+        r = resolve("codex", "deep")
+        capped = apply_effort_cap(r, _paths)
+        expect(
+            "non-claude backend never capped",
+            capped["effort"] == r["effort"] and capped["effort_capped"] is None,
+        )
+
+        # The lowest cap across scopes wins, wherever it lives.
+        _write_json(_proj, {"maxEffortLevel": "medium"})
+        _write_json(_user, {"maxEffortLevel": "low"})
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)
+        expect(
+            "lowest cap across scopes wins",
+            capped["effort_capped"]["cap"] == "low"
+            and capped["effort_capped"]["source"] == "~/.claude/settings.json",
+        )
+
+        # No settings files at all -> uncapped, no crash.
+        os.remove(_proj)
+        os.remove(_local)
+        os.remove(_user)
+        capped = apply_effort_cap(resolve("claude", "deep"), _paths)
+        expect(
+            "missing settings files -> uncapped, no crash",
+            capped["effort_capped"] is None and capped["effort"] == "high",
+        )
+
+        # default_settings_paths wiring: CLAUDE_CONFIG_DIR relocates the user
+        # file, and a --config under a literal .claude/ dir relocates the
+        # project files, with no new flag needed at real call sites.
+        _proj_dir = os.path.join(_sd, "proj", ".claude")
+        os.makedirs(_proj_dir)
+        _write_json(os.path.join(_proj_dir, "settings.json"), {"maxEffortLevel": "medium"})
+        _user_dir = os.path.join(_sd, "userhome")
+        os.makedirs(_user_dir)
+        _write_json(os.path.join(_user_dir, "settings.json"), {"maxEffortLevel": "low"})
+        _old_cfgdir = os.environ.get("CLAUDE_CONFIG_DIR")
+        os.environ["CLAUDE_CONFIG_DIR"] = _user_dir
+        try:
+            _dsp = default_settings_paths(
+                config_path=os.path.join(_proj_dir, "compound-v.json")
+            )
+            capped = apply_effort_cap(resolve("claude", "deep"), _dsp)
+        finally:
+            if _old_cfgdir is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = _old_cfgdir
+        expect(
+            "default_settings_paths finds project (via --config) and "
+            "CLAUDE_CONFIG_DIR-relocated user settings; lowest (user, low) wins",
+            capped["effort_capped"] is not None
+            and capped["effort_capped"]["cap"] == "low",
+        )
 
     # Unknown backend / tier / effort raise.
     expect("unknown backend raises", raises(lambda: resolve("gemini", "deep")))

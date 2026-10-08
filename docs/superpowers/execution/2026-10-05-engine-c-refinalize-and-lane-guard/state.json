@@ -1,0 +1,79 @@
+{
+  "phase": "MERGED",
+  "updated_at": "2026-10-05T11:20:00Z",
+  "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
+  "jobs": {
+    "refinalize": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-2",
+      "session_id": null,
+      "baseline": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "merged": {
+        "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022"
+      }
+    },
+    "lane-boundary": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-3",
+      "session_id": null,
+      "baseline": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+      "merged": {
+        "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022"
+      }
+    },
+    "spec-review": {
+      "status": "done",
+      "isolation": "direct",
+      "worktree": "",
+      "session_id": null,
+      "baseline": "c66c87e80660297c07f5f580e8a6a165647461d2",
+      "realised_commit": "c66c87e80660297c07f5f580e8a6a165647461d2",
+      "merged": {
+        "realised_commit": "c66c87e80660297c07f5f580e8a6a165647461d2",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "1480cc1135d881c6048718a857f429db69040532"
+      }
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "refinalize",
+        "lane-boundary"
+      ],
+      "merged": [
+        "refinalize",
+        "lane-boundary"
+      ],
+      "commit": "029f8fec3eaa5e70402858d1e95aadac1d394022",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "1480cc1135d881c6048718a857f429db69040532",
+      "integrated": true
+    }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-05T105338Z-fix-two-engine-c-pipeline-bugs-found-in-the-jev-runs-1-scrip-6cc1",
+    "run_id": "2026-10-05-engine-c-refinalize-and-lane-guard"
+  },
+  "merged_at": "2026-10-05T11:20:00Z"
+}

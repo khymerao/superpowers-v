@@ -29,13 +29,21 @@
 #     [--read-only true|false] [--output-schema <abs-path>] \
 #     [--effort low|medium|high|xhigh] [--events-log <abs-path>] \
 #     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
-#     [--provision-command <string>] [--provision-timeout-sec <n>]
+#     [--provision-command <string>] [--provision-timeout-sec <n>] \
+#     [--toolchain-artifact <glob>]...
 #
 # --provision-command runs inside the fresh worktree BEFORE the model launches
 # (dependency install). On a non-zero exit nothing is launched and the job_result is
 # `status: error`. On success the worker snapshots the worktree's untracked+ignored
 # paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
 # installed dependencies are not charged to the model. Default timeout: 600 s.
+#
+# --toolchain-artifact <glob> (v3.6.3, repeatable) is passed through UNCHANGED to
+# scripts/compound-v-scope-check.py as one --toolchain-artifact per glob. The gate
+# forgives a matching changed path only when `git check-ignore` confirms it is
+# gitignored in the gated tree — this exists because a test floor's first run in a
+# fresh worktree writes gitignored artifacts (tsconfig.tsbuildinfo, a vitest cache)
+# AFTER the --preexisting snapshot was already taken.
 #
 # All file paths MUST be absolute. write_allowed is a colon-separated glob list,
 # each glob matched repo-relative against the changed paths. An EMPTY
@@ -308,6 +316,13 @@ PROVISION_COMMAND=""
 PROVISION_TIMEOUT_SEC=600
 PREEXISTING_FILE=""
 
+# --toolchain-artifact <glob> (v3.6.3, repeatable) — a manifest-declared exemption
+# for build artifacts a test floor writes on first run (tsconfig.tsbuildinfo, a
+# vitest/jest cache). Collected verbatim and passed straight through to the scope
+# gate; this script does no glob matching or gitignore checking of its own. Bash
+# 3.2 (stock macOS): a real array, never an associative array or ${var,,}.
+TOOLCHAIN_ARTIFACTS=()
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id)        RUN_ID="$2"; shift 2 ;;
@@ -318,6 +333,10 @@ while [ $# -gt 0 ]; do
     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
     --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
     --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+    --toolchain-artifact)
+      [ -n "$2" ] || die "--toolchain-artifact requires a non-empty glob"
+      TOOLCHAIN_ARTIFACTS+=("$2")
+      shift 2 ;;
     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
     --network)       NETWORK="$2"; shift 2 ;;
     --read-only)     READ_ONLY="$2"; shift 2 ;;
@@ -384,7 +403,9 @@ fi
 # Effort vocabulary: `xhigh` is valid iff backend is codex — and this worker IS
 # the codex backend, so it is accepted here (the resolver + manifest validator
 # reject xhigh for every other backend). model_reasoning_effort=xhigh
-# live-verified 2026-07-11 on codex-cli 0.144.1.
+# live-verified 2026-07-11 on codex-cli 0.144.1; re-verified 2026-09-24 on codex-cli
+# 0.156.1 with gpt-6.1-sol/gpt-6-luna (rc 0, thread.started present, output-last-message
+# written). `ultra`/`max` (GPT-6) are NOT in this vocabulary — never adopted.
 if [ -n "$EFFORT" ]; then
   case "$EFFORT" in
     low|medium|high|xhigh) : ;;
@@ -541,7 +562,9 @@ fi
 mkdir -p "$(dirname "$EVENTS_LOG")" 2>/dev/null || die "cannot create events-log dir for: $EVENTS_LOG"
 
 # --- run the headless Codex worker -------------------------------------------
-# Pinned flag set, verified live against codex-cli 0.144.1. NOTE: `--ask-for-approval
+# Pinned flag set, verified live against codex-cli 0.144.1; re-verified 2026-09-24 on
+# codex-cli 0.156.1 with the GPT-6 family (gpt-6-sol, gpt-6-luna), and 2026-09-30 on 0.159.1
+# with gpt-6.1-sol and gpt-6-astra. NOTE: `--ask-for-approval
 # never` is INVALID for `codex exec` (top-level/interactive flag only) and is
 # deliberately OMITTED — `codex exec` already defaults to approval: never.
 #
@@ -559,7 +582,8 @@ fi
 STDERR_LOG="$ART/codex_stderr.log"
 # With `--json`, codex prints its event stream (JSONL) to STDOUT — the FIRST line is
 # `{"type":"thread.started","thread_id":"<uuid>"}` (live-probed, codex-cli 0.144.1;
-# library-audit/2026-07-11-session-aware-workers.md §1). We redirect that stdout to the
+# library-audit/2026-07-11-session-aware-workers.md §1; re-verified 2026-09-24 on 0.156.1
+# with gpt-6.1-sol/gpt-6-luna). We redirect that stdout to the
 # EVENTS_LOG so (a) it never reaches the worker's own stdout — reserved for the session
 # line + canonical job_result JSON — and (b) the id and any progress signal can be parsed
 # from it. `--output-last-message` still writes the final agent message verbatim (the two
@@ -578,7 +602,8 @@ exit_code=0
 # exec` also reads stdin when it is not a TTY and will BLOCK ("Reading additional
 # input from stdin...") in a non-interactive / background context. </dev/null makes
 # stdin an immediate EOF so codex uses only the positional prompt and never hangs.
-# (Verified live against codex-cli 0.144.1 — without it the worker hangs indefinitely.)
+# (Verified live against codex-cli 0.144.1 — without it the worker hangs indefinitely;
+# re-verified 2026-09-24 on codex-cli 0.156.1.)
 run_codex() {
   if [ -n "$OUTPUT_SCHEMA" ]; then
     # shellcheck disable=SC2086
@@ -633,7 +658,8 @@ fi
 # --- capture session_id + summary --------------------------------------------
 # session_id = the codex thread UUID, parsed STRUCTURALLY from the `--json` event
 # stream (EVENTS_LOG). The FIRST `{"type":"thread.started","thread_id":"<uuid>"}`
-# event carries it (live-probed, codex-cli 0.144.1; audit §1); that thread_id IS the
+# event carries it (live-probed, codex-cli 0.144.1; audit §1; re-verified 2026-09-24 on
+# 0.156.1); that thread_id IS the
 # id `codex exec resume <uuid>` accepts. The old stderr-banner UUID scrape is GONE —
 # it was a fragile any-UUID-shaped-token heuristic; this reads the id from the field
 # codex actually emits it in.
@@ -700,6 +726,15 @@ for _glob in $WRITE_ALLOWED; do
 done
 IFS="$_OLDIFS"
 
+# Expand the collected --toolchain-artifact globs into repeatable
+# --toolchain-artifact <glob> argv pairs for the gate. Bash 3.2 under `set -u`
+# treats an EMPTY array expansion as an unbound-variable error, so the
+# `${arr[@]+"${arr[@]}"}` guard is required (no elements ⇒ no expansion at all).
+TA_ARGS=()
+for _ta_glob in "${TOOLCHAIN_ARTIFACTS[@]+"${TOOLCHAIN_ARTIFACTS[@]}"}"; do
+  TA_ARGS+=(--toolchain-artifact "$_ta_glob")
+done
+
 # Run the gate. It prints a JSON verdict on stdout; exit 0 = pass, 1 = blocked,
 # 2 = usage/git error. Capture both so a gate fault becomes status: error rather
 # than a silently-clean result.
@@ -710,10 +745,12 @@ if [ -n "$PREEXISTING_FILE" ]; then
   # Provisioning ran: subtract exactly what it installed, nothing else.
   GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
     --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
-    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
+    --preexisting "$PREEXISTING_FILE" \
+    "${TA_ARGS[@]+"${TA_ARGS[@]}"}" 2>"$ART/scope_check.err")
 else
   GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
-    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
+    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
+    "${TA_ARGS[@]+"${TA_ARGS[@]}"}" 2>"$ART/scope_check.err")
 fi
 gate_rc=$?
 set -e

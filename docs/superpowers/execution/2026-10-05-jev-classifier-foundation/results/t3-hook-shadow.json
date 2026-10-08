@@ -1,0 +1,45 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "hooks/triage-prompt-nudge.sh",
+    "tests/test-native-points.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "diff_digest": "sha256:6347403823f1057fe25c410086eb6fdbeea15ad4dacb00c982a848e9b6b3c834",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a4654200b86b20c425c77012a6e6e3d3fe5a24c8\",\n  \"changed\": [\n    \"hooks/triage-prompt-nudge.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/triage-prompt-nudge.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task F1 \u2014 T3 shadow descriptor in the hook",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'\nbash tests/test-native-points.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 210140,
+    "cache_read_input_tokens": 6255280,
+    "input_tokens": 96,
+    "measured": true,
+    "output_tokens": 16541,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a25831e6ddd2c305b.jsonl",
+      "agent-a794ba00317cc255e.jsonl",
+      "agent-aa9251ae0318008e4.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-7"
+}

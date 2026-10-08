@@ -1,0 +1,46 @@
+{
+  "base_commit": "ec3bca327e2bbbe7e6f173207c3f5315dca91a7f",
+  "confidence": "localization:exact; tiers:localization,T3",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:4b529d89c802f95241a5a5a26a3e11c597e1dde414ef34c24f8bdd79b242e809",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 2,
+    "flags": [],
+    "resolved_paths": [
+      ".claude-plugin/marketplace.json",
+      ".claude-plugin/plugin.json"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": null,
+  "pre_eval_id": "2026-10-05T132519Z-make-compound-v-vault-a-declared-dependency-of-superpowers-v-19ae",
+  "request_slug": "make-compound-v-vault-a-declared-dependency-of-superpowers-v",
+  "session_id": "5a013ec0-f1a9-4ffb-a264-0b0201a3e56b",
+  "status": "PRE_EVAL_DONE",
+  "t3": {
+    "category": "user-facing-major",
+    "engine": "claude"
+  },
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-05T132519Z-make-compound-v-vault-a-declared-dependency-of-superpowers-v-19ae.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T3"
+  ],
+  "ts": "2026-10-05T13:25:54Z"
+}

@@ -9,21 +9,49 @@ not files in your own repository. Resolve the plugin root once per session befor
 them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
-Run the recall and present what comes back:
+**Search in the corpus's language.** This repository's engineering prose is almost all English,
+and neither lane crosses languages: FTS5 matches words, and the measured dense lane (multilingual-e5-small)
+answers a Russian question with the same handful of Russian documents whatever it asks — pure-Russian
+benchmark rows score 0/4 in both modes, the same questions translated to English score 2/4
+(`tests/memory-queries.tsv`, 2026-09-24). So when `{{args}}` is not English, translate it to English
+yourself — keep identifiers, flags, file names and error strings verbatim — and run **both** queries,
+the translation first:
+
+```
+python3 "$CV/scripts/compound-v-memory.py" search "<English translation>" --top 8
+python3 "$CV/scripts/compound-v-memory.py" search "{{args}}" --top 8
+```
+
+Merge the two result lists (drop repeats of the same path and heading) and say you translated. An
+English query needs only the one search:
 
 ```
 python3 "$CV/scripts/compound-v-memory.py" search "{{args}}" --top 8
 ```
 
+Present what comes back.
+
 A first search on a repo with no index builds one automatically.
+
+**Tell the reader which mode answered** — lexical-only or lexical+semantic — don't let the
+result stand without it: `search`'s own plain-text output names the active lane on a "Recall
+mode: …" header line — surface it verbatim. If it's absent (e.g. `--json` was used), run
+`python3 "$CV/scripts/compound-v-memory.py" doctor` once and read its `mode` line instead
+(bootstrapped vs FTS5-only, and whether the corpus has reached the scale gate — see
+[`memory.md`](../skills/compound-v/memory.md)). This matters most when the query crossed a
+synonym or a language boundary and got nothing: that is expected on FTS5-only, not a bug.
 
 **Memory is EVIDENCE, not authority:**
 

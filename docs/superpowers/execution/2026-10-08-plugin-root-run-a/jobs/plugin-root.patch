@@ -1,0 +1,1234 @@
+diff --git a/agents/code-archaeologist.md b/agents/code-archaeologist.md
+index 9eba9a6..5291ca9 100644
+--- a/agents/code-archaeologist.md
++++ b/agents/code-archaeologist.md
+@@ -36,11 +36,14 @@ block is missing when the engine or its index was unavailable at emit time (the
+ records `recall: unavailable (<reason>)`) or when you were launched by hand. The script
+ ships with the plugin, not with this repository. Resolve the plugin root once per session
+ before calling it. `CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash
+-environment, so treat it as a hint, never the whole answer:
++environment; Claude Code substitutes the plugin's path for the braced reference in the first
++line when it loads this agent, and the next two lines accept a `$PWD` that is a checkout of this
++plugin, or say on stderr that neither applies:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-memory.py" search "<3-8 words from the spec>" --intent planning --top 8
+ ```
+ 
+diff --git a/agents/doc-validator.md b/agents/doc-validator.md
+index f4ebc1f..7ad058f 100644
+--- a/agents/doc-validator.md
++++ b/agents/doc-validator.md
+@@ -36,11 +36,14 @@ block is missing when the engine or its index was unavailable at emit time (the
+ records `recall: unavailable (<reason>)`) or when you were launched by hand. The script
+ ships with the plugin, not with this repository. Resolve the plugin root once per session
+ before calling it. `CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash
+-environment, so treat it as a hint, never the whole answer:
++environment; Claude Code substitutes the plugin's path for the braced reference in the first
++line when it loads this agent, and the next two lines accept a `$PWD` that is a checkout of this
++plugin, or say on stderr that neither applies:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-memory.py" search "<3-8 words from the spec>" --intent planning --top 8
+ ```
+ 
+diff --git a/agents/domain-expert.md b/agents/domain-expert.md
+index 3a72e7a..c078ac7 100644
+--- a/agents/domain-expert.md
++++ b/agents/domain-expert.md
+@@ -36,11 +36,14 @@ block is missing when the engine or its index was unavailable at emit time (the
+ records `recall: unavailable (<reason>)`) or when you were launched by hand. The script
+ ships with the plugin, not with this repository. Resolve the plugin root once per session
+ before calling it. `CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash
+-environment, so treat it as a hint, never the whole answer:
++environment; Claude Code substitutes the plugin's path for the braced reference in the first
++line when it loads this agent, and the next two lines accept a `$PWD` that is a checkout of this
++plugin, or say on stderr that neither applies:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-memory.py" search "<3-8 words from the spec>" --intent planning --top 8
+ ```
+ 
+diff --git a/agents/parallel-dispatcher.md b/agents/parallel-dispatcher.md
+index 3c4e89f..10faf52 100644
+--- a/agents/parallel-dispatcher.md
++++ b/agents/parallel-dispatcher.md
+@@ -31,13 +31,17 @@ The executable spec you implement is [`skills/compound-v/phase-3-parallel-opus-d
+ the caller's repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Required inputs (the caller should provide)
+ 
+diff --git a/agents/partition-reviewer.md b/agents/partition-reviewer.md
+index 3b3e57f..302ef61 100644
+--- a/agents/partition-reviewer.md
++++ b/agents/partition-reviewer.md
+@@ -14,13 +14,17 @@ You are the final check before Phase 3 dispatches multi-backend workers. If you
+ the caller's repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Step 0 — ask what this project already knows (V-memory)
+ 
+diff --git a/agents/spec-reviewer.md b/agents/spec-reviewer.md
+index 218700d..000f637 100644
+--- a/agents/spec-reviewer.md
++++ b/agents/spec-reviewer.md
+@@ -23,13 +23,17 @@ Per-task you typically run as the SPEC pass (after each implementer reports DONE
+ the caller's repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Step 0 — ask what this project already knows (V-memory)
+ 
+diff --git a/commands/v-adr.md b/commands/v-adr.md
+index 49e891a..1711f8f 100644
+--- a/commands/v-adr.md
++++ b/commands/v-adr.md
+@@ -16,13 +16,18 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` get
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
++Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` get
+ `$CV`.
+ 
+ The authoritative flow lives in [`skills/compound-v/adr-capture.md`](../skills/compound-v/adr-capture.md) —
+diff --git a/commands/v-collect.md b/commands/v-collect.md
+index 0f89cb7..d748ec3 100644
+--- a/commands/v-collect.md
++++ b/commands/v-collect.md
+@@ -14,13 +14,18 @@ The `scripts/` and `schemas/` this command calls ship with the plugin — they a
+ your own repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
++Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
+ `schemas/` get `$CV`.
+ 
+ ## Steps
+diff --git a/commands/v-dispatch.md b/commands/v-dispatch.md
+index 7667e55..dbab69e 100644
+--- a/commands/v-dispatch.md
++++ b/commands/v-dispatch.md
+@@ -35,13 +35,18 @@ The `scripts/` and `schemas/` this command calls ship with the plugin — they a
+ your own repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
++Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
+ `schemas/` get `$CV`.
+ 
+ ## Steps
+diff --git a/commands/v-epic.md b/commands/v-epic.md
+index c8a9613..aa1ac97 100644
+--- a/commands/v-epic.md
++++ b/commands/v-epic.md
+@@ -14,13 +14,18 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/`
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
++Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/`
+ get `$CV`.
+ 
+ ## Steps
+diff --git a/commands/v-init.md b/commands/v-init.md
+index 52aedad..473987c 100644
+--- a/commands/v-init.md
++++ b/commands/v-init.md
+@@ -21,13 +21,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ---
+ 
+diff --git a/commands/v-lessons.md b/commands/v-lessons.md
+index 13a6114..6e0c08e 100644
+--- a/commands/v-lessons.md
++++ b/commands/v-lessons.md
+@@ -18,13 +18,18 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` get
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
++Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` get
+ `$CV`.
+ 
+ ## Steps
+diff --git a/commands/v-memory-refresh.md b/commands/v-memory-refresh.md
+index bf0da98..f0e2bdb 100644
+--- a/commands/v-memory-refresh.md
++++ b/commands/v-memory-refresh.md
+@@ -9,13 +9,17 @@ not files in your own repository. Resolve the plugin root once per session befor
+ them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ **Default — offline, FTS5, no install, no network:**
+ 
+diff --git a/commands/v-models.md b/commands/v-models.md
+index baf26f4..a82435b 100644
+--- a/commands/v-models.md
++++ b/commands/v-models.md
+@@ -28,13 +28,17 @@ not files in your own repository. Resolve the plugin root once per session befor
+ them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ---
+ 
+diff --git a/commands/v-onboard.md b/commands/v-onboard.md
+index 56c5892..32f0d27 100644
+--- a/commands/v-onboard.md
++++ b/commands/v-onboard.md
+@@ -16,13 +16,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Branch on `{{args}}`
+ 
+diff --git a/commands/v-orchestrate.md b/commands/v-orchestrate.md
+index f3f5d6a..a708983 100644
+--- a/commands/v-orchestrate.md
++++ b/commands/v-orchestrate.md
+@@ -14,13 +14,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Steps
+ 
+diff --git a/commands/v-remember.md b/commands/v-remember.md
+index 735ad1f..5d32d5f 100644
+--- a/commands/v-remember.md
++++ b/commands/v-remember.md
+@@ -9,13 +9,17 @@ not files in your own repository. Resolve the plugin root once per session befor
+ them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ **Search in the corpus's language.** This repository's engineering prose is almost all English,
+ and neither lane crosses languages: FTS5 matches words, and the measured dense lane (multilingual-e5-small)
+diff --git a/commands/v-resume.md b/commands/v-resume.md
+index 9e7913a..0f04a5a 100644
+--- a/commands/v-resume.md
++++ b/commands/v-resume.md
+@@ -14,13 +14,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Steps
+ 
+diff --git a/commands/v-review-plan.md b/commands/v-review-plan.md
+index 849aeb5..0471442 100644
+--- a/commands/v-review-plan.md
++++ b/commands/v-review-plan.md
+@@ -12,13 +12,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Steps
+ 
+diff --git a/commands/v-status.md b/commands/v-status.md
+index dc0c272..d706c6b 100644
+--- a/commands/v-status.md
++++ b/commands/v-status.md
+@@ -12,13 +12,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## Steps
+ 
+diff --git a/commands/v-triage.md b/commands/v-triage.md
+index 00c6376..bf13c9f 100644
+--- a/commands/v-triage.md
++++ b/commands/v-triage.md
+@@ -18,13 +18,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
+ repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ## You are not the only producer any more (v3.4)
+ 
+diff --git a/evals/README.md b/evals/README.md
+index e508e2d..5618efd 100644
+--- a/evals/README.md
++++ b/evals/README.md
+@@ -99,14 +99,23 @@ score. Don't compare a one-arm number with a two-arm one.
+ Every Compound V command resolves its tooling like this:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-In an eval run `CLAUDE_PLUGIN_ROOT` is unset for Bash and `$HOME` is a throwaway directory, so
+-that chain lands on `$PWD`. `evals/lib/cv-fixture-lib.sh`'s `cv_vendor_tools` therefore copies
+-the plugin's `scripts/` and `schemas/` into the workspace root, which is exactly where the
+-documented fallback looks.
++Claude Code substitutes the plugin's path for the braced reference in the first line when it
++loads a command, skill or agent body (ADR 0005). The variable itself is not set in the Bash tool,
++so where nothing substituted it the shell expands it to an empty string, and the second line
++accepts `$PWD` only when it holds `scripts/compound-v-preeval.py`; otherwise the third line says
++so on stderr. No cache scan, no `$HOME` lookup.
++
++Under `claude plugin eval` the with-arm loads the plugin from its source checkout, so the
++substituted path is that source and `CV` points there. `evals/lib/cv-fixture-lib.sh`'s
++`cv_vendor_tools` still copies the plugin's `scripts/` and `schemas/` into the workspace root:
++that vendored copy is the fallback only, for a step that runs a block nothing substituted (a
++reference file read with the Read tool, or the baseline arm), and it is exactly what the second
++line accepts.
+ 
+ This is deliberately visible to **both** arms. The baseline can `ls` and find the same
+ scripts. The delta therefore measures whether the plugin steers Claude to *use* the gate — not
+diff --git a/hooks/session-banner.sh b/hooks/session-banner.sh
+index cb25f00..40363ec 100755
+--- a/hooks/session-banner.sh
++++ b/hooks/session-banner.sh
+@@ -19,6 +19,13 @@ if [ "${CV_HEADLESS_CLASSIFY:-}" = "1" ]; then exit 0; fi  # finding 131: never
+ _cv_off=",$(printf '%s' "${CV_DISABLED_HOOKS:-}" | tr -d ' \t'),"
+ case "$_cv_off" in *",session-banner,"*) exit 0 ;; esac
+ 
++# Plugin root (ADR 0005, rule 3): CLAUDE_PLUGIN_ROOT, else the directory above this
++# hook. Never `.`: that is the project's directory, and running a project's own
++# scripts/compound-v-*.py in place of the plugin's is the defect this replaced. If
++# neither resolves, the two probes below are skipped and the banner stays silent.
++_cv_root="${CLAUDE_PLUGIN_ROOT:-}"
++[ -n "$_cv_root" ] || _cv_root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)" || _cv_root=""
++
+ banner="Compound V loaded — sidekick to Superpowers. Auto-fires before brainstorming (gated recon) and after it (pre-flights) — description-based discovery. Phases: recon → code-archaeologist + domain-expert + doc-validator (parallel) → partition-reviewer → parallel-dispatcher. You do not need to invoke it manually."
+ 
+ # First-run setup hint: the project stance config is .claude/compound-v.json
+@@ -31,8 +38,8 @@ fi
+ 
+ # Read-only onboarding staleness nudge. MUST fail silent: set -euo pipefail would
+ # abort the whole banner on any non-zero exit, so guard python and swallow errors.
+-if command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
+-  stale=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
++if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
++  stale=$(python3 "$_cv_root/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
+   if [ "${stale:-0}" = "unregistered" ]; then
+     banner="$banner ⚠ The onboard manifest registers no cited files, so doc staleness cannot be checked — run /v:onboard --refresh to re-verify and re-register."
+   elif [ "${stale:-0}" -gt 0 ] 2>/dev/null; then
+@@ -47,8 +54,8 @@ fi
+ # (they come back with the skill) but the agent's POSITION in the pipeline. This
+ # reads it back off disk. Read-only, and MUST fail silent for the same reason as
+ # the staleness probe above: set -euo pipefail would abort the whole banner.
+-if command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
+-  resume=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
++if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
++  resume=$(python3 "$_cv_root/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
+   if [ -n "${resume:-}" ]; then
+     banner="$banner $resume"
+   fi
+diff --git a/skills/backend-launcher/SKILL.md b/skills/backend-launcher/SKILL.md
+index ec9cf42..b109b5e 100644
+--- a/skills/backend-launcher/SKILL.md
++++ b/skills/backend-launcher/SKILL.md
+@@ -15,13 +15,17 @@ There is no skill-import API: an adapter is a sibling doc (`adapter-codex.md`, `
+ caller's repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ---
+ 
+diff --git a/skills/backend-launcher/adapter-antigravity.md b/skills/backend-launcher/adapter-antigravity.md
+index 3479425..8ff1a38 100644
+--- a/skills/backend-launcher/adapter-antigravity.md
++++ b/skills/backend-launcher/adapter-antigravity.md
+@@ -6,12 +6,18 @@ The worker script ships with the plugin, not with the caller's repository. Resol
+ once per session before invoking it:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+-installed plugin cache or a checkout of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ The Antigravity backend is a **Bash-spawned `agy --print` worker** — its own process, its own git worktree. It mirrors the Codex adapter step-for-step ([`adapter-codex.md`](adapter-codex.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
+ 
+diff --git a/skills/backend-launcher/adapter-claude.md b/skills/backend-launcher/adapter-claude.md
+index 6958d0d..cd52bbe 100644
+--- a/skills/backend-launcher/adapter-claude.md
++++ b/skills/backend-launcher/adapter-claude.md
+@@ -14,13 +14,18 @@ The defining property: **enforcement is identical to Codex.** The Claude subagen
+ the caller's repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ---
+ 
+diff --git a/skills/backend-launcher/adapter-codex.md b/skills/backend-launcher/adapter-codex.md
+index 7cda5cf..0bc5505 100644
+--- a/skills/backend-launcher/adapter-codex.md
++++ b/skills/backend-launcher/adapter-codex.md
+@@ -6,12 +6,18 @@ The worker script ships with the plugin, not with the caller's repository. Resol
+ once per session before invoking it:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+-installed plugin cache or a checkout of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ The Codex backend is a **Bash-spawned `codex exec` worker** — its own process, its own git worktree. It is never an `agents/` entry and never the experimental `openai-codex` `app-server` broker (that broker is single-flight and returns "busy" mid-turn, so it cannot fan out). The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
+ 
+diff --git a/skills/backend-launcher/adapter-cursor.md b/skills/backend-launcher/adapter-cursor.md
+index 2f04ace..604109a 100644
+--- a/skills/backend-launcher/adapter-cursor.md
++++ b/skills/backend-launcher/adapter-cursor.md
+@@ -6,12 +6,18 @@ The worker script ships with the plugin, not with the caller's repository. Resol
+ once per session before invoking it:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+-installed plugin cache or a checkout of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ The Cursor backend is a **Bash-spawned `cursor-agent -p` worker** — its own process, its own git worktree. It mirrors the Codex / Antigravity adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. The orchestrator hands this adapter a `job_spec` and gets back the canonical `job_result`; enforcement is git-derived by the caller, identical to every other backend.
+ 
+diff --git a/skills/backend-launcher/adapter-opencode.md b/skills/backend-launcher/adapter-opencode.md
+index 429b1a1..3e13006 100644
+--- a/skills/backend-launcher/adapter-opencode.md
++++ b/skills/backend-launcher/adapter-opencode.md
+@@ -6,12 +6,18 @@ The worker script ships with the plugin, not with the caller's repository. Resol
+ once per session before invoking it:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
+-installed plugin cache or a checkout of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ The opencode backend is a **Bash-spawned `opencode run` worker** — its own process, its own git worktree. It mirrors the Antigravity / Cursor adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md), [`adapter-cursor.md`](adapter-cursor.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. UNLIKE every other backend, opencode is **provider-agnostic / multi-provider** — its resolved `model` is always a `provider/model` string (e.g. `anthropic/claude-opus-5-5`), never a bare model name.
+ 
+diff --git a/skills/compound-v/SKILL.md b/skills/compound-v/SKILL.md
+index 78da3c9..291d0bc 100644
+--- a/skills/compound-v/SKILL.md
++++ b/skills/compound-v/SKILL.md
+@@ -71,13 +71,17 @@ references ship with the plugin — they are not files in the target repository.
+ plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
++substitutes the plugin's path for the braced reference in the first line when it loads this
++file, so that line already holds the path of the copy it loaded. Where nothing substituted it
++(another harness, or this file read with the Read tool), the shell expands the unset variable to
++an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
++and the third says so on stderr instead of guessing.
+ 
+ ---
+ 
+diff --git a/skills/compound-v/adr-capture.md b/skills/compound-v/adr-capture.md
+index 1035cb2..168c952 100644
+--- a/skills/compound-v/adr-capture.md
++++ b/skills/compound-v/adr-capture.md
+@@ -151,12 +151,15 @@ checks, is the invariant that keeps the audit trail honest.
+ 
+ Once committed, the ADR is picked up automatically on the next index refresh — no indexer change,
+ no special registration. Confirm it landed. The engine script ships with the plugin, not with the
+-target repository, so resolve the plugin root first — `CLAUDE_PLUGIN_ROOT` is a hook-context hint,
+-not a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo:
++target repository, so resolve the plugin root first — reuse the `CV` the
++command, skill or agent that sent you here resolved. This reference is read with the Read tool,
++so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only
++a `$PWD` that is a checkout of this plugin or says on stderr that it found none:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-memory.py" refresh          # incremental, by file hash
+ python3 "$CV/scripts/compound-v-memory.py" search "<a phrase from the decision>"
+ ```
+diff --git a/skills/compound-v/cross-model-review.md b/skills/compound-v/cross-model-review.md
+index ad8aeb9..aae4c9a 100644
+--- a/skills/compound-v/cross-model-review.md
++++ b/skills/compound-v/cross-model-review.md
+@@ -17,13 +17,18 @@ plugin, not with the caller's repository. Resolve the plugin root once per sessi
+ calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ---
+ 
+diff --git a/skills/compound-v/execution-manifest.md b/skills/compound-v/execution-manifest.md
+index e013a17..fe4c493 100644
+--- a/skills/compound-v/execution-manifest.md
++++ b/skills/compound-v/execution-manifest.md
+@@ -12,13 +12,18 @@ Worked example: [`examples/manifest.example.yaml`](../../examples/manifest.examp
+ target repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ---
+ 
+diff --git a/skills/compound-v/memory.md b/skills/compound-v/memory.md
+index a5d06a5..e3c1fe5 100644
+--- a/skills/compound-v/memory.md
++++ b/skills/compound-v/memory.md
+@@ -21,13 +21,18 @@ It is **the same discipline as the rest of the toolchain**: pure-stdlib core, of
+ repository. Resolve the plugin root once per session before calling it:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ---
+ 
+diff --git a/skills/compound-v/onboarding.md b/skills/compound-v/onboarding.md
+index f9f7903..6cdcfd4 100644
+--- a/skills/compound-v/onboarding.md
++++ b/skills/compound-v/onboarding.md
+@@ -49,13 +49,18 @@ locked in the plan's "Shared Interfaces."
+ with the target repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ```
+ 1. DETECT   →  2. PACK   →  3. EXTRACT  →  4. VERIFY  →  5. DIAGNOSE
+diff --git a/skills/compound-v/phase-0-recon.md b/skills/compound-v/phase-0-recon.md
+index 6442764..d4ec633 100644
+--- a/skills/compound-v/phase-0-recon.md
++++ b/skills/compound-v/phase-0-recon.md
+@@ -36,11 +36,12 @@ Skip **only** when the change cannot alter a shipped artifact, runtime behavior,
+ 
+ ### Gate 2 — Knowledge-base hit (V-memory)
+ 
+-Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path). The engine script ships with the plugin, not with the target repository — resolve the plugin root once per session (`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo):
++Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path). The engine script ships with the plugin, not with the target repository — resolve the plugin root once per session (reuse the `CV` the command, skill or agent that sent you here resolved; this reference is read with the Read tool, so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only a `$PWD` that is a checkout of this plugin or says on stderr that it found none):
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-memory.py" search "<topic>" --top 8 --json
+ ```
+ 
+diff --git a/skills/compound-v/phase-2-disjoint-partitioning.md b/skills/compound-v/phase-2-disjoint-partitioning.md
+index bbdbed3..1396239 100644
+--- a/skills/compound-v/phase-2-disjoint-partitioning.md
++++ b/skills/compound-v/phase-2-disjoint-partitioning.md
+@@ -176,11 +176,12 @@ These come from `routing-policy.md` / `execution-manifest.md` and are enforced d
+ 
+ ### Validate before handing off
+ 
+-Run the deterministic validator against the materialized manifest. **Select the mode by manifest kind (CR5-1):** the manifest this phase emits from a plan carries **no** `fast_path` block, so it is validated **mode-lessly** (legacy), as shown. A `fast_path` manifest — the v2.9 pre-eval-backed single-job kind, materialized by [`compound-v-fastpath-materialize.py`](../../scripts/compound-v-fastpath-materialize.py), not by this phase — MUST instead be validated with `--mode pre-dispatch`; a mode-less `fast_path` manifest is fail-closed rejected. The validator ships with the plugin, not with the target repository — resolve the plugin root once per session (`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo):
++Run the deterministic validator against the materialized manifest. **Select the mode by manifest kind (CR5-1):** the manifest this phase emits from a plan carries **no** `fast_path` block, so it is validated **mode-lessly** (legacy), as shown. A `fast_path` manifest — the v2.9 pre-eval-backed single-job kind, materialized by [`compound-v-fastpath-materialize.py`](../../scripts/compound-v-fastpath-materialize.py), not by this phase — MUST instead be validated with `--mode pre-dispatch`; a mode-less `fast_path` manifest is fail-closed rejected. The validator ships with the plugin, not with the target repository — resolve the plugin root once per session (reuse the `CV` the command, skill or agent that sent you here resolved; this reference is read with the Read tool, so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only a `$PWD` that is a checkout of this plugin or says on stderr that it found none):
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ # plan-based (legacy) manifest — what this phase emits:
+ python3 "$CV/scripts/compound-v-validate-manifest.py" docs/superpowers/execution/<run-id>/manifest.yaml
+ # fast_path manifest (produced by the pre-eval materializer, shown here for completeness):
+diff --git a/skills/compound-v/phase-3-parallel-opus-dispatch.md b/skills/compound-v/phase-3-parallel-opus-dispatch.md
+index fc05b9c..4b77efd 100644
+--- a/skills/compound-v/phase-3-parallel-opus-dispatch.md
++++ b/skills/compound-v/phase-3-parallel-opus-dispatch.md
+@@ -16,13 +16,18 @@
+ target repository. Resolve the plugin root once per session before calling any of them:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ ```
+ 
+-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
+-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
+-of this repo.
++`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
++is only a hint. A reference file like this one is read with the Read tool, which does not
++substitute the braced reference in the first line as Claude Code does in a command, skill or
++agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
++otherwise the shell expands the unset variable to an empty string, the second line accepts
++`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
++guessing.
+ 
+ ## Concurrency Reality
+ 
+diff --git a/skills/compound-v/routing-policy.md b/skills/compound-v/routing-policy.md
+index b62b085..bc8f728 100644
+--- a/skills/compound-v/routing-policy.md
++++ b/skills/compound-v/routing-policy.md
+@@ -565,12 +565,15 @@ the machine-generated scorecard that
+ job joined against its own `results/<job-id>.json`), unioned with the legacy
+ `task-outcomes.jsonl` — one row per `(backend, type)` with a `health` verdict.
+ Query a single cell at routing time. The script ships with the plugin, not with the target
+-repository, so resolve the plugin root first — `CLAUDE_PLUGIN_ROOT` is a hook-context hint, not
+-a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo:
++repository, so resolve the plugin root first — reuse the `CV` the
++command, skill or agent that sent you here resolved. This reference is read with the Read tool,
++so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only
++a `$PWD` that is a checkout of this plugin or says on stderr that it found none:
+ 
+ ```bash
+-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
+-CV="${CV:-$PWD}"; CV="${CV%/}"
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
+ python3 "$CV/scripts/compound-v-scorecard.py" --query --backend <default> --type <task-type>
+ # → stats + health ∈ {insufficient_data, healthy, watch, unhealthy}
+ ```
+diff --git a/tests/test-plugin-root.sh b/tests/test-plugin-root.sh
+new file mode 100755
+index 0000000..d058109
+--- /dev/null
++++ b/tests/test-plugin-root.sh
+@@ -0,0 +1,179 @@
++#!/usr/bin/env bash
++# tests/test-plugin-root.sh — the plugin root comes from the harness substitution
++# (ADR 0005, rules 1-3; spec docs/superpowers/specs/2026-10-08-plugin-root-run-a-design.md).
++#
++# Claude Code replaces the bare `${CLAUDE_PLUGIN_ROOT}` token in command, skill and agent
++# bodies with the path of the copy it loaded; the `${CLAUDE_PLUGIN_ROOT:-...}` form is left
++# as is, and the variable is not set in the Bash tool. The old snippet used the `:-` form,
++# so its cache scan always ran and could pick a stale copy. These rows pin the replacement:
++#
++#   (a) every file under agents/ commands/ skills/ evals/ that sets CV= carries the three
++#       canonical lines byte-for-byte, no `:-` form and no cache scan;
++#   (b) the lines, run with nothing substituted: a plugin checkout as $PWD is accepted with
++#       a silent stderr, a plain $PWD is reported on stderr;
++#   (c) with the token replaced by a path, as the harness does, CV is that path;
++#   (d) hooks/session-banner.sh never falls back to `.`: a script planted in the project
++#       is not executed, and the plugin's own scripts are still found next to the hook.
++#
++# bash 3.2 (stock macOS): no arrays, no bash-4-only constructs. Creates nothing in the repo.
++
++set -uo pipefail
++export PYTHONDONTWRITEBYTECODE=1
++
++REPO="$(cd "$(dirname "$0")/.." && pwd)"
++pass=0; fail=0
++ok()  { pass=$((pass + 1)); printf 'PASS %s\n' "$1"; }
++bad() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; }
++
++WORK="$(mktemp -d)"
++trap 'rm -rf "$WORK"' EXIT
++
++CANON="$WORK/canonical.txt"
++cat >"$CANON" <<'EOF'
++CV="${CLAUDE_PLUGIN_ROOT}"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
++[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
++EOF
++
++# --------------------------------------------------------------------------- #
++# (a) byte-for-byte canonical lines in every file that sets CV=
++# --------------------------------------------------------------------------- #
++FILES="$WORK/files.txt"
++( cd "$REPO" && grep -rlE '^CV=' agents commands skills evals 2>/dev/null | LC_ALL=C sort ) >"$FILES"
++nfiles="$(wc -l <"$FILES" | tr -d ' ')"
++if [ "$nfiles" -ge 38 ]; then
++  ok "(a) $nfiles files set CV= (at least the 38 entry points and references)"
++else
++  bad "(a) only $nfiles files set CV=; expected at least 38"
++fi
++
++nbad=0
++while IFS= read -r rel; do
++  [ -n "$rel" ] || continue
++  f="$REPO/$rel"
++  nset="$(grep -cE '^CV=' "$f")"
++  # Every CV= line must open a block whose three lines are the canonical ones.
++  blocks="$WORK/blocks.txt"
++  grep -A2 -E '^CV=' "$f" | grep -v '^--$' >"$blocks"
++  expect="$WORK/expect.txt"
++  : >"$expect"
++  i=0
++  while [ "$i" -lt "$nset" ]; do cat "$CANON" >>"$expect"; i=$((i + 1)); done
++  if ! cmp -s "$blocks" "$expect"; then
++    nbad=$((nbad + 1)); printf '  not canonical: %s\n' "$rel"
++  fi
++  if grep -qF 'CLAUDE_PLUGIN_ROOT:-' "$f"; then
++    nbad=$((nbad + 1)); printf '  uses the :- form the harness does not substitute: %s\n' "$rel"
++  fi
++done <"$FILES"
++if [ "$nbad" = "0" ]; then
++  ok "(a) every CV= block is the three canonical lines, and none uses the :- form"
++else
++  bad "(a) $nbad defect(s) in the CV= blocks (listed above)"
++fi
++
++scan="$( cd "$REPO" && grep -rlF 'superpowers-v/*/ 2>/dev/null | sort -V' agents commands skills evals 2>/dev/null )"
++if [ -z "$scan" ]; then
++  ok "(a) no file under agents/ commands/ skills/ evals/ carries the old cache scan"
++else
++  bad "(a) the old cache scan is still in: $(printf '%s' "$scan" | tr '\n' ' ')"
++fi
++
++# --------------------------------------------------------------------------- #
++# (b) the lines with nothing substituted, extracted from one real file
++# --------------------------------------------------------------------------- #
++SNIP="$WORK/snippet.sh"
++grep -A2 -E '^CV=' "$REPO/commands/v-status.md" | head -3 >"$SNIP"
++FAKEHOME="$WORK/home"; mkdir -p "$FAKEHOME"
++PLAIN="$WORK/plain"; mkdir -p "$PLAIN"
++
++# run_snip <snippet file> <cwd>: prints CV on stdout, the snippet's stderr to $WORK/err.txt
++# shellcheck disable=SC2016  # $1 and $CV belong to the inner shell, not this one
++run_snip() {
++  (cd "$2" && env -u CLAUDE_PLUGIN_ROOT HOME="$FAKEHOME" \
++     bash -c '. "$1"; printf "%s" "$CV"' _ "$1" 2>"$WORK/err.txt")
++}
++
++cv="$(run_snip "$SNIP" "$REPO")"
++err="$(cat "$WORK/err.txt")"
++if [ "$cv" = "$REPO" ] && [ -z "$err" ]; then
++  ok "(b) unsubstituted, from a plugin checkout: CV is \$PWD and stderr is empty"
++else
++  bad "(b) unsubstituted, from a plugin checkout: CV='$cv' stderr='$err'"
++fi
++
++cv="$(run_snip "$SNIP" "$PLAIN")"
++err="$(cat "$WORK/err.txt")"
++case "$err" in
++  *"Compound V: plugin root not found"*)
++    ok "(b) unsubstituted, from a plain directory: stderr names the problem" ;;
++  *) bad "(b) unsubstituted, from a plain directory: no message on stderr (CV='$cv' stderr='$err')" ;;
++esac
++
++# --------------------------------------------------------------------------- #
++# (c) the token replaced by a path, as the harness does at load
++# --------------------------------------------------------------------------- #
++SUBST="$WORK/substituted.sh"
++# shellcheck disable=SC2016  # the literal ${CLAUDE_PLUGIN_ROOT} is the token Python replaces
++REPO="$REPO" python3 -B -c '
++import os, sys
++text = open(sys.argv[1], encoding="utf-8").read()
++open(sys.argv[2], "w", encoding="utf-8").write(text.replace("${CLAUDE_PLUGIN_ROOT}", os.environ["REPO"]))
++' "$SNIP" "$SUBST"
++cv="$(run_snip "$SUBST" "$PLAIN")"
++err="$(cat "$WORK/err.txt")"
++if [ "$cv" = "$REPO" ] && [ -z "$err" ]; then
++  ok "(c) substituted: CV is the substituted path, not \$PWD, and stderr is empty"
++else
++  bad "(c) substituted: CV='$cv' (expected $REPO) stderr='$err'"
++fi
++
++# --------------------------------------------------------------------------- #
++# (d) hooks/session-banner.sh resolves from CLAUDE_PLUGIN_ROOT, else next to itself
++# --------------------------------------------------------------------------- #
++BANNER="$REPO/hooks/session-banner.sh"
++if grep -qF 'CLAUDE_PLUGIN_ROOT:-.}' "$BANNER"; then
++  bad "(d) session-banner.sh still falls back to the project directory (CLAUDE_PLUGIN_ROOT:-.)"
++else
++  ok "(d) session-banner.sh has no fallback to the project directory"
++fi
++
++# A fake `claude` keeps the version probe off the real binary.
++FAKEBIN="$WORK/bin"; mkdir -p "$FAKEBIN"
++printf '#!/bin/sh\necho "9.9.9 (Claude Code)"\n' >"$FAKEBIN/claude"; chmod +x "$FAKEBIN/claude"
++
++PROJ="$WORK/project"
++mkdir -p "$PROJ/scripts" "$PROJ/docs/superpowers/execution"
++SENTINEL="$WORK/planted-ran"
++cat >"$PROJ/scripts/compound-v-dashboard.py" <<EOF
++open("$SENTINEL", "w").write("ran")
++print("PLANTED-DASHBOARD-RAN")
++EOF
++out="$(cd "$PROJ" && env -u CLAUDE_PLUGIN_ROOT PATH="$FAKEBIN:$PATH" bash "$BANNER" 2>/dev/null)"
++if [ ! -e "$SENTINEL" ] && ! printf '%s' "$out" | grep -q 'PLANTED-DASHBOARD-RAN'; then
++  ok "(d) unset CLAUDE_PLUGIN_ROOT: the project's planted scripts/compound-v-dashboard.py is not executed"
++else
++  bad "(d) unset CLAUDE_PLUGIN_ROOT: the banner executed the project's planted dashboard script"
++fi
++if printf '%s' "$out" | python3 -B -c 'import json,sys; json.load(sys.stdin)["hookSpecificOutput"]["additionalContext"]' 2>/dev/null; then
++  ok "(d) the banner still emits valid JSON"
++else
++  bad "(d) the banner output is not valid JSON: $out"
++fi
++
++# The fallback is the plugin next to the hook: an empty onboard manifest in the project is
++# reported by the plugin's own compound-v-onboard.py, with CLAUDE_PLUGIN_ROOT unset.
++EMP="$WORK/empty-manifest"
++mkdir -p "$EMP/docs/superpowers/architecture"
++printf '{"generated":"2026-07-16","docs":{}}' >"$EMP/docs/superpowers/architecture/.onboard-manifest.json"
++out="$(cd "$EMP" && env -u CLAUDE_PLUGIN_ROOT PATH="$FAKEBIN:$PATH" bash "$BANNER" 2>/dev/null)"
++case "$out" in
++  *"registers no cited files"*)
++    ok "(d) unset CLAUDE_PLUGIN_ROOT: the plugin's own scripts are found next to the hook" ;;
++  *) bad "(d) unset CLAUDE_PLUGIN_ROOT: the onboard staleness probe did not reach the plugin's script" ;;
++esac
++
++echo "-------------------------------------------"
++printf 'tests/test-plugin-root.sh: %d passed, %d failed\n' "$pass" "$fail"
++[ "$fail" = "0" ] || exit 1
++echo "OK the plugin root comes from the harness substitution"

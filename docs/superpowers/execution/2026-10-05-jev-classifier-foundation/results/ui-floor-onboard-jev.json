@@ -1,0 +1,46 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-onboard.md",
+    "scripts/compound-v-onboard.py",
+    "skills/compound-v/onboarding.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "diff_digest": "sha256:edf905eb2400981500ac6915d0c27d10663e97bf0a63dd6af5a438f62c052f43",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a4654200b86b20c425c77012a6e6e3d3fe5a24c8\",\n  \"changed\": [\n    \"commands/v-onboard.md\",\n    \"scripts/compound-v-onboard.py\",\n    \"skills/compound-v/onboarding.md\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-onboard.py\",\n    \"skills/compound-v/onboarding.md\",\n    \"commands/v-onboard.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Tasks E1+E2 \u2014 deterministic detect_ui floor, then Jev for UI and layers (one job: one file)",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\n/usr/bin/python3 -B scripts/compound-v-onboard.py --selftest",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 237739,
+    "cache_read_input_tokens": 6257914,
+    "input_tokens": 98,
+    "measured": true,
+    "output_tokens": 18010,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a3a40115bf03049b3.jsonl",
+      "agent-a4e4686a65ad623be.jsonl",
+      "agent-ad92923d85f1809a4.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-6"
+}

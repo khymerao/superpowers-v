@@ -1,0 +1,58 @@
+{
+  "baseline_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+  "diff_digest": "sha256:8716c5379d580666f59c24742c3a9c024e877b468364519860eb27abeb3507b8",
+  "exit_code": 0,
+  "job_id": "jev-reasons-prune",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-review-fixes/jobs/jev-reasons-prune.patch",
+  "patch_paths": [
+    "docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md",
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh"
+  ],
+  "patch_sha256": "sha256:8716c5379d580666f59c24742c3a9c024e877b468364519860eb27abeb3507b8",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"fd02c46eca68736f9bbddae2c7df8b2a7566a7fb\",\n  \"changed\": [\n    \"docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md\",\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\",\n    \"docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md",
+      "scripts/compound-v-jev.py",
+      "tests/test-jev-core.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo jev-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-jev-core.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 3 command(s) from 3 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-3"
+}

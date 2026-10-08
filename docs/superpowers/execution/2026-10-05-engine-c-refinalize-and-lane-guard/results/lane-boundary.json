@@ -1,0 +1,46 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "TROUBLESHOOTING.md",
+    "hooks/lane-guard.sh",
+    "tests/test-lane-guard.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+    "diff_digest": "sha256:99d9e6216a48d6a23865313b9137f0eba44854434b0f28969a6c97027cf69232",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b1be7dd775eaaaea4bad2ce64de33f7dfb63749f\",\n  \"changed\": [\n    \"TROUBLESHOOTING.md\",\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task B \u2014 the lane guard cwd claim stops at a working-tree boundary",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo guard-ok'\nbash tests/test-lane-guard.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 171169,
+    "cache_read_input_tokens": 2121437,
+    "input_tokens": 58,
+    "measured": true,
+    "output_tokens": 7730,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a0e808196d2c35e87.jsonl",
+      "agent-a554593ef40da8803.jsonl",
+      "agent-a5e465fbc4c43f029.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-3"
+}

@@ -1,0 +1,33 @@
+{
+  "base_commit": "b2d31657a1629d1122e4503480c18d47f98abe63",
+  "confidence": "localization:failed; tiers:none",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [],
+  "difficulty": {
+    "band": "unknown",
+    "display": null
+  },
+  "digest": "sha256:5d8ba67857d7c5b4c9b141c8aa9af359777972174f35ae7823888834ecdfae7c",
+  "impact": {
+    "band": "unknown",
+    "display": null
+  },
+  "localization": {
+    "confidence": "failed",
+    "fan_out": 0,
+    "flags": [],
+    "resolved_paths": []
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 1,
+  "pre_eval_id": "2026-10-05T063500Z-req-d42cbaba-eef0",
+  "request_slug": "req-d42cbaba",
+  "session_id": "36694b53-012e-4e0a-9316-78e06dd27c6d",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-05T063500Z-req-d42cbaba-eef0.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [],
+  "ts": "2026-10-05T06:35:00Z"
+}

@@ -45,6 +45,7 @@ FRONTMATTER_HARD_MAX = 1024
 SONNET_ELIGIBLE_AGENTS = {
     "code-archaeologist",   # measures existing code; produces findings, decides nothing
     "doc-validator",        # resolves libraries and compares versions against the repo
+    "transport",            # runs one clamped pipeline command and returns its JSON; decides nothing
 }
 
 # Claude Code's native persistent subagent memory (3.5.0). The field takes exactly
@@ -505,6 +506,12 @@ def main(argv: list) -> int:
         # not in this checkout at all (observed at 51 and twice at 68). .gitignore
         # cannot help here: this walk is rglob, not git.
         if "node_modules" in parts or ".git" in parts or "worktrees" in parts:
+            continue
+        # `evals/**/graders/*.md` are `claude plugin eval` grader files (3.7.0). Their
+        # frontmatter is the eval harness's contract (`type: regex` and so on), not an
+        # agent's or a skill's, so the model policy this linter enforces does not
+        # apply to them and their required keys are different ones.
+        if "evals" in parts and "graders" in parts:
             continue
         issues = lint_file(f, rel=f.relative_to(root))
         for i in issues:

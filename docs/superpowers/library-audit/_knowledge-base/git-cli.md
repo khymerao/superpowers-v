@@ -67,3 +67,27 @@ implicitly relevant to `git log` too) can invoke an externally-configured diff/t
 config default) to fire. Same "requires prior config control" caveat as `--show-signature` above — noted,
 not treated as a standalone blocker.
 
+---
+
+## Updated 2026-10-05 — engine-c-refinalize-and-lane-guard
+
+Audit: `docs/superpowers/library-audit/2026-10-05-2026-10-05-engine-c-refinalize-and-lane-guard-design.md`.
+No Context7 (ToolSearch empty). Sources: WebFetch of `git-scm.com/docs/git-merge-base` and
+`git-scm.com/docs/gitrepository-layout`, 2026-10-05.
+
+- `git merge-base --is-ancestor <a> <b>`: exit 0 = a is an ancestor of b, exit 1 = not, any other non-zero =
+  error (e.g. unknown object, observed as a "not a valid commit" failure). Three outcomes: code that tests
+  `!= 1` instead of `== 0` mistakes an error for "ancestor". A commit later reverted is still an ancestor.
+- A gitfile is a plain-text `.git` containing `gitdir: <path>`, written by `git worktree` and `git submodule`.
+  A boundary test for "separate working tree" must use `-e`, not `-d`.
+- Current stable git per the 2026-09-03 entry above is 2.55.0; not re-probed.
+
+---
+
+## Updated 2026-10-08 - gate-toolchain-and-model-config-design
+
+Audit: `docs/superpowers/library-audit/2026-10-08-2026-10-08-gate-toolchain-and-model-config-design.md`. No Context7 (OAuth needed). Sources: WebFetch `git-scm.com/docs/git-check-ignore` and `git-scm.com/docs/git-rev-parse`, 2026-10-08.
+
+- `git check-ignore`: exit 0 = at least one path ignored, 1 = none, 128 = fatal. With `--stdin -z` input is NUL-separated and so is the output. Tracked files are never reported unless `--no-index`. `scripts/compound-v-scope-check.py` `_check_ignore` (`:563-593`) treats 0/1 as success and anything else as an error; that matches.
+- `git rev-parse --show-toplevel` is "the top-level directory of the working tree"; in a linked worktree that is the worktree's own root (page does not name worktrees, so this is inferred from the definition). `--git-common-dir` gives the main repository's git dir. Bare repo or inside `.git`: no working tree (error expected).
+

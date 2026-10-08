@@ -87,7 +87,6 @@ import tempfile
 # --------------------------------------------------------------------------- #
 EXEC_DIR_REL = os.path.join("docs", "superpowers", "execution")
 PRE_EVAL_DIR_REL = os.path.join("docs", "superpowers", "pre-eval")
-TRIAGE_STREAM_REL = os.path.join("docs", "superpowers", "memory", "triage-outcomes.jsonl")
 
 IMPL_JOB_ID = "task-fastpath-impl"          # never a reviewer token (review/quality/…)
 PHASE_FASTPATH_DISPATCHED = "FASTPATH_DISPATCHED"
@@ -137,6 +136,12 @@ def _localize():
 
 def _triage():
     return _load_sibling("compound-v-triage-outcomes.py", "compound_v_triage_outcomes")
+
+
+def _stream_rel():
+    """The triage-outcomes stream path relative to the project root: triage-outcomes'
+    ``STREAM_RELPATH``, the single definition (never a second copy here)."""
+    return _triage().STREAM_RELPATH
 
 
 def _validator():
@@ -705,10 +710,10 @@ def _ensure_bind(git, repo, pre_eval_id, run_id, ts=None):
     """Append the ``bind`` event if not already present (idempotent across resume — a crash
     after append-before-commit is handled: the line is present so we skip re-append but the
     commit below still captures the uncommitted stream), then commit the stream."""
-    stream_full = os.path.join(repo, TRIAGE_STREAM_REL)
+    stream_full = os.path.join(repo, _stream_rel())
     if not _bind_present(stream_full, pre_eval_id, run_id):
         _triage().bind_run(pre_eval_id, run_id, ts=ts, stream_path=stream_full)
-    _commit_paths(git, repo, [TRIAGE_STREAM_REL],
+    _commit_paths(git, repo, [_stream_rel()],
                   "chore(v2.9): bind fast-path run %s to %s" % (run_id, pre_eval_id))
 
 
@@ -899,12 +904,12 @@ def _selftest():
         git(repo, ["add", "-A"])
         git(repo, ["commit", "-q", "-m", "seed: taxonomy + target"])
 
-        stream = os.path.join(repo, TRIAGE_STREAM_REL)
+        stream = os.path.join(repo, _stream_rel())
         fake = (lambda req, r, taxonomy: {"resolved_paths": [target], "fan_out": 1,
                                           "flags": [], "confidence": "exact"})
         res = pe.run_preeval(request, repo=repo, _localize=fake, ts=ts, stream_path=stream)
         # Commit the pre-eval artifacts + the predicted stream line.
-        git(repo, ["add", "docs/superpowers/pre-eval", TRIAGE_STREAM_REL])
+        git(repo, ["add", "docs/superpowers/pre-eval", _stream_rel()])
         git(repo, ["commit", "-q", "-m", "pre-eval: %s" % res["pre_eval_id"]])
         return res
 
@@ -978,11 +983,11 @@ def _selftest():
                    i_state < i_bind < i_art)
 
         # --- bind committed BEFORE state (proven by ordering) + present in the stream. ---
-        stream_full = os.path.join(repo, TRIAGE_STREAM_REL)
+        stream_full = os.path.join(repo, _stream_rel())
         expect("bind event present in the triage stream",
                _bind_present(stream_full, pid, run_id))
         expect("bind stream is committed",
-               _git_tracked(git, repo, TRIAGE_STREAM_REL))
+               _git_tracked(git, repo, _stream_rel()))
 
         # --- state.json is NOT in the artifacts commit — the commit that FIRST added it
         #     must be the dedicated (last) state commit. ---
@@ -1051,13 +1056,13 @@ def _selftest():
         expect("crash@artifacts: state.json not yet committed",
                not _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json")))
         expect("crash@artifacts: bind not yet present",
-               not _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
+               not _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
         # Reconcile: a fresh full run completes deterministically (same run-id).
         out = run_materialize(repo, pid)
         expect("crash@artifacts reconciles to materialized", out["status"] == "materialized")
         expect("crash@artifacts: same deterministic run-id", out["run_id"] == run_id)
         expect("crash@artifacts: bind now present + before state",
-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
+               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
         subs = commit_subjects(repo)
         i_bind = subs.index("chore(v2.9): bind fast-path run %s to %s" % (run_id, pid))
         i_state = subs.index("chore(v2.9): fast-path run %s dispatched (state)" % run_id)
@@ -1075,18 +1080,18 @@ def _selftest():
         expect("stop_after=bind: bind committed, state not yet",
                stop["status"] == "stopped_after_bind")
         expect("crash@bind: bind present + committed",
-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id)
-               and _git_tracked(git, repo, TRIAGE_STREAM_REL))
+               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id)
+               and _git_tracked(git, repo, _stream_rel()))
         expect("crash@bind: state.json not yet committed",
                not _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json")))
         out = run_materialize(repo, pid)
         expect("crash@bind reconciles to materialized", out["status"] == "materialized")
         expect("crash@bind: committed state.json => bind durable (invariant holds)",
                _git_tracked(git, repo, os.path.join(EXEC_DIR_REL, run_id, "state.json"))
-               and _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
+               and _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
         # No duplicate bind lines were appended on reconcile.
         expect("crash@bind: bind is not duplicated on reconcile",
-               _bind_count(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id) == 1)
+               _bind_count(os.path.join(repo, _stream_rel()), pid, run_id) == 1)
 
     # ============================ (6) Crash after STATE (full) =================== #
     with tempfile.TemporaryDirectory() as td:
@@ -1101,7 +1106,7 @@ def _selftest():
         expect("crash@state (complete): resume is a no-op",
                out["status"] == "already_complete" and count_commits(repo) == before)
         expect("invariant: committed state => bind present (never state-without-bind)",
-               _bind_present(os.path.join(repo, TRIAGE_STREAM_REL), pid, run_id))
+               _bind_present(os.path.join(repo, _stream_rel()), pid, run_id))
 
     # ============================ (7) Block-YAML emitter sanity ================== #
     m = {"a": "x:y", "n": 1, "b": True, "lst": ["p/q", "r"],

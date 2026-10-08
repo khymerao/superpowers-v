@@ -1,0 +1,13 @@
+{
+  "scope": "full",
+  "resolved_commands": [
+    "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+    "bash -c 'bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooksjson-ok'",
+    "bash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'",
+    "bash tests/test-jev-t3-mod.sh",
+    "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'"
+  ],
+  "floor_command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+  "full_command": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+  "timeout_s": 540
+}

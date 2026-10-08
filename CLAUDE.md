@@ -14,7 +14,8 @@ Claude-Code-specific pointers. Do NOT inline architecture prose here — point t
   (`architecture.md`, `business-logic.md`, `tech-context.md`).
 - Repo conventions delta: `CONVENTIONS.md` (root).
 - Model policy: Opus by default, Sonnet for execution (the junior-task carve-out, plus the
-  named scanning agents `code-archaeologist` / `doc-validator`), **never Haiku**
+  named scanning agents `code-archaeologist` / `doc-validator`, and the `transport` carrier that runs one
+  clamped pipeline command per spawn), **never Haiku**
   (enforced by `scripts/lint-frontmatter.py` and CI). Fable is a dispatch-time override for
   business-critical work, never frontmatter. The `advisor` tool is part of the policy too:
   implementers and the spec-reviewer consult it at their own decision points, and the model that

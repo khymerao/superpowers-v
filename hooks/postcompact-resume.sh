@@ -68,6 +68,10 @@ trap 'exit 0' EXIT
 # No `set -e`: this hook must never fail closed.
 set -uo pipefail
 if [ "${CV_HEADLESS_CLASSIFY:-}" = "1" ]; then exit 0; fi  # finding 131: never fire inside the headless classifier
+# CV_DISABLED_HOOKS: comma-separated hook basenames (no .sh) to turn off. lane-guard is
+# excluded on purpose — see hooks/lane-guard.sh's own header comment.
+_cv_off=",$(printf '%s' "${CV_DISABLED_HOOKS:-}" | tr -d ' \t'),"
+case "$_cv_off" in *",postcompact-resume,"*) exit 0 ;; esac
 
 _HOOK_TAG="compound-v/postcompact-resume"
 

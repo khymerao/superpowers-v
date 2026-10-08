@@ -1,0 +1,34 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude-plugin/marketplace.json",
+    "README.md",
+    "commands/v-init.md",
+    "hooks/jev-t3.tsx",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116",
+    "diff_digest": "sha256:aadcf2a8d1bdb5ee5635773219dd5449b52f95eb6fda6486af2d915d27ad997e",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116\",\n  \"changed\": [\n    \".claude-plugin/marketplace.json\",\n    \"README.md\",\n    \"commands/v-init.md\",\n    \"hooks/jev-t3.tsx\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \".claude-plugin/marketplace.json\",\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"README.md\",\n    \"hooks/jev-t3.tsx\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 optional vault, offered by /v:init",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'jq empty .claude-plugin/marketplace.json && bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mk-ok'\nbash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'\nbash tests/test-vault-mod.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 4
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_ad948416-5d3-2"
+}

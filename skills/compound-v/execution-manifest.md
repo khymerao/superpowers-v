@@ -12,13 +12,18 @@ Worked example: [`examples/manifest.example.yaml`](../../examples/manifest.examp
 target repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 ---
 
@@ -41,6 +46,7 @@ of this repo.
 | `global_constraints` | string[] | no | v3.4.17: the plan's `## Global Constraints` lines, verbatim. [§ below](#the-two-superpowers-620-plan-fields-v3417). |
 | `provision_command` | string | no | v3.6: one dependency install a worktree job runs before its own before-image is taken (e.g. `npm ci`). Non-empty, single-line. See [§ `provision_command` — the dependency install that runs before the before-image](#provision_command--the-dependency-install-that-runs-before-the-before-image-v36) below. |
 | `provision_timeout_s` | integer | no | v3.6: seconds `provision_command` gets. Integer `1..1800` (a bool is rejected). **Absent ⇒ 600.** Same section below. |
+| `toolchain_artifacts` | string[] | no | v3.6.3: globs (same semantics as `write_allowed`) naming build artifacts the test floor itself writes on first run (`tsconfig.tsbuildinfo`, a vitest/jest cache, `.turbo/`, `.next/`). Subtracted from a job's violations only when `git check-ignore` confirms the path is gitignored at gate time. A catch-all glob is rejected. Applies to every job in the run — separate from `write_allowed` so disjointness is untouched. See [§ `toolchain_artifacts` — build artifacts the test floor writes](#toolchain_artifacts--build-artifacts-the-test-floor-writes-v363) below. |
 
 **`{path}` substitution is the contract, not an illustration.** Inside a rule's `run`, the literal token `{path}` is replaced by the changed path that matched the rule's `when` glob, once per matching path. It appeared only inside examples until now, so an implementer had to infer it; a rule whose `run` omits `{path}` is still valid and simply runs once per match.
 
@@ -61,7 +67,7 @@ of this repo.
 | `tier` | enum | yes¹ | `frontier` \| `deep` \| `standard` \| `light`. The **intent** the routing policy assigns; the dispatcher resolves it to a concrete model and passes it as `agent()`'s `opts.model`. Stable vocabulary that survives model churn. |
 | `effort` | enum | no | `low` \| `medium` \| `high` \| `xhigh`. Orthogonal reasoning-effort hint. Default pairing `frontier→high`, `deep→high`, `standard→medium`, `light→low`, but independently tunable per task-type. For `codex` it maps to `-c model_reasoning_effort=<effort>`; for `claude` it is advisory (the `Task` path has no separate effort flag). `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead). **Effort buys thinking, not output length** — prompt for length explicitly instead. By job kind: new code and design decisions `deep`·**high**; a **fix job minted from a review finding** **medium** (the thinking is already written down in the finding); a reviewer **high** on its first pass and **medium** on a re-pass over the same diff; the pipeline's own transports **low**. See [`routing-policy.md`](routing-policy.md) § Effort by job kind. |
 | `max_turns` | integer | no | v3.4.0. Positive turn cap for this job. **Absent ⇒ the tier default: `light` 30, `standard` 50, `deep`/`frontier` 80.** A value this loader cannot read — `"80"`, `0`, `-1`, `true` — degrades to the tier default **and says so**, in the rendered prompt's `Turn cap` line and in the emit output; a manifest that meant to raise a cap and quoted the number used to get the default with no hint its value had been discarded. For `backend: claude` the cap is carried natively by the agent DEFINITION the job is spawned as (`agents/implementer.md` declares `maxTurns: 80`, matching the `deep` default above; the workflow `agent()` options have no equivalent field, so an inline-definition fallback spawn loses it and logs that it did). For an external worker the value is **stated in the prompt, not enforced by any runtime** — it is a budget the worker is told. The validator accepts the key (it rejects no unknown per-job key by design). |
-| `model` | string | no¹ | Explicit override, e.g. `opus`, `sonnet`, `gpt-5.6-sol`. When present it **skips resolution** (the manifest pins the model directly). Execution-layer data — never in frontmatter. Backward-compatible: pre-tier manifests carrying only `model` remain valid. |
+| `model` | string | no¹ | Explicit override, e.g. `opus`, `sonnet`, `gpt-6.1-sol`. When present it **skips resolution** (the manifest pins the model directly). Execution-layer data — never in frontmatter. Backward-compatible: pre-tier manifests carrying only `model` remain valid. |
 | `isolation` | enum | yes | `direct` \| `worktree`. **`run: parallel` ⇒ `worktree`** (per-job scope attribution); `direct` is only valid with `run: serial`. |
 | `run` | enum | yes | `serial` \| `parallel`. A `parallel` job MUST be `isolation: worktree` (see the rule above). |
 | `depends_on` | string[] | no | Job ids that must finish first (defaults to empty). |
@@ -117,10 +123,10 @@ however mechanical each individual edit looks.
 
 | Tier | Strongest fit | Routes to (Balanced) |
 |---|---|---|
-| `frontier` | The extreme case. Reachable by design, assigned rarely: it is what a **re-attempt escalates into** after a recorded failure, and where interface-design work belongs. | claude `fable`, codex `gpt-5.6-sol`, antigravity top model, cursor `auto`, opencode `anthropic/claude-opus-4-6`. Under `cost-aware` it caps at claude `opus`. |
-| `deep` | Judgment: architecture, security/auth/payments, coupled business logic, designing tests, external APIs, **ALL reviewers**, shared-foundation Task 0. | claude `opus`, codex `gpt-5.6-sol`, antigravity top model, cursor `auto`, opencode `anthropic/claude-opus-4-6`. |
-| `standard` | Execution against a spec that is already settled: bounded core/feature build, incl. large isolated codex work. | claude `sonnet` (`opus` under the `conservative` stance), codex `gpt-5.6-terra`, antigravity mid model, cursor `auto`, opencode `openai/gpt-5.6-terra`. |
-| `light` | Mechanical single-file / docs / i18n / scanning. Also where the pipeline's own **transport** stages run (Gate, Record, Finalize — each one clamped command, verbatim JSON back). | claude `sonnet`, codex `gpt-5.6-luna`, antigravity flash model, cursor `auto`, opencode `opencode/mimo-v2.5-free` (a real credential-free model). |
+| `frontier` | The extreme case. Reachable by design, assigned rarely: it is what a **re-attempt escalates into** after a recorded failure, and where interface-design work belongs. Also, since 2026-09-24, where every **Codex review/judge role** (cross-model plan review, `/v:review-plan`, the epic arbiter's Codex ballot) resolves — review is where the strongest reasoning pays. | claude `fable`, codex `gpt-6-astra`, antigravity top model, cursor `auto`, opencode `anthropic/claude-opus-5-5`. Under `cost-aware` it caps at claude `opus`. Codex is the one backend where `frontier` is genuinely a rung above `deep` (GPT-6 ships a dedicated frontier model, `astra`, above the workhorse `sol`) — for the other external backends `frontier` still defaults to the same value as `deep`. |
+| `deep` | Judgment: architecture, security/auth/payments, coupled business logic, designing tests, external APIs, **ALL reviewers**, shared-foundation Task 0. | claude `opus`, codex `gpt-6.1-sol`, antigravity top model, cursor `auto`, opencode `anthropic/claude-opus-5-5`. |
+| `standard` | Execution against a spec that is already settled: bounded core/feature build, incl. large isolated codex work. | claude `sonnet` (`opus` under the `conservative` stance), codex `gpt-6.1-sol` (same model as `deep`, differing only by `effort`), antigravity mid model, cursor `auto`, opencode `openai/gpt-6.1-sol`. |
+| `light` | Mechanical single-file / docs / i18n / scanning. Also where the pipeline's own **transport** stages run (Gate, Record, Finalize — each one clamped command, verbatim JSON back). | claude `sonnet`, codex `gpt-6-luna`, antigravity flash model, cursor `auto`, opencode `opencode/mimo-v2.5-free` (a real credential-free model). |
 
 **A reviewer's floor is `deep`, not a ceiling.** Invariant 4 demands `tier: deep` **or
 stronger** (`frontier`/Fable) — or an explicit `model: opus`/`fable` — because a sealed review
@@ -137,37 +143,37 @@ recorded `results/<id>.json` status, not a counter: an absent result is not a fa
 model the manifest pinned explicitly is never escalated; escalating a value we did not
 choose would be a fabricated routing decision.
 
-`effort ∈ {low, medium, high, xhigh}` is orthogonal to tier. The default pairing (`frontier→high`, `deep→high`, `standard→medium`, `light→low`) is just a default — a task-type may pin a different effort independently. `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead) — it maps to codex's `model_reasoning_effort=xhigh` (live-verified 2026-07-11 on codex-cli 0.144.1).
+`effort ∈ {low, medium, high, xhigh}` is orthogonal to tier. The default pairing (`frontier→high`, `deep→high`, `standard→medium`, `light→low`) is just a default — a task-type may pin a different effort independently. `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead) — it maps to codex's `model_reasoning_effort=xhigh` (live-verified 2026-07-11 on codex-cli 0.144.1, re-verified 2026-09-24 on codex-cli 0.156.1 with `gpt-6-sol`/`gpt-6-luna`). GPT-6 also exposes `ultra` (astra/sol) and `max`; neither is adopted — `max` is simply out of scope this release, and `ultra` is a lane hazard (its automatic task delegation spawns sub-agents that write outside the job's `write_allowed` lane, invisible to the `PreToolUse` lane guard and only detectable after the fact by the scope gate).
 
 Resolution is **stance-aware**: the `standard` Claude row resolves to `sonnet` under `balanced` / `cost-aware` / `claude-only`, and to `opus` under `conservative` — that is what the conservative stance means. `frontier` is `fable` everywhere except `cost-aware`, whose ceiling is `opus`. `deep` (incl. all reviewers + sensitive surfaces) is `opus` in every stance, and `codex`/`antigravity`/`cursor`/`opencode` are identical across stances.
 
-The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map; omitting the stance defaults to `balanced`. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
+The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map and `--repo-dir` for the project root; omitting the stance defaults to `balanced`. Omitting `--config` does **not** mean the built-in defaults: the resolver then reads `<root>/.claude/compound-v.json`, root = `--repo-dir` or the git toplevel, and takes the `maxEffortLevel` cap from the same root. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
 
 ### Config `models` map (project `.claude/compound-v.json`)
 
-The concrete model behind each tier lives in a **refreshable** map in the project config — not hardcoded in any job. This is what lets the plugin survive model churn: when models change, refresh the map (`/v:models`), not the manifests. The map is **per-stance** — its shape is `{<stance>: {<backend>: {<tier>: model}}}`. Only the `claude` rows differ across stances (`conservative.claude.standard = opus`; everywhere else `standard` is `sonnet`, and `cost-aware.claude.frontier` caps at `opus`); `codex`/`antigravity`/`cursor`/`opencode` are identical in every stance. `opencode`'s cells are full `provider/model` strings (the provider may legitimately differ per tier — no schema change, the resolver already treats every cell as opaque):
+The concrete model behind each tier lives in a **refreshable** map in the project config — not hardcoded in any job. This is what lets the plugin survive model churn: when models change, refresh the map (`/v:models`), not the manifests. The map is **per-stance** — its shape is `{<stance>: {<backend>: {<tier>: model}}}`. Only the `claude` rows differ across stances (`conservative.claude.standard = opus`; everywhere else `standard` is `sonnet`, and `cost-aware.claude.frontier` caps at `opus`); `codex`/`antigravity`/`cursor`/`opencode` are identical in every stance. Codex is the one non-claude backend that carries its own explicit `frontier` cell (`gpt-6-astra`) distinct from `deep`/`standard` (`gpt-6.1-sol`) — every other external backend still defaults `frontier` to the same value as `deep`. `opencode`'s cells are full `provider/model` strings (the provider may legitimately differ per tier — no schema change, the resolver already treats every cell as opaque):
 
 ```jsonc
 "models": {
   "balanced": {
     "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                     "light": "sonnet" },
-    "codex":       { "deep": "gpt-5.6-sol",                "standard": "gpt-5.6-terra",                "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra",            "deep": "gpt-6.1-sol",  "standard": "gpt-6.1-sol",  "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)",     "standard": "Gemini 3.1 Pro (Low)",        "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                       "standard": "auto",                        "light": "auto" },
-    "opencode":    { "deep": "anthropic/claude-opus-4-6",  "standard": "openai/gpt-5.6-terra",         "light": "opencode/mimo-v2.5-free" }
+    "opencode":    { "deep": "anthropic/claude-opus-5-5",  "standard": "openai/gpt-6.1-sol",         "light": "opencode/mimo-v2.5-free" }
   },
   "cost-aware": {
     "claude":      { "frontier": "opus",  "deep": "opus",  "standard": "sonnet",                     "light": "sonnet" },
-    "codex":       { "deep": "gpt-5.6-sol",                "standard": "gpt-5.6-terra",                "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra",            "deep": "gpt-6.1-sol",  "standard": "gpt-6.1-sol",  "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)",     "standard": "Gemini 3.1 Pro (Low)",        "light": "Gemini 3.8 Flash (Low)" },
     "cursor":      { "deep": "auto",                       "standard": "auto",                        "light": "auto" },
-    "opencode":    { "deep": "anthropic/claude-opus-4-6",  "standard": "openai/gpt-5.6-terra",         "light": "opencode/mimo-v2.5-free" }
+    "opencode":    { "deep": "anthropic/claude-opus-5-5",  "standard": "openai/gpt-6.1-sol",         "light": "opencode/mimo-v2.5-free" }
   }
   // claude-only mirrors balanced; conservative keeps standard on opus
 }
 ```
 
-The map is **documented, not committed** in this repo (it is project-local config). `/v:init` seeds the per-stance default map so routing works out of the box; `/v:models` discovers available models per backend and rewrites the map. The resolver also **accepts the legacy flat shape** `{<backend>: {<tier>: model}}` (applied to every stance) for backward-compat — it auto-detects which shape it was given. NEVER `haiku` anywhere. Antigravity values are illustrative placeholders refreshed by `agy models`; codex has no list command, so its map is curated + user-overridable; claude uses native tier aliases.
+The map is **documented, not committed** in this repo (it is project-local config). `/v:init` seeds the per-stance default map so routing works out of the box; `/v:models` discovers available models per backend and rewrites the map. The resolver also **accepts the legacy flat shape** `{<backend>: {<tier>: model}}` (applied to every stance) for backward-compat — it auto-detects which shape it was given. NEVER `haiku` anywhere. Antigravity values are illustrative placeholders refreshed by `agy models`; codex discovers live too, via `codex debug models` (since codex-cli 0.156.1 — see [`v-models.md`](../../commands/v-models.md) §1b), with a curated user-overridable fallback when codex is absent; claude uses native tier aliases.
 
 ### Resolution (tier → model)
 
@@ -218,6 +224,12 @@ This is the **only** way provisioning is subtracted. Nothing is forgiven by exte
 name: a job with no `provision_command` that installs its own `node_modules/` is BLOCKED, exactly as
 before.
 
+**If your test floor writes build artifacts** (`tsconfig.tsbuildinfo`, a vitest/jest cache, a
+`.turbo/` or `.next/` directory), declare them in [`toolchain_artifacts`](#toolchain_artifacts--build-artifacts-the-test-floor-writes-v363)
+— or warm them here, in `provision_command`, the same way a dependency install is warmed. The
+before-image is taken after provisioning, so any artifact the floor creates for the first time
+inside the job is otherwise attributed to the job as an out-of-lane write.
+
 **The form to write, per ecosystem.** Rule 2 is the whole safety property, and every ecosystem spells
 it differently. The obvious command is usually the wrong one: it reconciles a drifted lockfile by
 **rewriting** it, and a lockfile is a tracked file, so the before-image cannot subtract it and the job
@@ -238,6 +250,57 @@ is BLOCKED for a write it did not mean to make.
 Two npm properties worth knowing, because they generalise. `npm ci` **requires** a lockfile and errors
 without one, so a package in a subdirectory needs `cd sub && npm ci` — `/bin/bash -c` supports it. And
 it removes an existing `node_modules/` before installing, which is what makes it idempotent.
+
+---
+
+### `toolchain_artifacts` — build artifacts the test floor writes (v3.6.3)
+
+**The same before-image ordering that makes `provision_command` safe creates a second gap.**
+`preexisting/<id>.txt` is photographed after `provision_command` runs but **before the test floor
+ever runs** in the fresh worktree. A floor that writes build artifacts on its first run —
+`tsconfig.tsbuildinfo` from `tsc` with `"incremental": true`, `node_modules/.vite/vitest/<hash>/results.json`
+from Vitest, a `.turbo/` or `.next/` directory, a Jest cache — creates paths the snapshot never
+saw. The gate, which counts every new gitignored path by design (a worker must not be able to
+quietly write `.env` or `dist/` and have it forgiven), attributes those paths to the job as
+out-of-lane writes. `write_allowed` cannot carry them, because `write_allowed` must stay disjoint
+across jobs and a toolchain artifact is not owned by any one job.
+
+`toolchain_artifacts` is the declared exemption for exactly that case:
+
+```yaml
+# top level of manifest.yaml, alongside provision_command
+toolchain_artifacts:
+  - "tsconfig.tsbuildinfo"
+  - "node_modules/.vite/**"
+```
+
+**What is subtracted, and the rule that keeps it narrow.** At gate time, a changed path is removed
+from `changed` (and reported separately, see below) only if BOTH hold: it matches one of these
+globs (same semantics as `write_allowed` — `*` does not cross `/`, `**` does), AND `git
+check-ignore` confirms it is gitignored in the gated tree at that moment. A tracked file is never
+forgiven by this list, no matter how it is spelled, and neither is an untracked file that isn't
+actually gitignored — so `.env` and `dist/` are still caught unless a human explicitly lists them
+here, which is a decision this mechanism makes visible, not one it makes silently. Nor can a worker
+widen the ignore set to qualify: `.gitignore` is a tracked file, so editing it is a tracked change against
+the baseline and is gated like any other write. The gate reports
+every path it forgave this way as `toolchain_artifacts` (a list) in its JSON output, distinct from
+`violations` and from the `preexisting` subtraction.
+
+**Validator rules.** `toolchain_artifacts` is optional. When present it must be a list of
+non-empty, single-line strings. A catch-all glob (`*`, `**`, `**/*`) is rejected — that would
+forgive every gitignored path in the tree, which defeats the gate's purpose rather than closing a
+narrow gap in it.
+
+**External worker scripts** receive the list as a repeatable `--toolchain-artifact <glob>` flag
+(one per glob), passed through to the scope gate unchanged — see
+[`backend-launcher/SKILL.md`](../backend-launcher/SKILL.md).
+
+**The old alternative still works and needs no manifest change:** warm the artifacts inside
+`provision_command` so they already exist when the snapshot is taken (the workaround that
+motivated this section — `npm ci && npx tsc --noEmit || true && npx vitest run … || true`).
+`toolchain_artifacts` is for the case where warming the floor's own cache inside provisioning is
+impractical (a slow full test run, or an artifact whose path is only known after the first real
+invocation).
 
 ---
 
@@ -449,7 +512,7 @@ The scope gate reads a **repo-wide** `git diff`, so per-job attribution requires
 
 ### `direct` mode assumes a clean-ish tree — prefer `worktree` for anything untrusted
 
-`isolation: direct` gates against a pre-dispatch baseline commit **minus** a `--preexisting` snapshot of untracked/ignored paths that existed before the job (so a normal dirty tree does not produce false BLOCKs). That subtraction has an inherent blind spot: a job that **MODIFIES a pre-existing untracked or ignored file** — one already in the `--preexisting` snapshot — is **not flagged**, because the path is subtracted from the changed set whether the job touched it or not. The gate is exact only for *tracked* files (caught by the baseline diff) and *newly created* untracked/ignored files (not in the snapshot).
+`isolation: direct` gates against a pre-dispatch baseline commit **minus** a `--preexisting` snapshot of untracked/ignored paths that existed before the job (so a normal dirty tree does not produce false BLOCKs). That subtraction has an inherent blind spot: a job that **MODIFIES a pre-existing untracked or ignored file** — one already in the `--preexisting` snapshot — is **not flagged**, because the path is subtracted from the changed set whether the job touched it or not. The gate is exact only for *tracked* files (caught by the baseline diff) and *newly created* untracked/ignored files (not in the snapshot). `toolchain_artifacts` subtraction is unaffected by this blind spot — it is a separate, gitignore-verified check applied on top, in both isolation modes.
 
 So **`isolation: worktree` is the safe default for anything untrusted or run on a dirty tree.** A fresh `worktree add HEAD` has **no** pre-existing untracked/ignored files, so nothing is subtracted and the gate is exact — every write, including a modification to a would-be-ignored path, is attributed. `direct` remains **serial-only** (invariant 7) and is intended for **trusted, clean-tree** jobs where the speed of writing in place outweighs the blind spot. When in doubt, route the job to `worktree`.
 

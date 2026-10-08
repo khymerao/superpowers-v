@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md",
+    "docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3",
+    "diff_digest": "sha256:f3ccfedf29372e4a23ee2292a5f4c3098c6ed0c4020af9990b879040d68e639b",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md\",\n    \"docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the spec and AC-1..AC-4",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash tests/test-vault-mod.sh\nbash tests/test-agent-memory.sh\nbash tests/test-agent-recall.sh\nbash tests/test-disabled-hooks.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted+referencing",
+    "selected_count": 5
+  },
+  "violations": [],
+  "worktree": ""
+}

@@ -1,0 +1,105 @@
+{
+  "baseline_commit": "a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3",
+  "diff_digest": "sha256:f3ccfedf29372e4a23ee2292a5f4c3098c6ed0c4020af9990b879040d68e639b",
+  "exit_code": 0,
+  "job_id": "spec-review",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/spec-review.patch",
+  "patch_paths": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md",
+    "docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md"
+  ],
+  "patch_sha256": "sha256:697c90b45eb1f549846c768b4c00a3d95b07309aa2d0be5c07d2bfc8e5a9cfdc",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md\",\n    \"docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "a5a13f1589a23c6f4cdf9cc7d0a2b6cf80d7d1b3",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      ".DS_Store",
+      ".claude-plugin/types/.gitignore",
+      ".claude-plugin/types/claude-code-mcp/index.d.ts",
+      ".claude-plugin/types/claude-code-tools/index.d.ts",
+      ".claude-plugin/types/claude-code/index.d.ts",
+      ".claude-plugin/types/tsconfig.json",
+      ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+      ".claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md",
+      "docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/.run.lock",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/spec-review.baseline",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/spec-review.test-contract.json",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/lane-map.json",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/preexisting/spec-review.txt",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/preexisting/spec-review.verified.txt",
+      "docs/superpowers/execution/2026-10-05-vault-optional-via-init/state.json",
+      "docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.intent.json",
+      "docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.json",
+      "docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.localization.json",
+      "docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.taxonomy-snapshot.yaml",
+      "docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.intent.json",
+      "docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.json",
+      "docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.localization.json",
+      "docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.taxonomy-snapshot.yaml",
+      "docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.intent.json",
+      "docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.json",
+      "docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.localization.json",
+      "docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.taxonomy-snapshot.yaml",
+      "plugins/compound-v-vault/.claude-plugin/types/.gitignore",
+      "plugins/compound-v-vault/.claude-plugin/types/claude-code-mcp/index.d.ts",
+      "plugins/compound-v-vault/.claude-plugin/types/claude-code-tools/index.d.ts",
+      "plugins/compound-v-vault/.claude-plugin/types/claude-code/index.d.ts",
+      "plugins/compound-v-vault/.claude-plugin/types/tsconfig.json",
+      "plugins/compound-v-vault/tsconfig.json",
+      "tsconfig.json"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-agent-memory.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-agent-recall.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-disabled-hooks.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "scope: no test_scope declared, defaulted to 'impacted' \u2014 test_contract declares an impacted_map (6 rule(s)) \u2014 the repository has said which tests relate to which paths, so the default honours it instead of running everything",
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 6 command(s) from 35 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)",
+      "unmapped: .DS_Store, .claude-plugin/types/.gitignore, .claude-plugin/types/claude-code-mcp/index.d.ts, .claude-plugin/types/claude-code-tools/index.d.ts, .claude-plugin/types/claude-code/index.d.ts, .claude-plugin/types/tsconfig.json, .claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md, .claude/agent-memory/superpowers-v-spec-reviewer/verifying-acceptance-criteria.md, docs/superpowers/dogfood/2026-10-05-vault-optional-via-init-review.md, docs/superpowers/execution/2026-10-05-vault-optional-via-init/.run.lock, docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/spec-review.baseline, docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/spec-review.test-contract.json, docs/superpowers/execution/2026-10-05-vault-optional-via-init/lane-map.json, docs/superpowers/execution/2026-10-05-vault-optional-via-init/preexisting/spec-review.txt, docs/superpowers/execution/2026-10-05-vault-optional-via-init/preexisting/spec-review.verified.txt, docs/superpowers/execution/2026-10-05-vault-optional-via-init/state.json, docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.intent.json, docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.json, docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.localization.json, docs/superpowers/pre-eval/2026-10-05T124025Z-plugin-configure-compound-v-vault-cv-dev-7651.taxonomy-snapshot.yaml, docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.intent.json, docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.json, docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.localization.json, docs/superpowers/pre-eval/2026-10-05T130633Z-req-93862a6c-bf37.taxonomy-snapshot.yaml, docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.intent.json, docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.json, docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.localization.json, docs/superpowers/pre-eval/2026-10-05T134812Z-jev-d47b.taxonomy-snapshot.yaml, tsconfig.json matched no `when` glob \u2014 at tier SCOPED that resolves to the 3 test(s) REFERENCING the changed module(s), not to full_command (v3.4.1 decision 4; capped at 5). This is a textual heuristic, not a call graph: CI stays the backstop",
+      "unmapped: 2 referencing file(s) REPORTED and not run (no known runner for them): tests/fixtures/jev-t3-corpus.jsonl, tests/memory-queries.tsv"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": ""
+}

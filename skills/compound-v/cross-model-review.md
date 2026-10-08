@@ -17,13 +17,18 @@ plugin, not with the caller's repository. Resolve the plugin root once per sessi
 calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 ---
 
@@ -72,7 +77,7 @@ This sits in the three-layer plan check, each layer catching a different class o
 |---|---|---|
 | Deterministic | `scripts/compound-v-validate-manifest.py` | hard invariants (disjoint write-scope, codex⇒worktree, reviewers⇒opus/deep) — no opinions |
 | Primary judgment | `superpowers-v:partition-reviewer` (Opus) | decomposition sense, coverage |
-| **Independent second opinion** | **Codex, tier `deep`, effort `xhigh`** | the planner-family's own blind spots |
+| **Independent second opinion** | **Codex, tier `frontier`, effort `xhigh`** | the planner-family's own blind spots |
 
 ---
 
@@ -89,7 +94,7 @@ the read-only cross-model review:
   [--context-file docs/superpowers/archaeology/<topic>.md] ...
 ```
 
-- The model is resolved for **codex / tier `deep`** (e.g. `gpt-5.6-sol`) — see [routing-policy.md](routing-policy.md). `--effort xhigh` is "Codex on their strongest reasoning" (codex-only top rung; the script accepts low|medium|high|xhigh and defaults to xhigh).
+- The model is resolved for **codex / tier `frontier`** (e.g. `gpt-6-astra`) — see [routing-policy.md](routing-policy.md). Review runs on the frontier tier, one rung above implementation's `deep`/`standard` (`gpt-6.1-sol`): the strongest reasoning pays off where it's spent catching the planner's own blind spots. `--effort xhigh` is "Codex on their strongest reasoning" (codex-only top rung; the script accepts low|medium|high|xhigh and defaults to xhigh).
 - Codex runs **read-only** (`--sandbox read-only`): it may READ the repo to ground each objection against the real files, but writes nothing.
 - It returns structured findings per [`schemas/plan-review.schema.json`](../../schemas/plan-review.schema.json) — `verdict` (endorse | concerns | reject), a list of `findings` (each: `severity`, `category`, `claim`, `evidence`, `recommendation`), and `blind_spots_checked`.
 - The reviewer is prompted to **refute** the plan, default to skepticism, and prefer concrete evidence; an empty `findings` list is honest and valid.

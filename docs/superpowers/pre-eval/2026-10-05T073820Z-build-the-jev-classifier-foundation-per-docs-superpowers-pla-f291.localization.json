@@ -1,0 +1,22 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:c71ba7bf939fcd2fc41757567cad8f494b4e8e9da811352d09cbb2cde76e4477",
+  "fan_out": 9,
+  "flags": [
+    "content:config_literal",
+    "content:feature_flag",
+    "new_file",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md",
+    "hooks/hooks.json",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "schemas/pre-eval-record.schema.json",
+    "scripts/compound-v-jev.py",
+    "scripts/compound-v-onboard.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-project-config.py"
+  ]
+}

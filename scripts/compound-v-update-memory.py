@@ -36,6 +36,10 @@ Two input modes:
        --run-id R --type T --backend B --model M --status S
        [--blocked|--no-blocked] [--rework-rounds N]
 
+Where the line goes: --out FILE, else <project>/docs/superpowers/memory/
+task-outcomes.jsonl, the project being --repo DIR or the git toplevel of the
+current directory (ADR 0005). Outside git with neither flag it exits 1.
+
 Python 3.9-safe, stdlib only. Exit 0 on a written line; exit 1 on a usage error.
 """
 
@@ -64,14 +68,24 @@ def _read_json(path: str) -> Optional[Any]:
         return None
 
 
-def _default_outcomes_path() -> str:
-    """Default to <repo-root>/docs/superpowers/memory/task-outcomes.jsonl.
+def _default_outcomes_path(repo: Optional[str] = None) -> str:
+    """Default to <project-root>/docs/superpowers/memory/task-outcomes.jsonl.
 
-    Repo root is two levels up from this script (scripts/ -> root).
+    The project root comes from the one shared rule, project-config's
+    ``resolve_project_root`` (ADR 0005): an explicit ``repo``, else the git toplevel
+    of the current directory. Never this script's own location — that is the PLUGIN
+    root. Outside git with no ``repo`` it raises ``ValueError`` naming the problem.
+    The sibling is loaded here, lazily, so ``compound-v-triage-outcomes.py`` (which
+    loads THIS file only for ``append_line``) never pays for a root it does not need.
     """
+    import importlib.util
+
     here = os.path.dirname(os.path.abspath(__file__))
-    root = os.path.dirname(here)
-    return os.path.join(root, OUTCOMES_RELPATH)
+    spec = importlib.util.spec_from_file_location(
+        "compound_v_project_config", os.path.join(here, "compound-v-project-config.py"))
+    pc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pc)
+    return os.path.join(pc.resolve_project_root(repo), OUTCOMES_RELPATH)
 
 
 def build_line(args: argparse.Namespace) -> Dict[str, Any]:
@@ -249,7 +263,10 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     p.add_argument("--model", required=True, help="opus | sonnet | gpt-5.5 | ...")
     p.add_argument("--result", help="Path to the collector's results/<id>.json")
     p.add_argument("--status", choices=STATUS_VALUES, help="Override/supply status")
-    p.add_argument("--out", help="Override outcomes file path (default: repo memory dir)")
+    p.add_argument("--out", help="Override outcomes file path (default: the project's "
+                                 "docs/superpowers/memory/task-outcomes.jsonl)")
+    p.add_argument("--repo", help="Project root (default: the git toplevel of the "
+                                  "current directory; outside git, pass this or --out)")
     p.add_argument("--rework-rounds", type=int, help="Fix/redispatch rounds (>=0, default 0)")
     blk = p.add_mutually_exclusive_group()
     blk.add_argument("--blocked", dest="blocked", action="store_true", default=None)
@@ -272,8 +289,8 @@ def main(argv: List[str]) -> int:
         sys.stderr.write("error: %s\n" % e)
         return 1
 
-    out_path = args.out or _default_outcomes_path()
     try:
+        out_path = args.out or _default_outcomes_path(args.repo)
         append_line(out_path, line_obj)
     except (ValueError, OSError) as e:
         sys.stderr.write("error: %s\n" % e)

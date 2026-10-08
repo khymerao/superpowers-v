@@ -111,7 +111,7 @@ MAX_PROMPT_CHARS = 8000            # hard ceiling on the whole assembled prompt
 # Codex route bounds.
 CODEX_TIMEOUT_S = 30               # wall-clock cap for the one-shot classify
 CODEX_STDOUT_CAP = 1 << 16        # bounded output sink for codex's event stream (CR5-8)
-DEFAULT_CODEX_LIGHT_MODEL = "gpt-5.6-luna"   # fallback iff the resolver is unavailable
+DEFAULT_CODEX_LIGHT_MODEL = "gpt-6-luna"   # fallback iff the resolver is unavailable
 TIMEOUT_EXIT_CODE = 124           # GNU-timeout / supervisor convention
 NOT_FOUND_EXIT_CODE = 127         # the supervisor's "command does not exist" convention
 
@@ -480,7 +480,7 @@ def build_claude_command(prompt, model, cwd, supervisor_path, timeout_s, max_out
     claude_cmd = bin_argv + [
         "-p", prompt,
         "--model", model,
-        "--output-format", "text",
+        "--output-format", "json",
         "--tools", "",
     ]
     cmd = [
@@ -495,18 +495,95 @@ def build_claude_command(prompt, model, cwd, supervisor_path, timeout_s, max_out
     return cmd + ["--"] + claude_cmd
 
 
+# --------------------------------------------------------------------------- #
+# THE MEASURE (2026-10-08 spec "T3 measurement and eval", amendment 2)
+#
+# `claude -p --output-format json` prints ONE result object (live-probed on 2.1.294):
+# `type`, `subtype`, `is_error`, `result`, `duration_ms`, `duration_api_ms`, `usage`,
+# `modelUsage` keyed by the model id that answered, and a money field this module never
+# reads. The category is TRUSTED only from a `type == "result"`, `subtype == "success"`,
+# `is_error` false object whose `result` is a string. Anything else (an error subtype, an
+# `is_error` run, plain text, stdout cut at the output cap) falls back to `parse_category`
+# on the raw text, exactly as before the switch, and every measure field is null: such a
+# run is not a latency sample. Token fields are `usage`'s (the main loop only), and an
+# absent field is null, never 0. `wall_ms` is the whole process, because the hook waits for
+# the process, not for the API.
+# --------------------------------------------------------------------------- #
+MEASURE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens",
+                        "cache_creation_input_tokens")
+MEASURE_KEYS = ("wall_ms", "duration_ms", "duration_api_ms", "tokens", "model")
+# A resolved model id as `modelUsage` keys it (e.g. `claude-sonnet-4-5-20250929`, or with a
+# `[1m]` suffix). Anything else is not copied.
+MEASURE_MODEL_RE = r"^[A-Za-z0-9._/:\[\]~-]{1,80}$"
+
+
+def _measure_int(value):
+    """A non-negative integer measurement, or None. Absent stays absent: never 0."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value >= 0 else None
+    if isinstance(value, float) and value == value and value >= 0 and value.is_integer():
+        return int(value)
+    return None
+
+
+def empty_measure():
+    """Every field null: what an untrusted, timed-out or failed run records."""
+    return {"wall_ms": None, "duration_ms": None, "duration_api_ms": None,
+            "tokens": {k: None for k in MEASURE_TOKEN_FIELDS}, "model": None}
+
+
+def _ms_since(t0):
+    import time
+    return int(round((time.monotonic() - t0) * 1000))
+
+
+def parse_claude_json(raw, wall_ms=None):
+    """(category, measure) from one `claude -p --output-format json` stdout.
+
+    Trusted only under the rule above; otherwise `(parse_category(raw), empty_measure())`."""
+    import re
+
+    measure = empty_measure()
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) and raw.strip() else None
+    except ValueError:
+        obj = None
+    trusted = (isinstance(obj, dict) and obj.get("type") == "result"
+               and obj.get("subtype") == "success" and obj.get("is_error") is False
+               and isinstance(obj.get("result"), str))
+    if not trusted:
+        return parse_category(raw), measure
+    measure["wall_ms"] = _measure_int(wall_ms)
+    measure["duration_ms"] = _measure_int(obj.get("duration_ms"))
+    measure["duration_api_ms"] = _measure_int(obj.get("duration_api_ms"))
+    usage = obj.get("usage") if isinstance(obj.get("usage"), dict) else {}
+    measure["tokens"] = {k: _measure_int(usage.get(k)) for k in MEASURE_TOKEN_FIELDS}
+    mu = obj.get("modelUsage")
+    if isinstance(mu, dict) and len(mu) == 1:
+        mid = next(iter(mu))
+        if isinstance(mid, str) and re.match(MEASURE_MODEL_RE, mid):
+            measure["model"] = mid
+    return parse_category(obj["result"]), measure
+
+
 def _headless_result(category, backend, timed_out=False, exit_code=None, model=None,
-                     error=None):
+                     error=None, measure=None):
     """The ONE result shape `--classify-headless` prints. `backend` is what actually RAN, so
     `none` means no CLI could be started at all — the caller's cue that the reminder, not a
     fail-closed `unknown`, is the honest degrade. "No classifier ran" and "the classifier
-    said it cannot tell" are different claims and the hook routes them differently."""
+    said it cannot tell" are different claims and the hook routes them differently.
+
+    `measure` is always present (every field null when nothing was measured), so a reader
+    such as the hook's jq never has to tell "absent" from "unmeasured"."""
     out = {
         "category": category if category in _CATEGORY_SET else FAIL_CLOSED_CATEGORY,
         "backend": backend,
         "timed_out": bool(timed_out),
         "exit_code": exit_code,
         "model": model,
+        "measure": measure if isinstance(measure, dict) else empty_measure(),
     }
     if error:
         out["error"] = error
@@ -538,6 +615,8 @@ def classify_via_claude(request_text, resolved_paths=None, model=None,
         out_file = os.path.join(tmp, "reply.txt")
         cmd = build_claude_command(prompt, model, cwd, supervisor_path, timeout_s,
                                    max_output_bytes, out_file, claude_bin=claude_bin)
+        import time
+        t0 = time.monotonic()
         try:
             # stdin=DEVNULL here too (defense in depth); the supervisor ALSO gives its child
             # DEVNULL stdin in its own process group. Never a bare subprocess timeout.
@@ -549,6 +628,7 @@ def classify_via_claude(request_text, resolved_paths=None, model=None,
         except (OSError, ValueError):
             return _headless_result(FAIL_CLOSED_CATEGORY, "claude", error="spawn_failed",
                                     model=model, timed_out=False, exit_code=None)
+        wall_ms = _ms_since(t0)
 
         rc = proc.returncode
         if rc == TIMEOUT_EXIT_CODE:
@@ -565,8 +645,9 @@ def classify_via_claude(request_text, resolved_paths=None, model=None,
         except OSError:
             return _headless_result(FAIL_CLOSED_CATEGORY, "claude", timed_out=False,
                                     exit_code=rc, error="no_reply", model=model)
-        return _headless_result(parse_category(reply), "claude", timed_out=False,
-                                exit_code=rc, model=model)
+        category, measure = parse_claude_json(reply, wall_ms)
+        return _headless_result(category, "claude", timed_out=False,
+                                exit_code=rc, model=model, measure=measure)
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)
@@ -633,14 +714,20 @@ def classify_headless(request_text, resolved_paths=None, timeout_s=HEADLESS_TIME
 
     remaining = int(deadline - time.monotonic())
     if xbin and remaining >= MIN_SECONDS_FOR_A_SECOND_BACKEND:
+        t0 = time.monotonic()
         res = classify_via_codex(
             request_text, resolved_paths, timeout_s=remaining, cwd=cwd, codex_bin=xbin,
             config_path=config_path, prompt=prompt, supervisor_path=supervisor_path,
         )
+        # The codex route measures the wall time only (its CLI runs without `--json` here),
+        # and only for a run that reported. Its tokens are null: unmeasured on this route.
+        measure = empty_measure()
+        if res.get("exit_code") == 0 and not res.get("timed_out") and not res.get("error"):
+            measure["wall_ms"] = _ms_since(t0)
         return _headless_result(res.get("category"), "codex",
                                 timed_out=bool(res.get("timed_out")),
                                 exit_code=res.get("exit_code"), model=res.get("model"),
-                                error=res.get("error"))
+                                error=res.get("error"), measure=measure)
     if last is not None:
         return last
     return _headless_result(FAIL_CLOSED_CATEGORY, "none", timed_out=False, exit_code=None,
@@ -966,9 +1053,9 @@ sys.exit(0)
         expect("headless claude argv is a print run (-p)", "-p" in argv)
         expect("headless claude argv puts the prompt immediately after -p",
                argv[argv.index("-p") + 1] == "PROMPT-TEXT")
-        expect("headless claude argv sets --output-format text",
+        expect("headless claude argv sets --output-format json (the measure needs the result object)",
                "--output-format" in argv
-               and argv[argv.index("--output-format") + 1] == "text")
+               and argv[argv.index("--output-format") + 1] == "json")
         expect("headless claude argv disables tools (--tools \"\")",
                "--tools" in argv and argv[argv.index("--tools") + 1] == "")
         expect("headless claude argv's --tools comes AFTER the prompt (variadic swallow)",
@@ -1006,8 +1093,28 @@ if mode == "slow":
 if mode == "error":
     sys.stderr.write("boom\n")
     sys.exit(4)
-sys.stdout.write({"enum": "plumbing\n",
-                  "nonenum": "I would call this plumbing, probably.\n"}.get(mode, "plumbing\n"))
+import json
+ok = {"type": "result", "subtype": "success", "is_error": False, "result": "user-facing-minor",
+      "duration_ms": 6168, "duration_api_ms": 2360, "num_turns": 1, "total_cost_usd": 0.1234,
+      "usage": {"input_tokens": 2, "output_tokens": 6, "cache_creation_input_tokens": 53136,
+                "cache_read_input_tokens": 0},
+      "modelUsage": {"claude-sonnet-4-5-20250929": {"inputTokens": 2, "costUSD": 0.1234}}}
+if mode == "json":
+    sys.stdout.write(json.dumps(ok) + "\n")
+elif mode == "json_partial_usage":
+    d = dict(ok); d["usage"] = {"input_tokens": 2}; del d["duration_api_ms"]
+    sys.stdout.write(json.dumps(d) + "\n")
+elif mode == "json_is_error":
+    d = dict(ok); d["is_error"] = True; d["result"] = "plumbing"
+    sys.stdout.write(json.dumps(d) + "\n")
+elif mode == "json_error_subtype":
+    d = dict(ok); d["subtype"] = "error_max_turns"; del d["result"]; d["errors"] = ["max turns"]
+    sys.stdout.write(json.dumps(d) + "\n")
+elif mode == "json_truncated":
+    sys.stdout.write(json.dumps(ok)[:60])
+else:
+    sys.stdout.write({"enum": "plumbing\n",
+                      "nonenum": "I would call this plumbing, probably.\n"}.get(mode, "plumbing\n"))
 sys.exit(0)
 ''')
         os.chmod(fake_claude, 0o755)
@@ -1031,6 +1138,71 @@ sys.exit(0)
         expect("the SPAWNED argv carried no --bare", "--bare" not in spawned)
         expect("the SPAWNED argv carried --tools \"\"",
                "--tools" in spawned and spawned[spawned.index("--tools") + 1] == "")
+
+        expect("a plain-text reply falls back to parse_category exactly as before",
+               r["category"] == "plumbing")
+        expect("...and every measure field of an untrusted reply is null",
+               r["measure"] == empty_measure())
+
+        # --- the JSON result object (the measure) and the trust rule --- #
+        os.environ["FAKE_CLAUDE_MODE"] = "json"
+        rj = classify_via_claude("do a thing", ["src/x.ts"], model="sonnet", cwd=tmp2,
+                                 claude_bin=cbin, timeout_s=10)
+        mj = rj["measure"]
+        expect("JSON result: the category comes from `result`", rj["category"] == "user-facing-minor")
+        expect("JSON result: duration_ms and duration_api_ms are copied",
+               mj["duration_ms"] == 6168 and mj["duration_api_ms"] == 2360)
+        expect("JSON result: the four usage token fields are copied",
+               mj["tokens"] == {"input_tokens": 2, "output_tokens": 6,
+                                "cache_read_input_tokens": 0,
+                                "cache_creation_input_tokens": 53136})
+        expect("JSON result: wall_ms is measured around the whole process",
+               isinstance(mj["wall_ms"], int) and mj["wall_ms"] >= 0)
+        expect("JSON result: the resolved model id comes from the modelUsage key",
+               mj["model"] == "claude-sonnet-4-5-20250929")
+        expect("JSON result: the measure has exactly its keys", sorted(mj) == sorted(MEASURE_KEYS))
+        expect("JSON result: no money field is read into the result",
+               "cost" not in json.dumps(rj).lower())
+
+        os.environ["FAKE_CLAUDE_MODE"] = "json_partial_usage"
+        rp = classify_via_claude("do a thing", ["src/x.ts"], model="sonnet", cwd=tmp2,
+                                 claude_bin=cbin, timeout_s=10)
+        expect("an absent token or duration field is null, never 0",
+               rp["measure"]["tokens"]["output_tokens"] is None
+               and rp["measure"]["tokens"]["input_tokens"] == 2
+               and rp["measure"]["duration_api_ms"] is None)
+
+        for fmode, want in (("json_is_error", "unknown"), ("json_error_subtype", "unknown"),
+                            ("json_truncated", "unknown")):
+            os.environ["FAKE_CLAUDE_MODE"] = fmode
+            rf_ = classify_via_claude("do a thing", ["src/x.ts"], model="sonnet", cwd=tmp2,
+                                      claude_bin=cbin, timeout_s=10)
+            expect("untrusted result (%s) falls back to parse_category(raw) -> %s"
+                   % (fmode, want), rf_["category"] == want)
+            expect("untrusted result (%s) records every measure field null" % fmode,
+                   rf_["measure"] == empty_measure())
+
+        # The pure parser, on the shapes the CLI cannot be made to produce here.
+        expect("parse_claude_json: a non-string result is untrusted",
+               parse_claude_json(json.dumps({"type": "result", "subtype": "success",
+                                             "is_error": False, "result": 3}), 10)
+               == ("unknown", empty_measure()))
+        expect("parse_claude_json: is_error missing is untrusted (false must be stated)",
+               parse_claude_json(json.dumps({"type": "result", "subtype": "success",
+                                             "result": "plumbing"}), 10)[1] == empty_measure())
+        expect("parse_claude_json: plain text keeps today's parse",
+               parse_claude_json("plumbing\n", 10) == ("plumbing", empty_measure()))
+        expect("parse_claude_json: negative and boolean numbers are null",
+               parse_claude_json(json.dumps({"type": "result", "subtype": "success",
+                                             "is_error": False, "result": "plumbing",
+                                             "duration_ms": -1,
+                                             "usage": {"input_tokens": True}}), 10)[1]
+               ["duration_ms"] is None)
+        expect("parse_claude_json: two modelUsage keys give no resolved id",
+               parse_claude_json(json.dumps({"type": "result", "subtype": "success",
+                                             "is_error": False, "result": "plumbing",
+                                             "modelUsage": {"a": {}, "b": {}}}), 10)[1]
+               ["model"] is None)
 
         os.environ["FAKE_CLAUDE_MODE"] = "nonenum"
         r2 = classify_via_claude("do a thing", ["src/x.ts"], model="sonnet", cwd=tmp2,
@@ -1064,6 +1236,10 @@ sys.exit(0)
                                codex_bin=[sys.executable, fake_codex])
         expect("headless falls back to codex when no claude binary resolves",
                h2["backend"] == "codex" and h2["category"] == "plumbing")
+        expect("the codex route measures wall_ms only; its tokens are null (unmeasured)",
+               isinstance(h2["measure"]["wall_ms"], int)
+               and all(v is None for v in h2["measure"]["tokens"].values())
+               and h2["measure"]["duration_api_ms"] is None)
 
         # A claude that TIMED OUT does not then start codex: the budget is already spent.
         os.environ["FAKE_CLAUDE_MODE"] = "slow"
@@ -1072,6 +1248,8 @@ sys.exit(0)
                                claude_bin=cbin, codex_bin=[sys.executable, fake_codex])
         expect("a timed-out claude does not then spend the budget on codex",
                h3["backend"] == "claude" and h3["timed_out"] is True)
+        expect("...and a timed-out run is not a latency sample (measure all null)",
+               h3["measure"] == empty_measure())
         expect("...and it still returns promptly (<12s)", time.time() - t2 < 12)
 
         # Neither CLI available -> backend 'none'. That is NOT the same claim as a model

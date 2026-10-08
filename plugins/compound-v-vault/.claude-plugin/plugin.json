@@ -1,0 +1,26 @@
+{
+  "name": "compound-v-vault",
+  "version": "0.1.0",
+  "description": "Holds the OpenRouter key for Compound V's Jev classifier and is its only HTTP client",
+  "author": {
+    "name": "Oleg",
+    "email": "copeus@gmail.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/procoders/superpowers-v",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "openrouter_key": {
+      "type": "string",
+      "sensitive": true,
+      "title": "OpenRouter API key (use a dedicated key with a credit limit)",
+      "description": "Kept in secure storage. Sent only as the Authorization header of requests to the System One endpoint."
+    },
+    "route": {
+      "type": "string",
+      "default": "https://openrouter.ai/api/v1/systemone",
+      "title": "System One endpoint",
+      "description": "The OpenRouter System One URL. Must be https."
+    }
+  }
+}

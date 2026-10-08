@@ -49,13 +49,18 @@ locked in the plan's "Shared Interfaces."
 with the target repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 ```
 1. DETECT   →  2. PACK   →  3. EXTRACT  →  4. VERIFY  →  5. DIAGNOSE
@@ -65,8 +70,30 @@ of this repo.
 ### 1. DETECT
 Inventory the ground truth, write nothing:
 - **Existing instruction files** (treat per the cardinal rule above), stack, git remote origin.
-- **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo .` → `ui` / `no-ui`.
-  This is the only thing that decides whether the DESIGN.md branch runs (step 9 / §DESIGN below).
+- **UI presence** via `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo . --reason` →
+  `ui deterministic:<signal>` / `no-ui none`. This is the only thing that decides whether the DESIGN.md
+  branch runs (step 9 / §DESIGN below). The deterministic floor reads tailwind/postcss configs, a root
+  `theme.json`, a WordPress `style.css` with a `Theme Name:` header, `.tsx`/`.jsx`/`.vue`/`.svelte`,
+  template engines (`.blade.php`, `.twig`, `.liquid`, `.erb`, `.hbs`, `.astro`), `.swift` that imports
+  SwiftUI, and `.php` with HTML outside `<?php … ?>` (each read capped at 64 KB). `.html` alone is not a
+  signal: docs sites and fixtures carry it without rendering a product UI.
+- **Jev for UI** — only when the floor said `no-ui` and the status line shows `Jev: on` (the
+  `compound-v-vault` plugin is installed, has a key, and egress is allowed for this repo):
+  1. `python3 "$CV/scripts/compound-v-onboard.py" jev-requests --repo . --point detect_ui` →
+     `{"request_files": [...]}`: one request over at most 12 files × 20 lines, which leaves out `.env*`,
+     `*.pem`, `*.key`, `.github/**`, the sensitive globs, files whose names look secret-bearing
+     (`wp-config.php`, `settings.py`, `local_settings.py`, `configuration.php`, `env.php`, `*settings*.php`,
+     any path under a `config` directory or containing `secret` or `credential`), any file the secret scan
+     flags, and any file that assigns a quoted literal to a password-, secret-, key- or token-like name.
+     A secret in a file none of these rules catches can still be sampled.
+  2. Call the `jev_classify` tool once per request file (`{"request_file": "<path>"}`). It returns the
+     response path, or `refused: <reason>`; a refusal just means Jev has nothing to add.
+  3. `python3 "$CV/scripts/compound-v-onboard.py" detect-ui --repo . --reason --jev-responses DIR`, where
+     `DIR` is the directory the returned response paths sit in. A yes at or above
+     `jev.detect_ui.confidence_min` prints `ui jev:sample`; anything else keeps `no-ui none`.
+
+  Jev can only turn `no-ui` into `ui`, never the reverse. No vault, `jev.enabled: false` or
+  `jev.detect_ui.mode: off`: the step is skipped and the floor's answer stands.
 - **Style configs**: eslint / prettier / ruff / editorconfig / tsconfig / lockfiles — the
   deterministic evidence `CONVENTIONS.md` is later derived from.
 - **Cross-tool signal** for the bridge decision: presence of `.cursor*`, `.windsurf*`, `GEMINI.md`,
@@ -144,6 +171,16 @@ the gate. Surface, as advisory recommendations:
 - **Impact-taxonomy DRAFT + churn cache** from `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy --repo . --with-churn` (v2.9). This proposes the two static-evidence inputs the Pre-Evaluation stage reads — it does **not** decide anything and it **never auto-applies**:
   - a first-cut **impact-taxonomy** built from the repo's directory/module structure + detected stack — **`path_patterns` from the repo's REAL dirs** (cosmetic surfaces low, front-end logic medium, migrations/auth/payments/`.github`/`*.sql`/`*.tf` high), the **content-pattern surfaces OFFERED per-repo** (the **four core** kinds — `legal_copy` · `i18n_placeholder` · `feature_flag` · `config_literal` — always offered; **`shared_token` + `a11y` offered only when a UI is detected**, each with a reason you can override at the GATE), and a **starter `sensitive_path_list`** (always carrying the secret-file surfaces `*.pem`/`*.key`/`*.env` so the required list is never empty — fail-closed — unioned with the repo's real high-blast surfaces). The subcommand **self-validates** the draft against `scripts/compound-v-validate-taxonomy.py` (B1) and emits **block-style YAML only** (never inline flow `{}` — the no-PyYAML fallback drops flow mappings). Its real home is `.claude/compound-v-impact-taxonomy.yaml`, written only at WRITE behind the GATE.
   - a normalized **churn cache** (`docs/superpowers/memory/churn-cache.json`), built from the **same drafted taxonomy's `churn:` block** (single-sourced excludes) via `scripts/compound-v-churn.py` — the escalation-only static signal the scorer's override reads. `draft-taxonomy --with-churn` returns a **proposal summary** (path count, hot paths, `formula_id`, `head_sha`); it writes nothing here.
+  - **Jev layer rows** (3.9), with the same `Jev: on` condition as DETECT. Run
+    `python3 "$CV/scripts/compound-v-onboard.py" jev-requests --repo . --point onboard_layer`: one request per
+    top-level directory that the draft has no row for and that no sensitive glob covers (at most 40; each
+    carries the directory name and up to 30 of its paths). Call `jev_classify` on each, then re-run
+    `draft-taxonomy --repo . --with-churn --jev-responses DIR`. An answer at or above
+    `jev.onboard.confidence_min` adds one `<dir>/**` row after every deterministic row:
+    `ui`, `api`, `domain`, `data` and `infra` → difficulty `medium`, impact `high`; `tooling`, `tests` and
+    `docs` → `low`/`low`; `unknown` → no row. Each such row carries a `# source: jev layer=<l> p=<p>` line
+    in the YAML. Jev never lowers, replaces or removes a row and never touches `sensitive_path_list`.
+    `jev.onboard.mode: off` or no vault: the draft is exactly what it was without Jev.
 
   Both are **present-then-confirm** (the `recommend-mcp` precedent): the draft/summary is shown at the GATE, the real files are written at WRITE, committed at COMMIT, indexed at INDEX — **never auto-applied**. A human keeps/edits the taxonomy at the GATE; onboarding proposes, the maintainer decides.
 
@@ -175,6 +212,9 @@ content-pattern surfaces (flagging `shared_token`/`a11y` as offered-only-if-UI, 
 starter `sensitive_path_list`, and the churn summary (path count + hot paths). Surface the draft's
 **self-validation verdict** (B1 `valid`/`violations`) so the maintainer sees it will parse before
 approving. The maintainer keeps/edits the taxonomy at the GATE; nothing is applied without approval.
+A row marked `source: jev` is shown with its layer and probability and is kept or dropped one row at a
+time, like every other row; a `ui jev:sample` verdict is shown with that reason, so the maintainer
+can see that Jev, not the floor, offered the `shared_token`/`a11y` rows.
 
 Show each **`.claude/rules/*.md`** here as its own per-section diff, with its `paths:` scope and every
 rule's citation visible — a reviewer is approving a file that will load into future sessions, so the
@@ -205,7 +245,9 @@ those files do not reach COMMIT until it is clean. See §Path-scoped rules for w
 **Only when the user approved the taxonomy/churn diff (v2.9):** write the impact-taxonomy to
 `.claude/compound-v-impact-taxonomy.yaml` — `python3 "$CV/scripts/compound-v-onboard.py" draft-taxonomy
 --repo . --emit-yaml > .claude/compound-v-impact-taxonomy.yaml` (block-style, self-validated) — and,
-if it already exists, apply the maintainer's kept/edited version rather than clobbering it. Then build
+if it already exists, apply the maintainer's kept/edited version rather than clobbering it. When the
+approved draft used Jev, add the same `--jev-responses DIR` so the approved `source: jev` rows reach the
+file, then remove any of them the maintainer dropped at the GATE. Then build
 the churn cache from that now-written taxonomy: `python3 "$CV/scripts/compound-v-churn.py" --repo .` (a full,
 reproducible rebuild → `docs/superpowers/memory/churn-cache.json`). Both stay **out of the DESIGN/arch
 write set** — they are the Pre-Evaluation stage's static inputs, not generated prose.
@@ -225,7 +267,11 @@ means the fast-path gate has no static evidence to read.
 
 ### 9. INDEX — write the manifest, then auto `/v:memory-refresh`
 Write/update `docs/superpowers/architecture/.onboard-manifest.json` (each doc's cited files + their
-content hashes) via `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo . --write`, then **auto-run
+content hashes) via `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo . --write --docmap <docmap.json>`
+(`{"docs": {"<doc path>": ["<cited file>", ...]}}` — every generated doc with every file it cites;
+`--docmap` is required, and a map that registers no documents, or a document with no cited file, is
+refused with exit 2: until 3.7.6 the flag was optional and its absence wrote an empty manifest that made
+`--refresh` report "0 stale" forever, issue #21), then **auto-run
 [`/v:memory-refresh`](../../commands/v-memory-refresh.md)** so the new docs (and root
 `AGENTS.md`/`CLAUDE.md`/`CONVENTIONS.md`/`DESIGN.md`) become recallable. The manifest stays `.json`
 (out of the index by design); everything else is now committed and indexable. The committed
@@ -396,7 +442,9 @@ files (`.cursor/rules`, `.windsurfrules`, …) stay read-only evidence — the c
   `/v:memory-refresh`.
 - **Staleness is deterministic** ("cited-evidence staleness," not full doc freshness):
   `python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .` reports drift from
-  `.onboard-manifest.json` — a cited file whose hash changed (`cited-changed`), a cited file deleted
+  `.onboard-manifest.json`. Read its `state` first: `registered` is a real check; `no_manifest` and
+  `unregistered` (a manifest that registers no cited file) both carry `count: 0` and mean **nothing
+  could be compared**, never "current". `count` is stale citations, `docs_stale` is documents. Drift is — a cited file whose hash changed (`cited-changed`), a cited file deleted
   (`cited-deleted`), or — via a cheap heuristic — a **new uncited file** appearing in a cited doc's
   path-space (`uncited-new-file`), which catches architecture that migrated into a file the doc never
   cited. Hash-drift is necessary, not sufficient.

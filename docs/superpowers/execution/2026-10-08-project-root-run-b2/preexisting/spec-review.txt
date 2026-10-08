@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-project-root-run-b2/.run.lock
+dca1b0fb2114200eda5b4053241711638f01161cee979a3c3543f3daf55dd41e  docs/superpowers/execution/2026-10-08-project-root-run-b2/lane-map.json
+82b53bc4b0d6c28ab9955cc053f498522414e6d2ac14d074aaafb5c1c123c586  docs/superpowers/execution/2026-10-08-project-root-run-b2/dispatch.workflow.js
+a55f5a4f7b05777bc51690bea2799fede9150200e03817d11dfda93e90650c81  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/b2-fix.baseline
+db4b9d86ba4dab046fe1e222b9d1ae90bd1a673e37ddd6c8629df68491f615fe  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/b2-fix.patch
+a55994c9728902099edf5934dd4bc2f9d75379370c7d9dbe7346ad22a7fbe299  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/b2-fix.prompt.md
+f596c5ac2a2de45dd4b730bd3a361697cbbc41d2f0deadc2511c7cbf29b63fd0  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/b2-fix.test-contract.json
+0c9ad83f0ef205b4f8352dbbea42d66f3a05c5147f0b94f064df5c6fb21ceebc  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/spec-review.baseline
+62eb5f1e2996ddee4d1487f4a18b68ba6b46fd7c03d1fd262da6736e42ceeaab  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/spec-review.prompt.md
+2f8da502a1d89ab756e4ad0fb5372f0b2eefc242b94064b2ae6359da769cfa87  docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/spec-review.test-contract.json
+0689822048cdb1505251fdeaf6609f19166c4f106cf2d0c3d0959a72793a0b34  docs/superpowers/execution/2026-10-08-project-root-run-b2/manifest.yaml
+171001c9ab0020bf64ec39dc5ba1fbfde64ce8bef77db0f3ad1ac52abe060fa4  docs/superpowers/execution/2026-10-08-project-root-run-b2/preexisting/spec-review.txt
+745df03cd2652450623d11c13e3f359a5363632d7b931f3d60edc067501510c8  docs/superpowers/execution/2026-10-08-project-root-run-b2/receipts/b2-fix.gate.json
+ba9d903421f7b5ed2368ca8c8dc4fea96f58fc9ed694e98a3ab8f22a6a29a2fc  docs/superpowers/execution/2026-10-08-project-root-run-b2/results/b2-fix.json
+ff34bbb753b368e97414774917bc7c9627fd05be88d25d5800842c7847412ddf  docs/superpowers/execution/2026-10-08-project-root-run-b2/state.json

@@ -12,6 +12,19 @@
 
 set -euo pipefail
 if [ "${CV_HEADLESS_CLASSIFY:-}" = "1" ]; then exit 0; fi  # finding 131: never fire inside the headless classifier
+# CV_DISABLED_HOOKS: comma-separated hook basenames (no .sh) to turn off. lane-guard is
+# excluded on purpose — see hooks/lane-guard.sh's own header comment. If session-banner
+# itself is named, this exits before the report block below ever runs, so a disabled
+# banner prints nothing at all — that is intentional, not a bug.
+_cv_off=",$(printf '%s' "${CV_DISABLED_HOOKS:-}" | tr -d ' \t'),"
+case "$_cv_off" in *",session-banner,"*) exit 0 ;; esac
+
+# Plugin root (ADR 0005, rule 3): CLAUDE_PLUGIN_ROOT, else the directory above this
+# hook. Never `.`: that is the project's directory, and running a project's own
+# scripts/compound-v-*.py in place of the plugin's is the defect this replaced. If
+# neither resolves, the two probes below are skipped and the banner stays silent.
+_cv_root="${CLAUDE_PLUGIN_ROOT:-}"
+[ -n "$_cv_root" ] || _cv_root="$(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)" || _cv_root=""
 
 banner="Compound V loaded — sidekick to Superpowers. Auto-fires before brainstorming (gated recon) and after it (pre-flights) — description-based discovery. Phases: recon → code-archaeologist + domain-expert + doc-validator (parallel) → partition-reviewer → parallel-dispatcher. You do not need to invoke it manually."
 
@@ -25,10 +38,12 @@ fi
 
 # Read-only onboarding staleness nudge. MUST fail silent: set -euo pipefail would
 # abort the whole banner on any non-zero exit, so guard python and swallow errors.
-if command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
-  stale=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
-  if [ "${stale:-0}" -gt 0 ] 2>/dev/null; then
-    banner="$banner ⚠ $stale architecture doc(s) stale vs HEAD — run /v:onboard --refresh."
+if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -e "docs/superpowers/architecture/.onboard-manifest.json" ]; then
+  stale=$(python3 "$_cv_root/scripts/compound-v-onboard.py" staleness --quiet 2>/dev/null || echo 0)
+  if [ "${stale:-0}" = "unregistered" ]; then
+    banner="$banner ⚠ The onboard manifest registers no cited files, so doc staleness cannot be checked — run /v:onboard --refresh to re-verify and re-register."
+  elif [ "${stale:-0}" -gt 0 ] 2>/dev/null; then
+    banner="$banner ⚠ $stale generated doc(s) cite files that changed since they were verified — run /v:onboard --refresh."
   fi
 fi
 
@@ -39,8 +54,8 @@ fi
 # (they come back with the skill) but the agent's POSITION in the pipeline. This
 # reads it back off disk. Read-only, and MUST fail silent for the same reason as
 # the staleness probe above: set -euo pipefail would abort the whole banner.
-if command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
-  resume=$(python3 "${CLAUDE_PLUGIN_ROOT:-.}/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
+if [ -n "$_cv_root" ] && command -v python3 >/dev/null 2>&1 && [ -d "docs/superpowers/execution" ]; then
+  resume=$(python3 "$_cv_root/scripts/compound-v-dashboard.py" resume 2>/dev/null || echo "")
   if [ -n "${resume:-}" ]; then
     banner="$banner $resume"
   fi
@@ -80,6 +95,71 @@ if command -v claude >/dev/null 2>&1; then
     if _semver_lt "$_cv_ver" "$CV_VERSION_FLOOR"; then
       banner="$banner ⚠ Claude Code $_cv_ver < $CV_VERSION_FLOOR — Compound V 3.x needs native Workflows/hooks; update."
     fi
+  fi
+fi
+
+# CV_DISABLED_HOOKS report. Reuses the same env var the 8 switchable hooks read for
+# themselves — this is read-only display, not a second source of truth: each hook still
+# decides its own fate from its own guard, this just tells the user what they typed.
+# `lane-guard` is deliberately never disable-able (it is the pre-write enforcement gate;
+# see hooks/lane-guard.sh), so naming it here is reported, never honoured.
+_cv_join() {
+  # $1 = space-separated words (may have leading/trailing spaces) -> "a, b, c"
+  local out="" w first=1
+  for w in $1; do
+    if [ "$first" = 1 ]; then out="$w"; first=0; else out="$out, $w"; fi
+  done
+  printf '%s' "$out"
+}
+
+if [ -n "${CV_DISABLED_HOOKS:-}" ]; then
+  _cv_known=" brainstorm-trigger0-nudge epic-goal-stop memory-refresh plan-saved-nudge postcompact-resume precompact-snapshot session-banner triage-prompt-nudge run-band "
+  _cv_disabled_list="" _cv_unknown_list="" _cv_lane_named=""
+  _cv_raw="$(printf '%s' "${CV_DISABLED_HOOKS}" | tr -d ' \t')"
+  _cv_saved_ifs="$IFS"
+  IFS=','
+  for _cv_name in $_cv_raw; do
+    IFS="$_cv_saved_ifs"
+    [ -z "$_cv_name" ] && { IFS=','; continue; }
+    case "$_cv_name" in
+      lane-guard)
+        _cv_lane_named="lane-guard"
+        ;;
+      *)
+        case "$_cv_known" in
+          *" $_cv_name "*)
+            case " $_cv_disabled_list " in
+              *" $_cv_name "*) ;;
+              *) _cv_disabled_list="$_cv_disabled_list $_cv_name" ;;
+            esac
+            ;;
+          *)
+            case " $_cv_unknown_list " in
+              *" $_cv_name "*) ;;
+              *) _cv_unknown_list="$_cv_unknown_list $_cv_name" ;;
+            esac
+            ;;
+        esac
+        ;;
+    esac
+    IFS=','
+  done
+  IFS="$_cv_saved_ifs"
+
+  _cv_line=""
+  if [ -n "$_cv_disabled_list" ]; then
+    _cv_line="Compound V hooks disabled by CV_DISABLED_HOOKS: $(_cv_join "$_cv_disabled_list")"
+  fi
+  if [ -n "$_cv_unknown_list" ]; then
+    _cv_seg="unknown: $(_cv_join "$_cv_unknown_list")"
+    if [ -n "$_cv_line" ]; then _cv_line="$_cv_line; $_cv_seg"; else _cv_line="Compound V hooks disabled by CV_DISABLED_HOOKS: $_cv_seg"; fi
+  fi
+  if [ -n "$_cv_lane_named" ]; then
+    _cv_seg="ignored (enforcement hook): lane-guard"
+    if [ -n "$_cv_line" ]; then _cv_line="$_cv_line; $_cv_seg"; else _cv_line="Compound V hooks disabled by CV_DISABLED_HOOKS: $_cv_seg"; fi
+  fi
+  if [ -n "$_cv_line" ]; then
+    banner="$banner $_cv_line"
   fi
 fi
 

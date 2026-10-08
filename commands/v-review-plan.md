@@ -12,13 +12,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
 repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## Steps
 
@@ -31,7 +35,7 @@ of this repo.
       ```bash
       "$CV/scripts/compound-v-codex-review.sh" --plan-file "<plan>" --repo "$PWD" --effort xhigh
       ```
-      (Add `--context-file <audit>` for any archaeology/domain/library audits that ground the review.) The model is resolved for codex / tier `deep`. Codex reads the repo read-only and returns findings JSON per `schemas/plan-review.schema.json`.
+      (Add `--context-file <audit>` for any archaeology/domain/library audits that ground the review.) The model is resolved for codex / tier `frontier` (e.g. `gpt-6-astra`) — review runs on the strongest codex tier, one rung above implementation's `deep`/`standard`. Codex reads the repo read-only and returns findings JSON per `schemas/plan-review.schema.json`.
    2. **No Codex, an advisor configured → an advisor-assisted second look.** Dispatch one
       read-only Opus subagent through the Agent tool with the same adversarial prompt the
       driver above embeds, plus one addition: consult the advisor tool before writing the

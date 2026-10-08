@@ -30,6 +30,18 @@ WHAT IT READS (all of it native, none of it ours)
   on some agents, so every read is `.get()`) and `journal.jsonl`
   (`started` / `result` / `failed` per agent).
 
+  A SECOND out-of-lane signal, `bash_result_changed_paths` / `bash_result_out_of_lane`:
+  a Bash tool result's own `bashEditDiff` record (Claude Code >= 2.1.269, the
+  `bashEditDiffEnabled` setting), read from a `toolUseResult` key documented as
+  sibling to `message` on that line. This is what makes a `sed -i`, a `tee`, a
+  `cp`, or a codegen script visible in flight — the command-text heuristic
+  (`bash_write_targets`) sees only a redirect operator it can parse out of the
+  command line itself, and misses all four. WITHOUT `bashEditDiffEnabled` turned
+  on, this watcher is STILL BLIND to everything a Bash command writes that its
+  own command text does not name as a target — turn the setting on if that gap
+  matters to you. See the comment above `bash_result_changed_paths` for the
+  exact documented field shape and this file's honest UNVERIFIED-LIVE caveat.
+
 THREE RULES THIS FILE DOES NOT GET TO RE-DECIDE
   1. ONE PATH MATCHER. `is_allowed` is imported by path from
      `compound-v-scope-check.py`, exactly as `hooks/lane-guard.sh` does. A second
@@ -516,6 +528,12 @@ def iter_tool_events(path, start_line=0):
                         "tool_use_id": item.get("tool_use_id"),
                         "is_error": bool(item.get("is_error")),
                         "text": _text_of(item.get("content")),
+                        # The RAW line object, for `bash_result_changed_paths`:
+                        # `bashEditDiff` is documented to live in a
+                        # `toolUseResult` key SIBLING to `message`, not inside
+                        # this content block. See the docstring above
+                        # `bash_result_changed_paths`.
+                        "obj": obj,
                     }
                 else:
                     yield {"kind": "other", "line": lineno, "ts": ts}
@@ -747,18 +765,18 @@ def _repo_relative(path, roots):
     return best
 
 
-def out_of_lane_targets(event, job, reg, ctx, repo_root, is_allowed):
-    """[(evidence, rel_or_abs)] for the writes this tool_use would perform."""
-    name = event.get("name") or ""
-    inp = event.get("input") or {}
-    raw_targets = []
-    if name in WRITE_TOOLS:
-        val = inp.get(WRITE_TOOLS[name])
-        if isinstance(val, str) and val:
-            raw_targets.append((name, val))
-    elif name == "Bash":
-        for target in bash_write_targets(inp.get("command")):
-            raw_targets.append(("Bash", target))
+def _lane_violations(raw_targets, job, reg, ctx, repo_root, is_allowed):
+    """[(tool, rel)] evidence lines for targets this job's lane does not allow.
+
+    The one place BOTH write sources -- a `tool_use`'s own input (Write/Edit/
+    NotebookEdit, and the Bash heuristic of `bash_write_targets`) and a Bash
+    RESULT's own `bashEditDiff` record (`bash_result_changed_paths`) -- resolve
+    a raw target to a lane verdict. Splitting this out is what lets the second
+    source reuse every rule the first one already earned: the same-run-only
+    check, the same worktree-vs-checkout root selection, the same "no
+    repository-relative form is not a lane question" exemption, and the same
+    ONE matcher (`is_allowed`, imported by path — see the module docstring).
+    """
     if not raw_targets:
         return []
 
@@ -796,6 +814,135 @@ def out_of_lane_targets(event, job, reg, ctx, repo_root, is_allowed):
             continue
         out.append("%s %s" % (tool, rel))
     return out
+
+
+def out_of_lane_targets(event, job, reg, ctx, repo_root, is_allowed):
+    """[(evidence, rel_or_abs)] for the writes this tool_use would perform."""
+    name = event.get("name") or ""
+    inp = event.get("input") or {}
+    raw_targets = []
+    if name in WRITE_TOOLS:
+        val = inp.get(WRITE_TOOLS[name])
+        if isinstance(val, str) and val:
+            raw_targets.append((name, val))
+    elif name == "Bash":
+        for target in bash_write_targets(inp.get("command")):
+            raw_targets.append(("Bash", target))
+    return _lane_violations(raw_targets, job, reg, ctx, repo_root, is_allowed)
+
+
+# --------------------------------------------------------------------------- #
+# Bash RESULT write-target extraction — the second, AUTHORITATIVE source.
+#
+# `bash_write_targets` above is a heuristic over the COMMAND TEXT, read before
+# the command ever runs, and it is conservative in both directions on purpose:
+# it skips a `$var`, a glob, a codegen script it cannot parse, rather than
+# guess. `bashEditDiffEnabled` (Claude Code >= 2.1.269) closes exactly that
+# gap by reporting what the command actually touched, read from the RESULT
+# instead of the command line: a `sed -i`, a `tee`, a `cp`, a Python codegen
+# script are all invisible to `bash_write_targets` and all visible here.
+#
+# UNVERIFIED LIVE. The installed Claude Code was upgraded to 2.1.278 (past the
+# 2.1.269 floor) and the probe was retried with `--settings '{"bashEditDiffEnabled":
+# true}'` (inline JSON, per the settings-precedence doc, so no real settings file
+# was touched) against a throwaway git repo. It still could not authenticate:
+# `claude -p ... --allowedTools Bash --permission-mode acceptEdits --output-format
+# json` returned `"is_error": true, "result": "Failed to authenticate: OAuth
+# session expired and could not be refreshed", "terminal_reason": "api_error"`.
+# Retried once more with `CLAUDE_CODE_OAUTH_TOKEN` explicitly unset (it was never
+# set to begin with, and no `~/.claude/.credentials.json` exists in this
+# environment either) — identical error, byte for byte. So a nested
+# `claude -p` cannot authenticate from inside THIS sandboxed session at all
+# (it looks to be host-proxied auth with no local OAuth credential a standalone
+# child CLI process can read), independent of the CLI version or the setting.
+# No further auth workaround was attempted. This is implemented strictly
+# against the documented shape (fetched live from
+# code.claude.com/docs/en/settings-reference and .../hooks#bash on 2026-09-21):
+#
+#   "Your PostToolUse hook then receives the changed files in
+#    tool_response.bashEditDiff. The list covers what changed under the
+#    repository while the command ran. Files that Git ignores and files in
+#    submodules aren't listed. Requires Claude Code v2.1.269 or later."
+#
+#   "The list is best effort and in public beta. Claude Code can miss a
+#    change, include a file that another process changed at the same time, or
+#    stop at its size limits. The field shape may change. Use the list to find
+#    what to review, not to enforce a policy."
+#
+# and its field table:
+#   changedFiles  array   ["/path/to/src/app.ts"]                Absolute paths
+#     of the files the command changed, at most 200. Present whenever `files`
+#     holds a diff or `moreFiles` is above zero.
+#   files         array   [{"filePath": "...", "hunks": [...]}]  Diffs of up to
+#     5 changed files, for display. `created`/`deleted` is true for a file the
+#     command added/removed.
+#   moreFiles, unavailable, skipped, shared — counts and caveat flags; not
+#     needed to name a changed path, so not read here.
+#
+# WHERE IN THE TRANSCRIPT: the docs place this on `tool_response`, the object a
+# PostToolUse hook receives — not inside the `tool_result` content block this
+# file otherwise reads via `_text_of`. Every OTHER structured Bash/Edit result
+# this repository's own fixtures and the Phase 1A archaeology have observed
+# carries its structured payload (stdout/stderr, an Edit's own patch) in a
+# `toolUseResult` key SIBLING to `message` on the same JSONL line — never
+# inside a content block. `bashEditDiff` is read from that same sibling key,
+# alongside the Bash tool's existing stdout/stderr, on that same assumption.
+# If a live transcript instead carries it somewhere else, this function
+# returns [] against that transcript today — the same fail-quiet posture as
+# every other advisory path in this file — until it is re-verified live.
+# --------------------------------------------------------------------------- #
+def bash_result_changed_paths(obj):
+    """Changed-file paths named by a Bash tool result's `bashEditDiff` record.
+
+    `obj` is the RAW parsed JSON object of the transcript line carrying the
+    tool_result (not just the `tool_result` content-block dict `_text_of`
+    reads) -- `bashEditDiff` is documented as living beside stdout/stderr, not
+    inside the content block. Returns [] whenever `obj` is not a dict, carries
+    no `toolUseResult`, or that `toolUseResult` carries no `bashEditDiff` dict:
+    a Bash result WITHOUT the diff must change nothing this watcher reports,
+    exactly as it did before this signal existed. Reads BOTH `changedFiles`
+    (paths only, capped at 200) and `files[].filePath` (up to 5, with
+    created/deleted context) and de-duplicates, since `changedFiles` can name
+    more files than `files` carries diffs for.
+    """
+    if not isinstance(obj, dict):
+        return []
+    tool_use_result = obj.get("toolUseResult")
+    diff = tool_use_result.get("bashEditDiff") if isinstance(tool_use_result, dict) else None
+    if not isinstance(diff, dict):
+        return []
+    paths = []
+    seen = set()
+
+    def _add(p):
+        if isinstance(p, str) and p and p not in seen:
+            seen.add(p)
+            paths.append(p)
+
+    changed = diff.get("changedFiles")
+    if isinstance(changed, list):
+        for p in changed:
+            _add(p)
+    files = diff.get("files")
+    if isinstance(files, list):
+        for f in files:
+            if isinstance(f, dict):
+                _add(f.get("filePath"))
+    return paths
+
+
+def bash_result_out_of_lane(obj, job, reg, ctx, repo_root, is_allowed):
+    """[evidence, ...] for `bashEditDiff` paths this job's lane does not allow.
+
+    Every path is tagged tool `"Bash"`, the same tag `out_of_lane_targets`
+    gives a Bash heuristic redirect, so a reader sees WHICH tool wrote it —
+    Write/Edit/NotebookEdit vs. Bash — without a schema change; the two Bash
+    sources (command-text heuristic, result diff) are not distinguished
+    further, since both describe the same tool's writes and either can miss
+    what the other catches.
+    """
+    raw_targets = [("Bash", p) for p in bash_result_changed_paths(obj)]
+    return _lane_violations(raw_targets, job, reg, ctx, repo_root, is_allowed)
 
 
 def wrong_cwd_reason(reg, ctx, repo_root):
@@ -1004,6 +1151,18 @@ def analyze_agent(path, agent_id, ctx, repo_root, is_allowed, start_line=0,
                 signals.append({
                     "signal": "error", "job": job or UNREGISTERED, "agent": agent_id,
                     "line": event["line"], "ts": event.get("ts"), "evidence": evidence,
+                })
+            # bashEditDiff (Claude Code >= 2.1.269, setting `bashEditDiffEnabled`):
+            # writes this Bash command made that its own command text never
+            # named — a `sed -i`, a `tee`, a codegen script. A result with no
+            # diff (the setting off, an older Claude Code, a read-only or
+            # backgrounded command) yields [] and changes nothing here.
+            for ev in bash_result_out_of_lane(event.get("obj"), job, reg, ctx,
+                                              repo_root, is_allowed):
+                signals.append({
+                    "signal": "out-of-lane", "job": job or UNREGISTERED,
+                    "agent": agent_id, "line": event["line"], "ts": event.get("ts"),
+                    "evidence": ev,
                 })
 
     return (signals, last_line, last_ts, job, reg,
@@ -1306,6 +1465,28 @@ def _selftest():  # noqa: C901 - a linear list of cases reads better than five h
            == ["out.txt"])
     expect("a here STRING is not a heredoc",
            bash_write_targets("cat <<<hello > /r/o.txt") == ["/r/o.txt"])
+
+    # --- bashEditDiff extraction (bashEditDiffEnabled, Claude Code >= 2.1.269) -
+    expect("no toolUseResult at all yields no changed paths",
+           bash_result_changed_paths({"type": "user"}) == []
+           and bash_result_changed_paths("not a dict") == []
+           and bash_result_changed_paths(None) == [])
+    expect("a toolUseResult with no bashEditDiff yields no changed paths",
+           bash_result_changed_paths(
+               {"toolUseResult": {"stdout": "ok", "stderr": ""}}) == [])
+    expect("changedFiles names the changed paths",
+           bash_result_changed_paths({"toolUseResult": {"bashEditDiff": {
+               "changedFiles": ["/r/a.py", "/r/b.py"]}}})
+           == ["/r/a.py", "/r/b.py"])
+    expect("files[].filePath is read too, and de-duplicated against changedFiles",
+           bash_result_changed_paths({"toolUseResult": {"bashEditDiff": {
+               "changedFiles": ["/r/a.py"],
+               "files": [{"filePath": "/r/a.py", "hunks": []},
+                         {"filePath": "/r/c.py", "hunks": [], "created": True}],
+           }}}) == ["/r/a.py", "/r/c.py"])
+    expect("a malformed bashEditDiff (not a dict) yields no changed paths",
+           bash_result_changed_paths(
+               {"toolUseResult": {"bashEditDiff": "not a dict"}}) == [])
 
     # --- read-only commands --------------------------------------------------
     expect("sed/cat/grep/head only read",

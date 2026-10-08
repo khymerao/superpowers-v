@@ -695,6 +695,39 @@ def _selftest():
         for dirpath, _dn, fns in os.walk(rroot):
             for fn in fns:
                 os.utime(os.path.join(dirpath, fn), (now, now))
+        # hud: the run-band's document -- waves from state, backend/tier from the manifest.
+        _hd = os.path.join(rroot, "2099-01-06-hud")
+        os.makedirs(_hd)
+        _fx_write(os.path.join(_hd, "manifest.yaml"),
+                  "run_id: 2099-01-06-hud\njobs:\n"
+                  "  - id: a\n    backend: claude\n    tier: deep\n"
+                  "  - id: b\n    backend: codex\n    tier: standard\n"
+                  "  - id: c\n    backend: claude\n    tier: deep\n")
+        _fx_write(os.path.join(_hd, "state.json"), json.dumps({
+            "run_id": "2099-01-06-hud", "phase": "DISPATCHED", "updated_at": _iso(0.1),
+            "waves": {"2": {"jobs": ["c"]}, "1": {"jobs": ["a", "b"]}},
+            "jobs": {"a": {"status": "done"}, "b": {"status": "running"},
+                     "c": {"status": "pending"}, "ghost": {"status": "blocked"}}}))
+        _hrec = load_run(_hd, os.path.realpath(rroot))
+        _hm = hud_model(_hrec)
+        _flat = dict((j["id"], j) for w in _hm["waves"] for j in w["jobs"])
+        check([w["n"] for w in _hm["waves"]] == ["1", "2", "?"],
+              "hud: waves in numeric order, a state-only job in a trailing group, got "
+              + repr([w["n"] for w in _hm["waves"]]))
+        check(_flat["b"]["model"] == "gpt-6.1-sol" and _flat["a"]["model"] == "opus"
+              and _flat["ghost"]["model"] is None,
+              "hud: each job carries the model its backend/tier resolves to, got "
+              + repr([_flat[k]["model"] for k in ("a", "b", "ghost")]))
+        check(_flat["b"]["backend"] == "codex" and _flat["b"]["tier"] == "standard"
+              and _flat["b"]["status"] == "running" and _flat["b"]["attention"] is False
+              and _hm["running"] == 1 and _hm["run_dir"] == _hd,
+              "hud: a running job carries backend and tier; the run names its dir")
+        check(_flat["a"]["attention"] is False and _flat["c"]["status"] == "pending"
+              and _flat["ghost"]["attention"] is True and _flat["ghost"]["backend"] is None,
+              "hud: done/pending are quiet; a blocked state-only job needs attention")
+        check(_hm["done"] == 1 and _hm["total"] == 4, "hud: done/total are the loader's counts")
+        import shutil as _sh; _sh.rmtree(_hd)
+
         ids2 = [r["id"] for r in active_records(rroot, now=now, open_jobs_only=True)]
         check(ids2 == ["2099-01-01-live"],
               "resume: mtime touch must not resurrect stale/untimestamped runs, got "
@@ -881,6 +914,155 @@ def cmd_resume(args):
 
 
 # ---------------------------------------------------------------------------
+# hud -- the one JSON document the run-band mod draws (3.8.0)
+# ---------------------------------------------------------------------------
+# A mod has no YAML parser and no git; this reader has both. So the mod asks for one
+# small document and draws it, and every number in the band is one this file read off
+# disk: job statuses from state.json, backend and tier from manifest.yaml. Liveness is
+# NOT joined here -- this reader spawns nothing (the present-only selftest enforces it);
+# the mod runs compound-v-liveness.py itself on `run_dir` and merges. No percent, no ETA.
+
+HUD_ATTENTION_STATUS = ("blocked", "error", "timeout", "failed")
+
+
+_HUD_RESOLVER = {}
+
+
+def _hud_resolver():
+    """compound-v-resolve-model.py, imported once (it is a pure function over a table and
+    a config file -- no process is started). None when it cannot be loaded."""
+    if "mod" not in _HUD_RESOLVER:
+        mod = None
+        try:
+            import importlib.util as _ilu
+            path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "compound-v-resolve-model.py")
+            spec = _ilu.spec_from_file_location("cv_resolve_model", path)
+            mod = _ilu.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except Exception:  # noqa: BLE001 -- no resolver means no model column, not a crash
+            mod = None
+        _HUD_RESOLVER["mod"] = mod
+    return _HUD_RESOLVER["mod"]
+
+
+def _hud_routing(run_dir):
+    """(config_models, stance) from the project's .claude/compound-v.json, found by walking
+    up from the run directory; ({}, 'balanced') when there is none or it does not parse."""
+    mod = _hud_resolver()
+    d = os.path.abspath(run_dir or ".")
+    for _ in range(8):
+        cfg = os.path.join(d, ".claude", "compound-v.json")
+        if os.path.isfile(cfg):
+            stance = "balanced"
+            try:
+                with open(cfg, encoding="utf-8") as fh:
+                    raw = json.load(fh)
+                if isinstance(raw, dict) and isinstance(raw.get("stance"), str):
+                    stance = raw["stance"]
+                models = mod.load_config_models(cfg) if mod else {}
+            except Exception:  # noqa: BLE001
+                models = {}
+            return models, stance
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+    return {}, "balanced"
+
+
+def _hud_job_model(mj, routing):
+    """The model this job resolves to NOW: the manifest's explicit `model`, else the
+    resolver's answer for (backend, tier) under the project's current config and stance.
+    It is the route as configured at read time, not a record of what a worker ran."""
+    if isinstance(mj.get("model"), str) and mj["model"].strip():
+        return mj["model"].strip()
+    mod = _hud_resolver()
+    backend, tier = mj.get("backend"), mj.get("tier")
+    if mod is None or not isinstance(backend, str) or not isinstance(tier, str):
+        return None
+    models, stance = routing
+    for st in (stance, "balanced"):
+        try:
+            return mod.resolve(backend, tier, config_models=models, stance=st)["model"]
+        except Exception:  # noqa: BLE001 -- unknown stance/backend/tier: no model shown
+            continue
+    return None
+
+
+def hud_model(rec):
+    """The band's document for one loaded run record."""
+    state_jobs = rec.get("state_jobs") if isinstance(rec.get("state_jobs"), dict) else {}
+    by_id = {}
+    order = []
+    for j in rec.get("jobs") or []:
+        jid = j.get("id")
+        if isinstance(jid, str) and jid and jid not in by_id:
+            by_id[jid] = j
+            order.append(jid)
+    for jid in state_jobs:
+        if jid not in by_id:
+            by_id[jid] = {}
+            order.append(jid)
+
+    routing = _hud_routing(rec.get("path"))
+
+    def job(jid):
+        sj = state_jobs.get(jid) if isinstance(state_jobs.get(jid), dict) else {}
+        mj = by_id.get(jid) or {}
+        status = str(sj.get("status") or "pending").strip().lower()
+        return {"id": jid, "status": status,
+                "backend": mj.get("backend") if isinstance(mj.get("backend"), str) else None,
+                "tier": mj.get("tier") if isinstance(mj.get("tier"), str) else None,
+                "model": _hud_job_model(mj, routing),
+                "effort": mj.get("effort") if isinstance(mj.get("effort"), str) else None,
+                "type": mj.get("type") if isinstance(mj.get("type"), str) else None,
+                "attention": status in HUD_ATTENTION_STATUS}
+
+    waves = []
+    state = rec.get("state") or {}
+    sw = state.get("waves") if isinstance(state.get("waves"), dict) else {}
+    placed = set()
+
+    def _wave_key(k):
+        return (0, int(k)) if str(k).isdigit() else (1, str(k))
+    for n in sorted(sw, key=_wave_key):
+        ids = sw[n].get("jobs") if isinstance(sw[n], dict) else None
+        ids = [i for i in (ids or []) if isinstance(i, str) and i in by_id and i not in placed]
+        if ids:
+            placed.update(ids)
+            waves.append({"n": str(n), "jobs": [job(i) for i in ids]})
+    rest = [i for i in order if i not in placed]
+    if rest:
+        waves.append({"n": None if not waves else "?", "jobs": [job(i) for i in rest]})
+    return {"id": rec.get("id"), "phase": rec.get("status"),
+            "run_dir": rec.get("path"),
+            "done": rec.get("done", 0), "total": rec.get("total", 0),
+            "running": sum(1 for w in waves for j in w["jobs"] if j["status"] == "running"),
+            "state_error": bool(rec.get("state_error")),
+            "waves": waves}
+
+
+def cmd_hud(args):
+    root = os.path.realpath(args.execution_root)
+    rec = None
+    if args.run:
+        cand = os.path.join(root, os.path.basename(args.run))
+        if _contained(cand, root) and os.path.isdir(cand):
+            rec = load_run(cand, root)
+    else:
+        for r in active_records(args.execution_root, args.max_age_hours, open_jobs_only=True):
+            if r.get("kind") == "run":
+                rec = r
+                break
+    if rec is None:
+        print(json.dumps({"run": None}))
+        return 0
+    print(json.dumps({"run": hud_model(rec)}, sort_keys=True))
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -907,12 +1089,21 @@ def main(argv=None):
                           help="only work the pipeline may still move by itself: a run with a "
                                "pending/running job and not BLOCKED (the triage hook's question)")
 
+    p_hud = sub.add_parser("hud", help="one JSON document for the run-band mod: the active "
+                                       "run's jobs by wave, with backend, tier and liveness")
+    p_hud.add_argument("--execution-root", default=DEFAULT_EXECUTION_ROOT)
+    p_hud.add_argument("--max-age-hours", type=float, default=DEFAULT_RESUME_MAX_AGE_HOURS)
+    p_hud.add_argument("--run", default=None,
+                       help="this run id, whatever its state (the band's closing line)")
+
     args = parser.parse_args(argv)
 
     if args.selftest:
         return _selftest()
     if args.cmd == "resume":
         return cmd_resume(args)
+    if args.cmd == "hud":
+        return cmd_hud(args)
     parser.print_help()
     return 1
 

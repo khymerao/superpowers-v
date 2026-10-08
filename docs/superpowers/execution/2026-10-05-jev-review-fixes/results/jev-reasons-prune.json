@@ -1,0 +1,46 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md",
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+    "diff_digest": "sha256:8716c5379d580666f59c24742c3a9c024e877b468364519860eb27abeb3507b8",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"fd02c46eca68736f9bbddae2c7df8b2a7566a7fb\",\n  \"changed\": [\n    \"docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md\",\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\",\n    \"docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "fd02c46eca68736f9bbddae2c7df8b2a7566a7fb",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task B \u2014 no_key survives parse; stale descriptors are pruned",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo jev-ok'\nbash tests/test-jev-core.sh",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 164802,
+    "cache_read_input_tokens": 2216776,
+    "input_tokens": 60,
+    "measured": true,
+    "output_tokens": 6034,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a67cf3dc07c8d57f1.jsonl",
+      "agent-a8c97a2f4b62ee95f.jsonl",
+      "agent-ad7227435fc140028.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_9af02efe-3a2-3"
+}

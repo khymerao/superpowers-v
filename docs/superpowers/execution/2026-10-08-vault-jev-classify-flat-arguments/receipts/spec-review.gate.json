@@ -1,0 +1,63 @@
+{
+  "baseline_commit": "4156e8936da26398de02fd696d17e5c5cf98bae9",
+  "diff_digest": "sha256:1a1d093d5cb3ad940dd9c45c8cb3a542a1e758f1882d52971f092ad1b974eb87",
+  "exit_code": 0,
+  "job_id": "spec-review",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.patch",
+  "patch_paths": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/test-helper-shape.md",
+    "docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md"
+  ],
+  "patch_sha256": "sha256:1a1d093d5cb3ad940dd9c45c8cb3a542a1e758f1882d52971f092ad1b974eb87",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"4156e8936da26398de02fd696d17e5c5cf98bae9\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/test-helper-shape.md\",\n    \"docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "4156e8936da26398de02fd696d17e5c5cf98bae9",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+      ".claude/agent-memory/superpowers-v-spec-reviewer/test-helper-shape.md",
+      "docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/.run.lock",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.baseline",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/jobs/spec-review.test-contract.json",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/lane-map.json",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/preexisting/spec-review.txt",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/preexisting/spec-review.verified.txt",
+      "docs/superpowers/execution/2026-10-08-vault-jev-classify-flat-arguments/state.json"
+    ],
+    "checks": [
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "scope: no test_scope declared, defaulted to 'impacted' \u2014 test_contract declares an impacted_map (2 rule(s)) \u2014 the repository has said which tests relate to which paths, so the default honours it instead of running everything",
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 0 command(s) from 10 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)",
+      "ignored 7 bookkeeping path(s) for the unmapped rule",
+      "unmapped: .claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md, .claude/agent-memory/superpowers-v-spec-reviewer/test-helper-shape.md, docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md matched no `when` glob \u2014 unknown blast radius resolves to full_command, never to nothing",
+      "scope: labelled `full` \u2014 full_command was added for an unmapped path at this tier, so the whole suite is what ran"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": ""
+}

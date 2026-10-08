@@ -1,0 +1,325 @@
+diff --git a/commands/v-init.md b/commands/v-init.md
+index d8f3ba7..4abce22 100644
+--- a/commands/v-init.md
++++ b/commands/v-init.md
+@@ -572,6 +572,13 @@ was, in those two fields).
+     "token_cap": 20000,
+     "remember": {}
+   },
++  "jev": {
++    "enabled": true,
++    "model": "typesafe/jev-1.13",
++    "t3":        { "mode": "shadow", "confidence_min": 0.8, "calibrated_model": null },
++    "detect_ui": { "mode": "active", "confidence_min": 0.8 },
++    "onboard":   { "mode": "active", "confidence_min": 0.8 }
++  },
+   "models": {
+     "balanced": {
+       "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
+@@ -687,6 +694,15 @@ identically to `balanced`. Only `cost-aware.claude.standard` differs: `sonnet`,
+   DIRECT auto-route class (Iron Invariant #4 as amended in v3.0, plus #5: membership in that class is
+   decided by the scorer's mechanically checkable predicates against the repo-local impact taxonomy,
+   never by a config value and never by model judgement). Do not re-implement these rules inline; call the loader.
++- **`jev`** (defaults exactly the block above) = how Compound V may use the Jev classifier. This is
++  **committed team policy only.** The OpenRouter key and each user's egress consent live in the
++  `compound-v-vault` plugin and **never** go in this file; do not add a key, a token or a consent
++  field here. `t3.mode` is `off` or `shadow`, and in shadow Jev never changes the triage decision.
++  `active` is not available until spec 1.5, and the loader turns it back into `shadow` with a warning.
++  `detect_ui.mode` and `onboard.mode` are `off` or `active`. Each `confidence_min` is a number above
++  0 and at most 1. `t3.calibrated_model` is unused until spec 1.5 and defaults to `null`. The shared loader
++  (`resolve_jev` in `scripts/compound-v-project-config.py`) coerces every bad value to its default
++  and returns a warning, and a `jev` value that is not an object makes `load_project_config` raise.
+ - **`models` — SEED the default per-stance tier→model map (exactly the block above)** so
+   intent-based routing resolves out of the box even with no further setup. The map is
+   **per-stance** — shape `{<stance>: {<backend>: {<tier>: model}}}`. Only the `claude`
+diff --git a/scripts/compound-v-project-config.py b/scripts/compound-v-project-config.py
+index dbaa771..8ca6287 100644
+--- a/scripts/compound-v-project-config.py
++++ b/scripts/compound-v-project-config.py
+@@ -13,8 +13,8 @@ Fail-closed contract
+ - **Missing file** is NOT an error — the built-in defaults cover it (an
+   un-onboarded repo still routes with the default model map and pre-eval defaults).
+   ``load_config_file`` returns ``{}``.
+-- **Structural malformation** (not valid JSON, root not an object, ``models`` present
+-  but not an object, ``pre_eval`` present but not an object) → **raise** ``ValueError``
++- **Structural malformation** (not valid JSON, root not an object, or ``models``,
++  ``pre_eval``, ``brainstorm`` or ``jev`` present but not an object) → **raise** ``ValueError``
+   so the CALLER can warn-once and fall back to all-defaults. A malformed config NEVER
+   widens the DIRECT auto-route class (Iron-Invariant #5 / #4, amended).
+ - **Per-key invalid values inside ``pre_eval``** (e.g. ``fast_path: "banana"``,
+@@ -74,6 +74,28 @@ _FAST_PATH_VALUES = ("ask", "off")
+ # ---------------------------------------------------------------------------- #
+ BRAINSTORM_DEFAULTS = {}
+ 
++# ---------------------------------------------------------------------------- #
++# jev.* declared keys + fail-closed defaults (Jev classifier, spec 1 + its
++# plan-review amendment 5: `confidence_min` per point, `t3.calibrated_model`).
++# This is committed team policy only. The OpenRouter key and the per-user egress
++# consent live in the compound-v-vault plugin and never in this file.
++# `t3.mode` accepts only off|shadow in spec 1: `active` is spec 1.5 and is coerced
++# back to `shadow` with a warning, so no config value can let Jev change a triage
++# decision. `detect_ui` and `onboard` run active by default: the first is monotonic
++# and the second is human-gated.
++# ---------------------------------------------------------------------------- #
++JEV_DEFAULTS = {
++    "enabled": True,
++    "model": "typesafe/jev-1.13",
++    "t3": {"mode": "shadow", "confidence_min": 0.8, "calibrated_model": None},
++    "detect_ui": {"mode": "active", "confidence_min": 0.8},
++    "onboard": {"mode": "active", "confidence_min": 0.8},
++}
++_JEV_T3_MODES = ("off", "shadow")
++_JEV_POINT_MODES = ("off", "active")
++_JEV_POINTS = (("t3", _JEV_T3_MODES), ("detect_ui", _JEV_POINT_MODES),
++               ("onboard", _JEV_POINT_MODES))
++
+ 
+ def load_config_file(config_path):
+     """Return the parsed config object for ``config_path``.
+@@ -101,9 +123,9 @@ def load_project_config(repo):
+     """Fail-closed load of ``<repo>/.claude/compound-v.json`` -> dict.
+ 
+     Structural sanity is checked here so every consumer shares one verdict:
+-    ``models`` and ``pre_eval``, when present, MUST be objects (else raise). The raw
+-    dict is returned unchanged otherwise; use ``get_models`` / ``resolve_pre_eval``
+-    to extract normalized views.
++    ``models``, ``pre_eval``, ``brainstorm`` and ``jev``, when present, MUST be objects
++    (else raise). The raw dict is returned unchanged otherwise; use ``get_models`` /
++    ``resolve_pre_eval`` / ``resolve_jev`` to extract normalized views.
+     """
+     cfg = load_config_file(config_path_for_repo(repo))
+     models = cfg.get("models")
+@@ -115,6 +137,9 @@ def load_project_config(repo):
+     brainstorm = cfg.get("brainstorm")
+     if brainstorm is not None and not isinstance(brainstorm, dict):
+         raise ValueError("config 'brainstorm' is not an object: %s" % config_path_for_repo(repo))
++    jev = cfg.get("jev")
++    if jev is not None and not isinstance(jev, dict):
++        raise ValueError("config 'jev' is not an object: %s" % config_path_for_repo(repo))
+     return cfg
+ 
+ 
+@@ -212,6 +237,92 @@ def resolve_brainstorm(cfg):
+     return values, warnings
+ 
+ 
++def _jev_defaults_copy():
++    """A fresh copy of ``JEV_DEFAULTS``, nested point dicts included."""
++    values = dict(JEV_DEFAULTS)
++    for point, _modes in _JEV_POINTS:
++        values[point] = dict(JEV_DEFAULTS[point])
++    return values
++
++
++def _valid_confidence(v):
++    """True for a number in (0, 1]. A bool is rejected (it is an int subclass) and NaN
++    fails the range test on its own."""
++    return (isinstance(v, (int, float)) and not isinstance(v, bool)
++            and 0 < v <= 1)
++
++
++def resolve_jev(cfg):
++    """Return ``(values, warnings)``: the effective ``jev`` config with every missing or
++    invalid key coerced to its declared default, plus human-readable warnings for the
++    caller to surface once. Mirrors ``resolve_pre_eval`` and NEVER raises, whatever it is
++    handed. ``t3.mode: "active"`` is coerced to ``"shadow"`` with a warning: active T3 is
++    spec 1.5. Unknown keys are ignored, as ``resolve_pre_eval`` ignores them.
++    """
++    values = _jev_defaults_copy()
++    warnings = []
++    raw = {}
++    if isinstance(cfg, dict) and "jev" in cfg:
++        if isinstance(cfg["jev"], dict):
++            raw = cfg["jev"]
++        else:
++            warnings.append("jev must be an object; using defaults")
++
++    if "enabled" in raw:
++        v = raw["enabled"]
++        if isinstance(v, bool):
++            values["enabled"] = v
++        else:
++            warnings.append("jev.enabled must be true/false; using default %r"
++                            % JEV_DEFAULTS["enabled"])
++
++    if "model" in raw:
++        v = raw["model"]
++        if isinstance(v, str) and v.strip():
++            values["model"] = v
++        else:
++            warnings.append("jev.model must be a non-empty string; using default %r"
++                            % JEV_DEFAULTS["model"])
++
++    for point, modes in _JEV_POINTS:
++        if point not in raw:
++            continue
++        block = raw[point]
++        if not isinstance(block, dict):
++            warnings.append("jev.%s must be an object; using defaults" % point)
++            continue
++        default = JEV_DEFAULTS[point]
++
++        if "mode" in block:
++            v = block["mode"]
++            if isinstance(v, str) and v in modes:
++                values[point]["mode"] = v
++            elif point == "t3" and v == "active":
++                warnings.append("jev.t3.mode 'active' is not available until spec 1.5; "
++                                "using 'shadow'")
++            else:
++                warnings.append("jev.%s.mode must be one of %s; using default %r"
++                                % (point, modes, default["mode"]))
++
++        if "confidence_min" in block:
++            v = block["confidence_min"]
++            if _valid_confidence(v):
++                values[point]["confidence_min"] = float(v)
++            else:
++                warnings.append("jev.%s.confidence_min must be a number in (0, 1]; "
++                                "using default %r" % (point, default["confidence_min"]))
++
++        if point == "t3" and "calibrated_model" in block:
++            v = block["calibrated_model"]
++            if v is None or (isinstance(v, str) and v.strip()):
++                values["t3"]["calibrated_model"] = v
++            else:
++                warnings.append("jev.t3.calibrated_model must be null or a non-empty "
++                                "string; using default None")
++
++    return values, warnings
++
++
+ def main(argv):
+     if "--selftest" in argv[1:]:
+         return _selftest()
+@@ -226,9 +337,10 @@ def main(argv):
+         return 1
+     values, warnings = resolve_pre_eval(cfg)
+     bvalues, bwarnings = resolve_brainstorm(cfg)
++    jvalues, jwarnings = resolve_jev(cfg)
+     print(json.dumps({"models": get_models(cfg), "pre_eval": values,
+-                      "brainstorm": bvalues,
+-                      "warnings": warnings + bwarnings}, indent=2))
++                      "brainstorm": bvalues, "jev": jvalues,
++                      "warnings": warnings + bwarnings + jwarnings}, indent=2))
+     return 0
+ 
+ 
+@@ -349,6 +461,117 @@ def _selftest():
+         expect("non-object brainstorm (list) raises",
+                raises(lambda: load_project_config(td)))
+ 
++        # -- jev resolver --
++        # The exact default shape later jobs code against, asserted literally rather than
++        # against JEV_DEFAULTS so a drift in the table itself fails here.
++        jev_expected = {
++            "enabled": True, "model": "typesafe/jev-1.13",
++            "t3": {"mode": "shadow", "confidence_min": 0.8, "calibrated_model": None},
++            "detect_ui": {"mode": "active", "confidence_min": 0.8},
++            "onboard": {"mode": "active", "confidence_min": 0.8}}
++        write({"pre_eval": {"fast_path": "off"}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("absent jev block -> exact default shape", jv == jev_expected)
++        expect("absent jev block -> no warnings", jw == [])
++        expect("JEV_DEFAULTS is the documented shape", JEV_DEFAULTS == jev_expected)
++
++        # A valid block round-trips every declared key.
++        write({"jev": {"enabled": False, "model": "typesafe/jev-1.14",
++                       "t3": {"mode": "off", "confidence_min": 0.9,
++                              "calibrated_model": "typesafe/jev-1.13-20260917"},
++                       "detect_ui": {"mode": "off", "confidence_min": 1},
++                       "onboard": {"mode": "active", "confidence_min": 0.5}}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("valid jev block round-trips", jv == {
++            "enabled": False, "model": "typesafe/jev-1.14",
++            "t3": {"mode": "off", "confidence_min": 0.9,
++                   "calibrated_model": "typesafe/jev-1.13-20260917"},
++            "detect_ui": {"mode": "off", "confidence_min": 1.0},
++            "onboard": {"mode": "active", "confidence_min": 0.5}})
++        expect("valid jev block -> no warnings", jw == [])
++        expect("integer confidence_min 1 is returned as a float",
++               isinstance(jv["detect_ui"]["confidence_min"], float))
++
++        # t3.mode "active" is spec 1.5: coerced to shadow, with a warning naming 1.5.
++        write({"jev": {"t3": {"mode": "active"}}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("t3.mode active -> shadow", jv["t3"]["mode"] == "shadow")
++        expect("t3.mode active -> warning naming spec 1.5",
++               len(jw) == 1 and "1.5" in jw[0] and "t3.mode" in jw[0])
++        write({"jev": {"t3": {"mode": "banana"}, "detect_ui": {"mode": "shadow"},
++                       "onboard": {"mode": 1}}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("bad mode values -> per-point defaults",
++               jv["t3"]["mode"] == "shadow" and jv["detect_ui"]["mode"] == "active"
++               and jv["onboard"]["mode"] == "active")
++        expect("bad mode values -> one warning each", len(jw) == 3)
++
++        # confidence_min: float in (0, 1], never a bool -- each point coerced on its own.
++        for bad in (0, 1.5, True, -0.1, "0.9", None, float("nan")):
++            write({"jev": {"t3": {"confidence_min": bad},
++                           "detect_ui": {"confidence_min": bad},
++                           "onboard": {"confidence_min": bad}}})
++            jv, jw = resolve_jev(load_project_config(td))
++            expect("confidence_min %r -> 0.8 at every point + warning" % (bad,),
++                   jv["t3"]["confidence_min"] == 0.8
++                   and jv["detect_ui"]["confidence_min"] == 0.8
++                   and jv["onboard"]["confidence_min"] == 0.8 and len(jw) == 3)
++
++        # model / enabled / calibrated_model / sub-block shape.
++        write({"jev": {"model": ""}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("empty model -> default + warning",
++               jv["model"] == "typesafe/jev-1.13" and len(jw) == 1)
++        write({"jev": {"model": 7, "enabled": "yes",
++                       "t3": {"calibrated_model": ""}}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("bad model/enabled/calibrated_model -> defaults + 3 warnings",
++               jv["model"] == "typesafe/jev-1.13" and jv["enabled"] is True
++               and jv["t3"]["calibrated_model"] is None and len(jw) == 3)
++        write({"jev": {"t3": "shadow", "detect_ui": [], "onboard": None}})
++        jv, jw = resolve_jev(load_project_config(td))
++        expect("non-object jev sub-blocks -> defaults + warnings, no raise",
++               jv == jev_expected and len(jw) == 3)
++
++        # Structural: a jev block that is not an object raises at load time.
++        write({"jev": []})
++        expect("non-object jev (list) raises", raises(lambda: load_project_config(td)))
++        write({"jev": "shadow"})
++        expect("non-object jev (string) raises", raises(lambda: load_project_config(td)))
++
++        # resolve_jev itself never raises, whatever it is handed.
++        never_raised = True
++        for junk in (None, [], "x", {"jev": []}, {"jev": None}, {"jev": {"t3": 3}},
++                     {"jev": {"t3": {"mode": ["active"]}}}):
++            try:
++                jv, jw = resolve_jev(junk)
++            except Exception:  # noqa: BLE001 -- the contract is "never raises"
++                never_raised = False
++        expect("resolve_jev never raises on junk input", never_raised)
++        jv, jw = resolve_jev({"jev": []})
++        expect("resolve_jev on a non-object jev -> defaults + warning",
++               jv == jev_expected and len(jw) == 1)
++
++        # Fresh nested dicts: mutating a result never touches JEV_DEFAULTS.
++        jv, _ = resolve_jev({})
++        jv["t3"]["mode"] = "off"
++        jv["detect_ui"]["confidence_min"] = 0.1
++        jv["onboard"]["injected"] = True
++        expect("jev default is not shared mutable state", JEV_DEFAULTS == jev_expected)
++
++        # CLI output carries the resolved jev block and its warnings.
++        import contextlib
++        import io
++        write({"jev": {"t3": {"mode": "active"}}})
++        buf = io.StringIO()
++        with contextlib.redirect_stdout(buf):
++            rc = main(["compound-v-project-config.py", td])
++        out = json.loads(buf.getvalue())
++        expect("CLI prints the resolved jev block",
++               rc == 0 and out.get("jev", {}).get("t3", {}).get("mode") == "shadow")
++        expect("CLI surfaces the jev warnings",
++               any("1.5" in w for w in out.get("warnings", [])))
++
+     if failures:
+         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
+         return 1

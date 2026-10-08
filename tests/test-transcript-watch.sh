@@ -604,6 +604,76 @@ check "a job whose declared lane is EMPTY may write nothing — the write fires"
       "$([ "$(grep -cE '\bc\b.*out-of-lane.*anything\.py' "$OUT11")" = 1 ] && echo 1 || echo 0)"
 
 # --------------------------------------------------------------------------- #
+# 14. bashEditDiff (Claude Code >= 2.1.269, setting `bashEditDiffEnabled`): a
+# Bash tool RESULT can now carry the files it changed even when the command
+# TEXT names no redirect a heuristic could parse — a `sed -i`, a codegen
+# script. `bash_result_changed_paths` reads that record from a `toolUseResult`
+# key documented as SIBLING to `message` on the transcript line, per the
+# doc quote captured live in scripts/compound-v-transcript-watch.py above
+# `bash_result_changed_paths` (fetched from code.claude.com on 2026-09-21).
+#
+# NOTE ON FIXTURE PROVENANCE (task item (e)): this is NOT a captured live
+# transcript excerpt. Retried after the CLI was upgraded past the 2.1.269 floor
+# to 2.1.278, using `--settings '{"bashEditDiffEnabled": true}'` (inline JSON,
+# no real settings file touched) against a throwaway git repo — the nested
+# `claude -p` still could not authenticate ("Failed to authenticate: OAuth
+# session expired and could not be refreshed"), including on a retry with
+# `CLAUDE_CODE_OAUTH_TOKEN` explicitly unset (it was never set). That points to
+# this sandboxed session's own host-proxied auth having no local OAuth
+# credential a nested child CLI process can use — a property of THIS
+# environment, not of the CLI version or the setting. No further auth
+# workaround was attempted. The fixture below is built strictly from the
+# documented field shape instead, and the parser is commented UNVERIFIED LIVE
+# until someone re-runs the probe from an environment where a nested `claude -p`
+# can authenticate, and swaps this fixture for the real excerpt.
+# --------------------------------------------------------------------------- #
+WF8="$SESSION/subagents/workflows/wf_bashdiff"
+mkdir -p "$WF8"
+A11=a11bashdiff00000000
+A12=a12otherjob00000000
+REG11="$PY -B $EMIT register-lane --run-dir $RUN --job-id a --cwd $WTA --repo-root $SANDBOX --isolation worktree"
+
+cat >"$WF8/agent-$A11.jsonl" <<JSONL
+{"type":"user","agentId":"$A11","timestamp":"$NOW","message":{"role":"user","content":"Implementer for job a of $RUN."}}
+{"type":"assistant","agentId":"$A11","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"g1","name":"Bash","input":{"command":"$REG11"}}]}}
+{"type":"user","agentId":"$A11","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g1","is_error":false,"content":"{\"registered\": \"a\"}"}]}}
+{"type":"assistant","agentId":"$A11","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"g2","name":"Bash","input":{"command":"sed -i '' 's/hello/goodbye/' $SANDBOX/README.md"}}]}}
+{"type":"user","agentId":"$A11","timestamp":"$NOW","toolUseResult":{"stdout":"","stderr":"","bashEditDiff":{"changedFiles":["$SANDBOX/README.md"],"files":[{"filePath":"$SANDBOX/README.md","hunks":[{"oldStart":1,"newStart":1}]}]}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g2","content":""}]}}
+{"type":"assistant","agentId":"$A11","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"g3","name":"Bash","input":{"command":"$PY -B gen.py"}}]}}
+{"type":"user","agentId":"$A11","timestamp":"$NOW","toolUseResult":{"stdout":"","stderr":"","bashEditDiff":{"changedFiles":["$WTA/src/generated.py"],"files":[{"filePath":"$WTA/src/generated.py","hunks":[],"created":true}]}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g3","content":""}]}}
+{"type":"assistant","agentId":"$A11","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"g4","name":"Bash","input":{"command":"true"}}]}}
+{"type":"user","agentId":"$A11","timestamp":"$NOW","toolUseResult":{"stdout":"ok","stderr":""},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"g4","content":"ok"}]}}
+JSONL
+
+cat >"$WF8/agent-$A12.jsonl" <<JSONL
+{"type":"assistant","agentId":"$A12","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"h1","name":"Bash","input":{"command":"$PY -B $EMIT register-lane --run-dir $RUN --job-id other-run-job3 --cwd $WTA --repo-root $SANDBOX --isolation worktree"}}]}}
+{"type":"user","agentId":"$A12","timestamp":"$NOW","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"h1","content":"{\"job_id\": \"other-run-job3\"}"}]}}
+{"type":"assistant","agentId":"$A12","timestamp":"$NOW","message":{"role":"assistant","content":[{"type":"tool_use","id":"h2","name":"Bash","input":{"command":"sed -i '' 's/x/y/' $SANDBOX/scripts/z.py"}}]}}
+{"type":"user","agentId":"$A12","timestamp":"$NOW","toolUseResult":{"bashEditDiff":{"changedFiles":["$SANDBOX/scripts/z.py"]}},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"h2","content":""}]}}
+JSONL
+
+cat >"$WF8/journal.jsonl" <<JSONL
+{"type":"started","key":"k11","agentId":"$A11"}
+{"type":"result","key":"k11","agentId":"$A11"}
+{"type":"started","key":"k12","agentId":"$A12"}
+{"type":"result","key":"k12","agentId":"$A12"}
+JSONL
+
+OUT12="$T/out12.txt"
+"$PY" -B "$WATCH" --run-dir "$RUN" --transcripts "$SESSION" --wf wf_bashdiff --once \
+      --state "$T/state12.json" >"$OUT12" 2>&1
+check "(a) a bashEditDiff path outside the job's lane is out-of-lane, tagged Bash" \
+      "$(grep -E '\ba\b.*out-of-lane.*Bash README\.md' "$OUT12" >/dev/null && echo 1 || echo 0)"
+check "(b) a bashEditDiff path INSIDE the job's lane produces no signal" \
+      "$(grep -q 'generated.py' "$OUT12" && echo 0 || echo 1)"
+check "(c) a Bash result with no bashEditDiff at all changes nothing (no signal from g4)" \
+      "$([ "$(grep -cE ' (out-of-lane|wrong-cwd|error|denied|stall) ' "$OUT12")" = 1 ] && echo 1 || echo 0)"
+check "(d) a bashEditDiff path under a job THIS run's manifest does not declare is not a violation" \
+      "$(grep -q 'other-run-job3' "$OUT12" && grep -qE 'other-run-job3.*out-of-lane' "$OUT12" && echo 0 || echo 1)"
+check "...and that unrecognised job still appears on the roster" \
+      "$(grep -q 'other-run-job3' "$OUT12" && echo 1 || echo 0)"
+
+# --------------------------------------------------------------------------- #
 # 12. The script's own --selftest, run through this suite so CI cannot lose it.
 # --------------------------------------------------------------------------- #
 "$PY" -B "$WATCH" --selftest >"$T/selftest.txt" 2>&1

@@ -14,13 +14,17 @@ You are the final check before Phase 3 dispatches multi-backend workers. If you 
 the caller's repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## Step 0 — ask what this project already knows (V-memory)
 
@@ -30,6 +34,14 @@ declares:
 ```bash
 python3 "$CV/scripts/compound-v-memory.py" recall-check --files <every write_allowed glob>
 ```
+
+**Nothing injects recall into your prompt; run the bridge yourself.** Emit-time recall
+reaches the implementers (`## Prior failures on your lane`), the Engine C review jobs and
+the three pre-flight auditors (`## Prior context from this repository (V-memory)`). You run
+before emit: `/v:dispatch` spawns you as a subagent, and no emitter writes your prompt.
+Nothing in the pipeline hands you a block, so the command above is your recall and not a
+fallback. If a caller did paste a `## Prior context` block into your prompt, read it as
+evidence under the rules below.
 
 If a lane's file pattern carries repeated prior `blocked` / `error` / `timeout` or
 scope-violation records, the verdict is **`tighten`**: force `worktree` isolation on
@@ -116,6 +128,7 @@ to invent. The exit code is unchanged by a warning; only `violations` decides FA
 | `memory-only lane` | `WARN: MEMORY_ONLY_LANE` | A job's `write_allowed` is nothing but agent-memory globs (`.claude/agent-memory{,-local}/**`). Such a job is refused as `no_work` the moment the agent has nothing durable to save, which pressures it to invent a memory entry. Pair the memory glob with the job's real output lane, or declare `write_allowed: []`. Fires for both the bare and the namespaced form of the glob. |
 | `not namespaced` | `WARN: MEMORY_LANE_UNNAMESPACED` | A job's committed, project-scope memory lane is `.claude/agent-memory/<agent>/**` — bare, not `.claude/agent-memory/superpowers-v-<agent>/**`. That directory is shared with every plugin installed in the same repo, and an unnamespaced agent name can collide with another plugin's memory-bearing agent of the same name. Independent of `MEMORY_ONLY_LANE` — fires whether or not the lane is paired with a real output lane. |
 | (cross-model receipt, `reviewer_backend: claude-advisor` + `cross_model: false`) | `WARN: SECOND_OPINION_SAME_FAMILY` | The SCOPED+ second opinion was produced by `claude-advisor` (v2.12's read-only advisor), not `codex` — the SAME model family as the implementer and the in-harness reviewer. The receipt is honestly labelled (`cross_model: false`), so this is not a violation; it is a signal that this run got a same-family opinion, not an independent one. |
+| `exceeds` + `concurrency cap` | `WARN: WAVE_EXCEEDS_RUNTIME_CONCURRENCY` | A dependency wave `topo_waves()` would actually dispatch is wider than the native Workflow runtime's default 16-concurrent-agent cap (the emitter runs at most 1 agent per job in flight at a time — no per-job multiplier — so wave width is exactly what competes for the 16 slots). The run does not fail; the extra jobs queue for a slot. Before launching, `export CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=<n>` (1-256, Claude Code ≥ 2.1.269) if you want the wave to run at full width. |
 
 **`compound-v-validate-manifest.py` is the gate; you do not hand-wave past it.** If *it* exits non-zero, the verdict is FAIL regardless of how the prose reads. This applies to `compound-v-validate-manifest.py` and nothing else — it is **not** a general rule about every script this agent runs. The co-change advisory in Step 7 has the opposite contract, stated there. Your remaining steps add the human-judgment checks the script can't make (Sonnet eligibility against the 8-box taxonomy, tests-with-code coupling, batch sanity).
 
@@ -318,6 +331,13 @@ WARNINGS
       honestly-labelled SAME-family second opinion, not an independent one.
     → Advisory, quoted from cross_model_receipt_advisories. Confirm a same-family opinion was
       acceptable for this run, or re-run with codex when it is available.
+
+  WARN: WAVE_EXCEEDS_RUNTIME_CONCURRENCY
+    - wave 2 (task-5, task-6, ..., task-21): 17 jobs exceeds the native Workflow runtime's default
+      concurrency cap of 16 concurrent agents.
+    → Advisory, quoted from the validator's `warnings`. The wave still runs — the extra jobs queue
+      for a slot — but not all at once unless you raise
+      CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS before launching.
 
   NOTE: MATERIALIZATION_UNCHECKED
     - The plan named by `plan_path` is not readable from here, so the 6.2.0 field check did not

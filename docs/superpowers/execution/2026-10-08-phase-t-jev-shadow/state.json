@@ -1,0 +1,63 @@
+{
+  "phase": "MERGED",
+  "updated_at": "2026-10-08T08:00:00Z",
+  "pre_eval_id": "2026-10-08T055405Z-phase-t-in-v-triage-never-asks-jev-commands-v-triage-md-step-e332",
+  "jobs": {
+    "phase-t-shadow": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_a9335b49-cad-2",
+      "session_id": null,
+      "baseline": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+      "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+      "merged": {
+        "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "5af651087d2ca7c7e2273040407a300a4af895c1"
+      }
+    },
+    "spec-review": {
+      "status": "done",
+      "isolation": "direct",
+      "worktree": "",
+      "session_id": null,
+      "baseline": "47a9861acf859460d8d352b4c13c72b395335326",
+      "realised_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+      "merged": {
+        "realised_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "b7cdc62c00c52a78b91c4d04e1c9d16695013255"
+      }
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "phase-t-shadow"
+      ],
+      "merged": [
+        "phase-t-shadow"
+      ],
+      "commit": "5af651087d2ca7c7e2273040407a300a4af895c1",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "b7cdc62c00c52a78b91c4d04e1c9d16695013255",
+      "integrated": true
+    }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T055405Z-phase-t-in-v-triage-never-asks-jev-commands-v-triage-md-step-e332",
+    "run_id": "2026-10-08-phase-t-jev-shadow"
+  },
+  "merged_at": "2026-10-08T08:00:00Z"
+}

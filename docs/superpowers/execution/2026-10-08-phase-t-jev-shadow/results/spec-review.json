@@ -1,0 +1,46 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md",
+    "docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+    "diff_digest": "sha256:ea58b238780defbd057b9da36993ca41b3ad6b8b115bddb110198d5f2e2b9651",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"47a9861acf859460d8d352b4c13c72b395335326\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md\",\n    \"docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the spec, its amendments and AC-1..AC-5",
+  "tests": {
+    "command": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo floor-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 209749,
+    "cache_read_input_tokens": 3226577,
+    "input_tokens": 66,
+    "measured": true,
+    "output_tokens": 7116,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a53694e7beb09fe4f.jsonl",
+      "agent-a5c54086f8ce43c6a.jsonl",
+      "agent-aa6b24cfff7c1f917.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": ""
+}

@@ -1,0 +1,53 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "hooks/brainstorm-trigger0-nudge.sh",
+    "hooks/precompact-snapshot.sh",
+    "hooks/run-band.test.tsx",
+    "hooks/run-band.tsx",
+    "scripts/compound-v-fastpath-materialize.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-project-config.py",
+    "scripts/compound-v-triage-outcomes.py",
+    "scripts/compound-v-validate-manifest.py",
+    "tests/test-project-root.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+    "diff_digest": "sha256:d607794aa1a81f045ea44105c9e3769e9fbca41f305f3bd901dc9e7f5d2d9a2e",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"d9e544a8ac47ebe5abc8763051e55d2ab9106c3c\",\n  \"changed\": [\n    \"hooks/brainstorm-trigger0-nudge.sh\",\n    \"hooks/precompact-snapshot.sh\",\n    \"hooks/run-band.test.tsx\",\n    \"hooks/run-band.tsx\",\n    \"scripts/compound-v-fastpath-materialize.py\",\n    \"scripts/compound-v-preeval.py\",\n    \"scripts/compound-v-project-config.py\",\n    \"scripts/compound-v-triage-outcomes.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-project-config.py\",\n    \"scripts/compound-v-triage-outcomes.py\",\n    \"scripts/compound-v-preeval.py\",\n    \"scripts/compound-v-fastpath-materialize.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"hooks/precompact-snapshot.sh\",\n    \"hooks/run-band.tsx\",\n    \"hooks/run-band.test.tsx\",\n    \"hooks/brainstorm-trigger0-nudge.sh\",\n    \"commands/v-orchestrate.md\",\n    \"commands/v-collect.md\",\n    \"commands/v-dispatch.md\",\n    \"commands/v-status.md\",\n    \"agents/parallel-dispatcher.md\",\n    \"tests/test-project-root.sh\",\n    \"tests/test-native-points.sh\",\n    \"tests/test-skill-nudges.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 one project-root helper, triage-outcomes without __file__, one stream path, hooks walk up",
+  "tests": {
+    "command": "bash -c 'bash tests/test-project-root.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-triage-outcomes.py --selftest >/dev/null && echo floor-ok'\nbash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooks-ok'\nbash -c 'for s in project-config triage-outcomes preeval fastpath-materialize validate-manifest; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && echo py-ok'\nbash -c 'bash tests/test-project-root.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && echo tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 4
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 246558,
+    "cache_read_input_tokens": 9311935,
+    "input_tokens": 148,
+    "measured": true,
+    "output_tokens": 9913,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a0da035bce2a6f6c2.jsonl",
+      "agent-a17fc05aeb69aa0ec.jsonl",
+      "agent-a5524d92a29e5b985.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_34f4ed9a-8ab-2"
+}

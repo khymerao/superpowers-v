@@ -54,13 +54,21 @@
 #     [--timeout-sec <n>] [--network true|false] \
 #     [--read-only true|false] [--output-schema <abs-path>] [--effort <variant>] \
 #     [--test-contract-file <abs-path>] [--test-timeout-sec <n>] \
-#     [--provision-command <string>] [--provision-timeout-sec <n>]
+#     [--provision-command <string>] [--provision-timeout-sec <n>] \
+#     [--toolchain-artifact <glob>]...
 #
 # --provision-command runs inside the fresh worktree BEFORE the model launches
 # (dependency install). On a non-zero exit nothing is launched and the job_result is
 # `status: error`. On success the worker snapshots the worktree's untracked+ignored
 # paths to $ART/preexisting.txt and passes it to the scope gate as --preexisting, so
 # installed dependencies are not charged to the model. Default timeout: 600 s.
+#
+# --toolchain-artifact <glob> (v3.6.3, repeatable) is passed through UNCHANGED to
+# scripts/compound-v-scope-check.py as one --toolchain-artifact per glob. The gate
+# forgives a matching changed path only when `git check-ignore` confirms it is
+# gitignored in the gated tree — this exists because a test floor's first run in a
+# fresh worktree writes gitignored artifacts (tsconfig.tsbuildinfo, a vitest cache)
+# AFTER the --preexisting snapshot was already taken.
 #
 # --model is REQUIRED (unlike antigravity/cursor): opencode addresses models as a
 # `provider/model` string with no single-vendor default to fall back on. --effort is
@@ -355,6 +363,13 @@ PROVISION_COMMAND=""
 PROVISION_TIMEOUT_SEC=600
 PREEXISTING_FILE=""
 
+# --toolchain-artifact <glob> (v3.6.3, repeatable) — a manifest-declared exemption
+# for build artifacts a test floor writes on first run (tsconfig.tsbuildinfo, a
+# vitest/jest cache). Collected verbatim and passed straight through to the scope
+# gate; this script does no glob matching or gitignore checking of its own. Bash
+# 3.2 (stock macOS): a real array, never an associative array or ${var,,}.
+TOOLCHAIN_ARTIFACTS=()
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --run-id)        RUN_ID="$2"; shift 2 ;;
@@ -365,6 +380,10 @@ while [ $# -gt 0 ]; do
     --write-allowed) WRITE_ALLOWED="$2"; shift 2 ;;
     --provision-command)     PROVISION_COMMAND="$2"; shift 2 ;;
     --provision-timeout-sec) PROVISION_TIMEOUT_SEC="$2"; shift 2 ;;
+    --toolchain-artifact)
+      [ -n "$2" ] || die "--toolchain-artifact requires a non-empty glob"
+      TOOLCHAIN_ARTIFACTS+=("$2")
+      shift 2 ;;
     --timeout-sec)   TIMEOUT_SEC="$2"; shift 2 ;;
     --network)       NETWORK="$2"; shift 2 ;;
     --read-only)     READ_ONLY="$2"; shift 2 ;;
@@ -385,7 +404,7 @@ done
 # --model is REQUIRED for opencode (unlike antigravity/cursor): opencode addresses
 # models as a `provider/model` string and has no single coherent "configured default"
 # across its many proxied vendors the way a single-vendor CLI does.
-[ -n "$MODEL" ]       || die "--model is required for opencode (must be a provider/model string, e.g. anthropic/claude-opus-4-6)"
+[ -n "$MODEL" ]       || die "--model is required for opencode (must be a provider/model string, e.g. anthropic/claude-opus-5-5)"
 # NOTE: --write-allowed may legitimately be EMPTY for a read-only / review job.
 # An empty allow-list means NO writes are permitted, so ANY changed path is a
 # violation (the scope gate, run with zero allowed globs, blocks everything).
@@ -900,6 +919,15 @@ done
 set +f
 IFS="$_OLDIFS"
 
+# Expand the collected --toolchain-artifact globs into repeatable
+# --toolchain-artifact <glob> argv pairs for the gate. Bash 3.2 under `set -u`
+# treats an EMPTY array expansion as an unbound-variable error, so the
+# `${arr[@]+"${arr[@]}"}` guard is required (no elements ⇒ no expansion at all).
+TA_ARGS=()
+for _ta_glob in "${TOOLCHAIN_ARTIFACTS[@]+"${TOOLCHAIN_ARTIFACTS[@]}"}"; do
+  TA_ARGS+=(--toolchain-artifact "$_ta_glob")
+done
+
 # Run the gate. It prints a JSON verdict on stdout; exit 0 = pass, 1 = blocked,
 # 2 = usage/git error. Capture both so a gate fault becomes status: error rather
 # than a silently-clean result.
@@ -910,10 +938,12 @@ if [ -n "$PREEXISTING_FILE" ]; then
   # Provisioning ran: subtract exactly what it installed, nothing else.
   GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
     --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
-    --preexisting "$PREEXISTING_FILE" 2>"$ART/scope_check.err")
+    --preexisting "$PREEXISTING_FILE" \
+    "${TA_ARGS[@]+"${TA_ARGS[@]}"}" 2>"$ART/scope_check.err")
 else
   GATE_JSON=$(python3 "$SCRIPT_DIR/compound-v-scope-check.py" \
-    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" 2>"$ART/scope_check.err")
+    --worktree "$WT" --baseline "$BASELINE_SHA" --allow-file "$ALLOW_FILE" \
+    "${TA_ARGS[@]+"${TA_ARGS[@]}"}" 2>"$ART/scope_check.err")
 fi
 gate_rc=$?
 set -e

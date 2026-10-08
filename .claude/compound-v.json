@@ -1,0 +1,10 @@
+{
+  "memory": {
+    "extra_globs": [
+      "skills/**/*.md",
+      "commands/**/*.md",
+      "agents/**/*.md"
+    ],
+    "embeddings": false
+  }
+}

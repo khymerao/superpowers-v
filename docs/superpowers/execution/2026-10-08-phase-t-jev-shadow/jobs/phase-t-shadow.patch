@@ -1,0 +1,898 @@
+diff --git a/commands/v-triage.md b/commands/v-triage.md
+index 8837dbd..00c6376 100644
+--- a/commands/v-triage.md
++++ b/commands/v-triage.md
+@@ -133,8 +133,9 @@ prose: the scoring, the binding, the declared-path vocabulary and the six predic
+ implementation, it is covered by `compound-v-preeval.py --selftest`, and a second producer is one
+ line rather than a copy.
+ 
+-Add `--t3-category <plumbing|user-facing-minor|user-facing-major|unknown>` on the re-invocation
+-after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default taxonomy.
++After a `needs_t3` result the re-invocation adds `--t3-category` and `--t3-engine` (see the
++`needs_t3` bullet below for both values). Add `--taxonomy PATH` only to point at a non-default
++taxonomy.
+ 
+ **Two results are not a tier, and each has one right response:**
+ 
+@@ -146,8 +147,15 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default
+   fingerprint) rather than minting a second. Any error, timeout, or non-enum reply is `unknown`,
+   which is FULL.
+ 
+-  **The headless one-shot is the default route** (v3.4.1, finding 50). Write the returned
+-  `t3_prompt` to a file and run:
++  **Keep `t3_reason` from this first result** (`unbanded`, `demotion` or `sensitive`; `unbanded`
++  when the field is absent). The re-invocation's output does not carry it, and the Jev step (T2b)
++  needs it. Never invent one.
++
++  **Write the returned `t3_prompt` to a temp file first**, with
++  `PROMPT_FILE="$(mktemp "${TMPDIR:-/tmp}/cv-t3-prompt.XXXXXX")"`, whichever route answers. It
++  holds the request text: keep it only until T2b ends, then `rm -f` it.
++
++  **The headless one-shot is the default route** (v3.4.1, finding 50). Run it on that file:
+ 
+   ```bash
+   python3 "$CV/scripts/compound-v-classify-request.py" --classify-headless \
+@@ -175,6 +183,74 @@ after a `needs_t3` result. Add `--taxonomy PATH` only to point at a non-default
+   python3 "$CV/scripts/compound-v-classify-request.py" --parse --reply '<the Task reply>'
+   ```
+ 
++  **The re-invocation** names the category and who answered it, so the record carries a `t3`
++  block (`engine`, `category`). Run it from the repo root with the same request text:
++
++  ```bash
++  V_TRIAGE_REQUEST='<the request text>' python3 "$CV/scripts/compound-v-preeval.py" triage \
++    --request-env V_TRIAGE_REQUEST --repo . \
++    --session-id "${CLAUDE_CODE_SESSION_ID:-}" --base-commit "$(git rev-parse HEAD)" --json \
++    --t3-category <category> --t3-engine <engine>
++  ```
++
++  `<category>` is the enum the classify answered. `<engine>` is the `backend` the headless
++  classify printed (`claude` or `codex`), or `parent` when the Task route answered. A
++  `backend: "none"` or `timed_out: true` result is still not an answer: it never reaches
++  `--t3-category` or `--t3-engine`, and the Task route answers instead (engine `parent`). The engine
++  is evidence only: it never changes the tier.
++
++  **If the re-invocation is refused** with `triage failed: ... already exists with DIFFERENT
++  content`, a record for this request already exists without this `t3` block. Do not edit that
++  record. Re-run the same command without `--t3-engine`, say in the report that the record keeps no
++  `t3` block, and skip T2b.
++
++### T2b. Ask Jev the same question, in shadow
++
++Run this step only when T3 decided the tier: T2 returned `needs_t3: true` and the re-invocation with
++`--t3-engine` wrote the record. Skip it in every other case. It is a shadow: it never changes the
++record, the tier or the next step, and **it never skips T3** — whatever happens here, including a
++failure of any command below, go on to commit the record. Use the same `--repo .` for every command,
++from the repo root. Never print or `cat` the response file, and never print a key.
++
++1. **Find the tool.** `mcp__compound-v-vault__jev_classify` is a deferred tool: load it with
++   ToolSearch (`select:mcp__compound-v-vault__jev_classify`) before you treat it as absent. Absent
++   means the vault is not installed or is disabled here; the step ends.
++2. **Build the request** with the same request text and the prompt file from T2:
++
++   ```bash
++   V_TRIAGE_REQUEST='<the request text>' python3 "$CV/scripts/compound-v-jev.py" t3-request \
++     --repo . --request-env V_TRIAGE_REQUEST --prompt-file "$PROMPT_FILE" --context offline
++   ```
++
++   It prints `{"status": "ok", "request_file": ...}`. Any other status ends the step: `off` means
++   the committed config has Jev disabled or `jev.t3.mode: off`, and nothing was written.
++3. **Call `jev_classify`** with `{"request_file": "<request_file>"}`. It returns the response file's
++   path, or a string such as `refused: disabled`. A result that is not an absolute path to an
++   existing file ends the step.
++4. **Parse the answer** (it writes one metadata-only `calls.jsonl` line, whatever the status):
++
++   ```bash
++   python3 "$CV/scripts/compound-v-jev.py" parse --mode shadow --request-file "<request_file>" \
++     --response-file "<response_file>" --repo .
++   ```
++
++5. **Keep the pair, or drop the request.** When `parse` printed `"status": "unavailable"` with
++   `"reason"` `no_key`, `egress` or `disabled`, Jev is not switched on for this user (no key, or no
++   egress consent for this repository): delete the request file with `rm -f "<request_file>"` and
++   write no pair. Every other status (`ok`, `timeout`, `upstream`, `auth`, ...) is paired:
++
++   ```bash
++   python3 "$CV/scripts/compound-v-jev.py" pair --request-file "<request_file>" \
++     --claude-category <category> --backend <engine> --t3-reason <t3_reason> --repo .
++   ```
++
++   `<category>` and `<engine>` are the values the re-invocation passed; `<t3_reason>` is the value
++   kept from the first `needs_t3` result.
++
++However the step ends, and also when it is skipped, `rm -f "$PROMPT_FILE"`. Report the step in
++**one line**: what Jev answered (from `parse`'s `status` and `answers`) or why the step ended, and
++whether a pair was written. Then T3.
++
+ **On the session id.** `CLAUDE_CODE_SESSION_ID` is the harness session id as a Bash call in this
+ session sees it, and it is what the record binds. **If it is empty, say so and continue** — the
+ record is still written and still classifies, but with `session_id: null` it covers nothing for the
+diff --git a/hooks/triage-prompt-nudge.sh b/hooks/triage-prompt-nudge.sh
+index 2e794f3..c44f6b2 100755
+--- a/hooks/triage-prompt-nudge.sh
++++ b/hooks/triage-prompt-nudge.sh
+@@ -444,13 +444,12 @@ _classify_headless() {
+ #     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid}
+ #
+ # `<data_dir>` is `compound-v-jev.py`'s per-user directory, outside the repository.
+-# The request travels to `build` in a 0600 state file (never argv), and that file
+-# is deleted as soon as `build` returns. `state` is today's bounded classify input:
+-# the request capped at 2,000 characters, plus the resolved paths and taxonomy
+-# hints read back out of the engine's own `t3_prompt`, where `build_prompt` has
+-# already bounded them (20 and 40). The LAST paths header is the one used: the
+-# request text comes before it and is user input.
+-_T3_STATE_MAX_CHARS=2000
++# The request file is built by `compound-v-jev.py t3-request --context hook`, the
++# same builder `/v:triage` Phase T calls: it bounds the state (the request, plus the
++# resolved paths and taxonomy hints read back out of the engine's own `t3_prompt`)
++# with the classify prompt's own caps, and it reads the committed `jev` config
++# itself. The request reaches it through the environment, never argv; the prompt
++# through a 0600 temp file that is removed on every exit path of this function.
+ 
+ # Runs in a subshell so `umask 077` cannot leak into the rest of the hook.
+ # Returns non-zero on any failure, having written no descriptor.
+@@ -462,30 +461,13 @@ _write_t3_descriptor() (
+   py="$(_python)" || exit 1
+   umask 077
+ 
+-  statef="$(mktemp "${TMPDIR:-/tmp}/cv-jev-state.XXXXXX" 2>/dev/null)" || exit 1
+-  # Request and prompt reach jq through its environment, never its argv.
+-  if ! CV_JEV_REQ="$request" CV_JEV_PROMPT="$prompt" \
+-       jq -n --argjson n "$_T3_STATE_MAX_CHARS" '
+-         def items($text; $hdr):
+-           ($text | split("\n" + $hdr + "\n")) as $parts
+-           | if ($parts | length) < 2 then []
+-             else ($parts[-1] | split("\n\n")[0] | split("\n")
+-                   | map(select(startswith("- ")) | .[2:]))
+-             end;
+-         ($ENV.CV_JEV_PROMPT // "") as $p
+-         | "RESOLVED FILE PATHS (may be empty or approximate):" as $ph
+-         | ($p | split("\n" + $ph + "\n")
+-            | if length < 2 then "" else "\n" + $ph + "\n" + .[-1] end) as $tail
+-         | {request: (($ENV.CV_JEV_REQ // "")[0:$n]),
+-            paths: (items($tail; $ph) | map(select(. != "(none resolved)")) | .[0:20]),
+-            hints: (items($tail; "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):")
+-                    | .[0:40])}' >"$statef" 2>/dev/null; then
+-    rm -f "$statef"
+-    exit 1
+-  fi
+-  out="$(PYTHONDONTWRITEBYTECODE=1 "$py" "$script" build --point t3 \
+-         --state-file "$statef" --repo "$proj" 2>/dev/null)"
+-  rm -f "$statef" 2>/dev/null || true
++  promptf="$(mktemp "${TMPDIR:-/tmp}/cv-jev-prompt.XXXXXX" 2>/dev/null)" || exit 1
++  printf '%s' "$prompt" >"$promptf" 2>/dev/null || { rm -f "$promptf"; exit 1; }
++  out="$(CV_JEV_REQ="$request" PYTHONDONTWRITEBYTECODE=1 "$py" "$script" t3-request \
++         --repo "$proj" --request-env CV_JEV_REQ --prompt-file "$promptf" \
++         --context hook 2>/dev/null)"
++  # The prompt carries the request text: it goes before anything else can exit.
++  rm -f "$promptf" 2>/dev/null || true
+ 
+   rf="$(printf '%s' "$out" | jq -r 'if (type == "object") and (.status == "ok")
+           and ((.request_file | type) == "string") then .request_file else empty end' \
+diff --git a/scripts/compound-v-jev.py b/scripts/compound-v-jev.py
+index 6454ac1..55a36fd 100644
+--- a/scripts/compound-v-jev.py
++++ b/scripts/compound-v-jev.py
+@@ -8,6 +8,7 @@ only HTTP client. Python 3.9-safe, stdlib only.
+ 
+ CLI (one JSON object on stdout; exit 0 unless a usage error, which exits 2):
+   build --point {t3,detect_ui,onboard_layer} --state-file F --repo R [--context hook|offline]
++  t3-request --repo R --request-env NAME --prompt-file P --context hook|offline
+   parse --response-file F --repo R --mode M [--hook-budget-left-ms N] [--request-file F]
+   pair --request-file F --claude-category C --backend B --t3-reason R --repo R
+   eval --t3 --prepare [--corpus F] [--pairs] --repo R
+@@ -19,7 +20,14 @@ Data dir: ~/.claude/compound-v-jev/<repo-digest>/ (0700; files 0600), where <rep
+ the first 16 hex of sha256 of the repo's absolute real path. It holds req/, resp/,
+ calls.jsonl, shadow-pairs.jsonl, eval-t3.json and the T3 hook's pending-*.json descriptors.
+ Every write prunes entries older than 30 days, descriptors included. Request text only ever
+-arrives in a file, never in argv. A response body that is not a success body is never read,
++arrives in a file or an environment variable, never in argv.
++
++`t3-request` is the one T3 request builder: the prompt hook (`--context hook`) and `/v:triage`
++Phase T (`--context offline`) both call it. It reads the request from the environment variable
++NAME and the engine's own `t3_prompt` from P, extracts the bounded state the hook's jq used to
++build, and then does what `build --point t3` does. Unless the committed config resolves
++`jev.enabled` true and `jev.t3.mode` to `shadow`, it prints {"status": "off", "reason": ...}
++and writes nothing. A response body that is not a success body is never read,
+ so nothing from an OpenRouter error body is copied anywhere: only the status class is recorded.
+ """
+ import argparse
+@@ -427,6 +435,103 @@ def build_request(point, state, repo, variant=0, reverse=False, context=None, do
+         return {"status": "error", "reason": "bad_input"}
+ 
+ 
++# --------------------------------------------------------------------------- #
++# t3-request: the T3 state read back out of the engine's own prompt
++# --------------------------------------------------------------------------- #
++# The two block headers `build_prompt` (compound-v-classify-request.py) writes. That module
++# keeps them as literals inside `build_prompt`, so the selftest builds its fixtures with
++# `build_prompt` and fails if either header stops appearing there.
++T3_PATHS_HEADER = "RESOLVED FILE PATHS (may be empty or approximate):"
++T3_HINTS_HEADER = "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):"
++T3_NO_PATHS = "(none resolved)"
++
++
++def _t3_caps():
++    """(request chars, paths, hints): the classify prompt's own bounds, one source of truth."""
++    mod = _load("cv_classify_request", "compound-v-classify-request.py")
++    return mod.MAX_REQUEST_CHARS, mod.MAX_PATHS, mod.MAX_TAXONOMY_CATEGORIES
++
++
++def _t3_items(text, header):
++    """The `- ` lines of the block under the LAST `header`, up to the first blank line."""
++    parts = text.split("\n" + header + "\n")
++    if len(parts) < 2:
++        return []
++    block = parts[-1].split("\n\n")[0]
++    return [line[2:] for line in block.split("\n") if line.startswith("- ")]
++
++
++def t3_state(request, prompt):
++    """{"request", "paths", "hints"}: the bounded T3 state, as the hook's jq extracted it.
++
++    Codepoint slices, like jq's. Paths and hints are read from the text after the LAST paths
++    header (the request comes before it and is user input); `(none resolved)` is dropped from
++    the paths only. A hints header that precedes the paths header yields no hints.
++    """
++    max_req, max_paths, max_hints = _t3_caps()
++    parts = prompt.split("\n" + T3_PATHS_HEADER + "\n")
++    tail = "" if len(parts) < 2 else "\n" + T3_PATHS_HEADER + "\n" + parts[-1]
++    paths = [p for p in _t3_items(tail, T3_PATHS_HEADER) if p != T3_NO_PATHS][:max_paths]
++    hints = _t3_items(tail, T3_HINTS_HEADER)[:max_hints]
++    return {"request": request[:max_req], "paths": paths, "hints": hints}
++
++
++def _utf8_text(raw):
++    """Bytes as text; an invalid sequence becomes U+FFFD instead of failing the call."""
++    return raw.decode("utf-8", "replace")
++
++
++def _env_text(name):
++    """The value of environment variable `name` as text, "" when unset."""
++    value = os.environ.get(name)
++    if value is None:
++        return ""
++    return _utf8_text(os.fsencode(value))
++
++
++def t3_off_reason(repo):
++    """None when the committed config asks for the T3 shadow, else the reason it is off.
++
++    Read with the project's own resolver, so an absent config means the defaults (on, shadow)
++    and `t3.mode: active` is already coerced to `shadow`. A config the loader rejects is off,
++    as it is for the hook module. Warnings go to stderr, never stdout.
++    """
++    try:
++        pc = _load("cv_project_config", "compound-v-project-config.py")
++        cfg = pc.load_project_config(repo)
++    except Exception as exc:  # noqa: BLE001 - a malformed config is off, never a traceback
++        sys.stderr.write("compound-v-jev: config not readable, T3 shadow off: %s\n" % exc)
++        return "config"
++    values, warnings = pc.resolve_jev(cfg)
++    for w in warnings:
++        sys.stderr.write("compound-v-jev: %s\n" % w)
++    if values.get("enabled") is not True:
++        return "disabled"
++    t3 = values.get("t3")
++    if not isinstance(t3, dict) or t3.get("mode") != "shadow":
++        return "t3_mode_off"
++    return None
++
++
++def t3_request(repo, request, prompt_file, context):
++    """The `t3-request` result: off (nothing written), an error, or `build --point t3`'s result."""
++    if not request.strip():
++        sys.stderr.write("compound-v-jev: REFUSED: t3-request needs a non-empty request\n")
++        return {"status": "error", "reason": "bad_input"}
++    reason = t3_off_reason(repo)
++    if reason is not None:
++        return {"status": "off", "reason": reason}
++    try:
++        with open(prompt_file, "rb") as fh:
++            raw = fh.read(MAX_INPUT_BYTES + 1)
++        if len(raw) > MAX_INPUT_BYTES:
++            raise ValueError("prompt too large")
++        state = t3_state(request, _utf8_text(raw))
++    except Exception:  # noqa: BLE001 - an unreadable prompt is bad_input, never a crash
++        return {"status": "error", "reason": "bad_input"}
++    return build_request("t3", state, repo, context=context)
++
++
+ # --------------------------------------------------------------------------- #
+ # parse
+ # --------------------------------------------------------------------------- #
+@@ -908,6 +1013,14 @@ def _parser():
+     b.add_argument("--state-file", required=True)
+     b.add_argument("--repo", required=True)
+     b.add_argument("--context", choices=tuple(TIMEOUT_MS))
++    # The request text has no argv form: only the NAME of the variable that holds it. The
++    # context is required, so no caller inherits the hook's 1,500 ms cap by omission. No
++    # abbreviations: `--request` must never be read as `--request-env`.
++    tr = sub.add_parser("t3-request", allow_abbrev=False)
++    tr.add_argument("--repo", required=True)
++    tr.add_argument("--request-env", required=True, metavar="NAME")
++    tr.add_argument("--prompt-file", required=True)
++    tr.add_argument("--context", required=True, choices=tuple(TIMEOUT_MS))
+     pr = sub.add_parser("parse")
+     pr.add_argument("--response-file", required=True)
+     pr.add_argument("--repo", required=True)
+@@ -956,6 +1069,9 @@ def main(argv=None):
+             return 0
+         _emit(build_request(args.point, state, args.repo, context=args.context))
+         return 0
++    if args.cmd == "t3-request":
++        _emit(t3_request(args.repo, _env_text(args.request_env), args.prompt_file, args.context))
++        return 0
+     if args.cmd == "parse":
+         res = parse_response(args.response_file, args.request_file)
+         try:
+@@ -1224,6 +1340,11 @@ def _selftest():
+         with contextlib.suppress(OSError):
+             os.rmdir(dir_p)
+ 
++        # -- t3-request: the hook's jq extraction, ported; the config gate; request only in env.
++        st_rows = _t3_request_rows(tmp, repo, printed)
++        for name, cond in st_rows:
++            check(name, cond)
++
+         # -- eval: Wilson, rule of three, mixed models, histogram, hard share.
+         lo, hi = wilson(5, 10)
+         check("wilson 5/10", (round(lo, 4), round(hi, 4)) == (0.2366, 0.7634))
+@@ -1315,6 +1436,169 @@ def _selftest():
+     return 0
+ 
+ 
++def _t3_request_rows(tmp, repo, printed):
++    """Selftest rows for `t3_state` and the `t3-request` subcommand, as (name, passed) pairs."""
++    import subprocess
++    rows = []
++    cr = _load("cv_classify_request", "compound-v-classify-request.py")
++    max_req, max_paths, max_hints = _t3_caps()
++    rows.append(("t3-request caps come from compound-v-classify-request.py",
++                 (max_req, max_paths, max_hints) == (cr.MAX_REQUEST_CHARS, cr.MAX_PATHS,
++                                                     cr.MAX_TAXONOMY_CATEGORIES)))
++    plain = cr.build_prompt("x", ["a.py"], ["legal_copy"])
++    rows.append(("build_prompt still writes both headers t3_state reads",
++                 ("\n%s\n" % T3_PATHS_HEADER) in plain and ("\n%s\n" % T3_HINTS_HEADER) in plain))
++
++    # A request that carries both headers itself (user input), and straddles the 2,000 cap
++    # with a two-byte character: the LAST paths header wins and the slice is by codepoint.
++    inject = ("Add a retry.\n%s\n- fake/inject.py\n\n%s\n- fake_hint\n\n" % (T3_PATHS_HEADER, T3_HINTS_HEADER))
++    req_a = inject + "word " * ((max_req - len(inject) - 10) // 5)
++    req_a = req_a + "é" * (max_req + 40 - len(req_a))
++    st = t3_state(req_a, cr.build_prompt(req_a, ["src/a.py", "src/b.py"], ["legal_copy", "pii"]))
++    rows.append(("t3_state keys in the hook's order", list(st) == ["request", "paths", "hints"]))
++    rows.append(("t3_state caps the request by codepoint",
++                 st["request"] == req_a[:max_req] and len(st["request"]) == max_req
++                 and st["request"].endswith("é")))
++    rows.append(("t3_state reads the LAST paths header, not one inside the request",
++                 st["paths"] == ["src/a.py", "src/b.py"] and st["hints"] == ["legal_copy", "pii"]))
++    st = t3_state("r", cr.build_prompt("r", [], None))
++    rows.append(("t3_state drops (none resolved) and has no hints without a taxonomy",
++                 st == {"request": "r", "paths": [], "hints": []}))
++    many = ("REQUEST:\nr\n\n%s\n- %s\n%s\n\n%s\n- %s\n%s\n\nReply." % (
++        T3_PATHS_HEADER, T3_NO_PATHS, "\n".join("- p%d" % i for i in range(max_paths + 5)),
++        T3_HINTS_HEADER, T3_NO_PATHS, "\n".join("- h%d" % i for i in range(max_hints + 5))))
++    st = t3_state("r", many)
++    rows.append(("t3_state caps paths after dropping (none resolved)",
++                 st["paths"] == ["p%d" % i for i in range(max_paths)]))
++    rows.append(("t3_state keeps (none resolved) in hints and caps them",
++                 len(st["hints"]) == max_hints and st["hints"][0] == T3_NO_PATHS))
++    swapped = "REQUEST:\nr\n\n%s\n- h1\n\n%s\n- p1\n\nReply." % (T3_HINTS_HEADER, T3_PATHS_HEADER)
++    rows.append(("t3_state: a hints block before the paths header yields no hints",
++                 t3_state("r", swapped) == {"request": "r", "paths": ["p1"], "hints": []}))
++    long_paths = ["src/dir%02d/%s.py" % (i, "segment-" * 16) for i in range(max_paths)]
++    long_hints = ["hint%02d %s" % (i, "kind " * 13) for i in range(max_hints)]
++    cut = cr.build_prompt("word " * 400, long_paths, long_hints)
++    st = t3_state("r", cut)
++    rows.append(("t3_state tolerates a prompt cut by the 8,000-char ceiling",
++                 len(cut) <= cr.MAX_PROMPT_CHARS and st["paths"] == long_paths
++                 and 0 < len(st["hints"]) < max_hints
++                 and st["hints"][:-1] == long_hints[:len(st["hints"]) - 1]))
++
++    # The subcommand. HOME is the selftest sandbox; the request travels only in the env.
++    env_name = "CV_JEV_SELFTEST_REQ"
++    pf = os.path.join(tmp, "t3-prompt.txt")
++    request = "Add a retry loop to the uploader in src/a.py MARKER-T3REQ"
++    prompt = cr.build_prompt(request, ["src/a.py"], ["legal_copy"])
++    with open(pf, "w", encoding="utf-8") as fh:
++        fh.write(prompt)
++    old_env = os.environ.get(env_name)
++    os.environ[env_name] = request
++    try:
++        def run(argv, target=repo):
++            err = io.StringIO()
++            with contextlib.redirect_stderr(err):
++                rc, out, raw = _run_cli(["t3-request", "--repo", target, "--request-env", env_name,
++                                         "--prompt-file", pf] + argv)
++            printed.append(raw)
++            return rc, out, raw, err.getvalue()
++
++        def req_of(out):
++            with open(out["request_file"], encoding="utf-8") as fh:
++                return json.load(fh)
++
++        rc, out, raw, _err = run(["--context", "offline"])
++        ok = rc == 0 and isinstance(out, dict) and out.get("status") == "ok"
++        rows.append(("t3-request prints what build --point t3 prints", ok and sorted(out) == ["request_file", "status"]))
++        req = req_of(out) if ok else {}
++        rows.append(("t3-request offline context is 5,000 ms",
++                     req.get("context") == "offline" and req.get("timeout_ms") == TIMEOUT_MS["offline"]))
++        rows.append(("t3-request state equals t3_state of the env request and the prompt file",
++                     ok and req["body"]["state"] == json.dumps(t3_state(request, prompt), ensure_ascii=False)))
++        rc, out, raw, _err = run(["--context", "hook"])
++        req = req_of(out) if rc == 0 and out.get("status") == "ok" else {}
++        rows.append(("t3-request hook context is 1,500 ms",
++                     req.get("context") == "hook" and req.get("timeout_ms") == TIMEOUT_MS["hook"]))
++        usage = None
++        with contextlib.redirect_stderr(io.StringIO()):
++            try:
++                main(["t3-request", "--repo", repo, "--request-env", env_name, "--prompt-file", pf])
++            except SystemExit as exc:
++                usage = exc.code
++        rows.append(("t3-request without --context is a usage error", usage == 2))
++        with contextlib.redirect_stderr(io.StringIO()):
++            try:
++                usage = None
++                main(["t3-request", "--repo", repo, "--request", request, "--prompt-file", pf,
++                      "--context", "hook"])
++            except SystemExit as exc:
++                usage = exc.code
++        rows.append(("t3-request has no argv form for the request text", usage == 2))
++        os.environ[env_name] = "  \n "
++        rc, out, raw, err = run(["--context", "hook"])
++        rows.append(("t3-request refuses an empty request",
++                     rc == 0 and out == {"status": "error", "reason": "bad_input"} and "REFUSED" in err))
++        del os.environ[env_name]
++        rc, out, raw, err = run(["--context", "hook"])
++        rows.append(("t3-request refuses an unset request variable",
++                     out == {"status": "error", "reason": "bad_input"}))
++        os.environ[env_name] = request
++        rc, out, raw, err = run(["--context", "hook", "--prompt-file", os.path.join(tmp, "absent.txt")])
++        rows.append(("t3-request with an unreadable prompt is bad_input",
++                     out == {"status": "error", "reason": "bad_input"}))
++
++        # The config gate, in a repo of its own (the main repo must stay empty).
++        crepo = os.path.join(tmp, "crepo")
++        os.makedirs(os.path.join(crepo, ".claude"))
++        home = os.path.realpath(os.path.expanduser("~"))
++        cdd = os.path.join(home, ".claude", "compound-v-jev",
++                           hashlib.sha256(os.path.realpath(crepo).encode("utf-8")).hexdigest()[:16])
++
++        def gate(cfg_text):
++            with open(os.path.join(crepo, ".claude", "compound-v.json"), "w") as fh:
++                fh.write(cfg_text)
++            return run(["--context", "offline"], crepo)
++
++        rc, out, raw, err = gate(json.dumps({"jev": {"enabled": False}}))
++        rows.append(("t3-request is off when jev.enabled is false",
++                     rc == 0 and out == {"status": "off", "reason": "disabled"}))
++        rc, out, raw, err = gate(json.dumps({"jev": {"t3": {"mode": "off"}}}))
++        rows.append(("t3-request is off when jev.t3.mode is off",
++                     rc == 0 and out == {"status": "off", "reason": "t3_mode_off"}))
++        rc, out, raw, err = gate("{not json")
++        rows.append(("t3-request is off on a malformed config, with no traceback",
++                     rc == 0 and out == {"status": "off", "reason": "config"} and "Traceback" not in err))
++        rows.append(("t3-request off writes nothing: no data dir for that repo", not os.path.exists(cdd)))
++        rc, out, raw, err = gate(json.dumps({"jev": {"t3": {"mode": "active"}}}))
++        rows.append(("t3-request coerces t3.mode active to shadow, warning on stderr only",
++                     rc == 0 and out.get("status") == "ok" and "1.5" in err and "1.5" not in raw
++                     and len(raw.strip().splitlines()) == 1))
++
++        # A real process: its argv never holds the request, and the request still arrives.
++        argv = [sys.executable, "-B", os.path.abspath(__file__), "t3-request", "--repo", repo,
++                "--request-env", env_name, "--prompt-file", pf, "--context", "hook"]
++        env = dict(os.environ)
++        env[env_name] = request
++        env["PYTHONDONTWRITEBYTECODE"] = "1"
++        proc = subprocess.run(argv, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
++                              universal_newlines=True, timeout=60)
++        try:
++            pout = json.loads(proc.stdout)
++            pstate = json.loads(req_of(pout)["body"]["state"])
++        except Exception:  # noqa: BLE001
++            pout, pstate = {}, {}
++        rows.append(("t3-request process: the request is in no argv element",
++                     not any("MARKER-T3REQ" in a for a in argv)))
++        rows.append(("t3-request process: the request arrives through the environment",
++                     proc.returncode == 0 and pout.get("status") == "ok"
++                     and "MARKER-T3REQ" in pstate.get("request", "")))
++    finally:
++        if old_env is None:
++            os.environ.pop(env_name, None)
++        else:
++            os.environ[env_name] = old_env
++    return rows
++
++
+ def eval_report_single_model_check(repo, tmp):
+     """Re-point every eval response at one model id and confirm the report says it is usable."""
+     dd = data_dir(repo)
+diff --git a/tests/test-jev-core.sh b/tests/test-jev-core.sh
+index 9b36d1c..6a7dbe0 100644
+--- a/tests/test-jev-core.sh
++++ b/tests/test-jev-core.sh
+@@ -187,5 +187,174 @@ if [ -z "$(ls -A "$REPO")" ]; then pass "nothing written under the repository";
+ rc=$?
+ if [ "$rc" = "2" ]; then pass "usage error exits 2"; else fail "usage error exit $rc"; fi
+ 
++# 12. /v:triage Phase T prose: the re-invocation passes --t3-engine, and the Jev step (T2b) names
++# t3-request, jev_classify, parse --mode shadow and pair. A copy with any one removed must fail.
++TRIAGE_MD="$ROOT/commands/v-triage.md"
++prose_check() { # md -> "ok" or what is missing
++  "$PY" -B - "$1" <<'PYEOF'
++import re, sys
++text = open(sys.argv[1], encoding="utf-8").read()
++blocks = re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.S | re.M)
++reinv = [b for b in blocks if 'compound-v-preeval.py" triage' in b and "--t3-category" in b]
++m = re.search(r"^### T2b\..*?(?=^### )", text, re.S | re.M)
++step = m.group(0) if m else ""
++need = [
++    ("re-invocation passes --t3-engine", bool(reinv) and all("--t3-engine" in b for b in reinv)),
++    ("T2b sits between T2 and T3", bool(step) and text.find("### T2.") < text.find("### T2b.") < text.find("### T3.")),
++    ("t3-request --context offline", "t3-request" in step and "--context offline" in step),
++    ("jev_classify loaded with ToolSearch", "mcp__compound-v-vault__jev_classify" in step and "ToolSearch" in step),
++    ("parse --mode shadow --request-file", "parse --mode shadow --request-file" in step),
++    ("pair", re.search(r'compound-v-jev\.py" pair --request-file', step) is not None),
++    ("no_key/egress/disabled write no pair", all(r in step for r in ("no_key", "egress", "disabled"))
++     and "write no pair" in step),
++    ("never skips T3", "never skips T3" in step),
++    ("t3_reason kept from the first result", "Keep `t3_reason`" in text),
++]
++missing = [n for n, ok in need if not ok]
++print("ok" if not missing else "missing: " + "; ".join(missing))
++PYEOF
++}
++got="$(prose_check "$TRIAGE_MD")"
++if [ "$got" = "ok" ]; then pass "v-triage prose: --t3-engine and the Jev step"; else fail "v-triage prose: $got"; fi
++for tok in '--t3-engine' 't3-request' 'jev_classify' 'parse --mode shadow' '" pair --request-file'; do
++  "$PY" -B - "$TRIAGE_MD" "$T/work/triage-mut.md" "$tok" <<'PYEOF'
++import sys
++src, dst, tok = sys.argv[1:4]
++open(dst, "w", encoding="utf-8").write(open(src, encoding="utf-8").read().replace(tok, "XXXX"))
++PYEOF
++  got="$(prose_check "$T/work/triage-mut.md")"
++  if [ "$got" != "ok" ]; then pass "planted: prose without '$tok' fails the check"; else fail "planted: prose without '$tok' still passes"; fi
++done
++
++# 13. The prose's own commands, run as written (placeholders filled) against a fixture repo whose
++# request reaches T3: T2 asks for T3, the re-invocation writes a record with a t3 block, and the Jev
++# step's t3-request, parse and pair commands run. A copy of the prose whose re-invocation lost
++# --t3-engine writes a record without one.
++block() { # md selector out: the one bash block matching selector, FILL_* placeholders filled
++  "$PY" -B - "$1" "$2" "$3" <<'PYEOF'
++import os, re, sys
++md, sel, out = sys.argv[1:4]
++text = open(md, encoding="utf-8").read()
++blocks = re.findall(r"^[ \t]*```bash\n(.*?)^[ \t]*```", text, re.S | re.M)
++pick = {
++    "t2": lambda b: 'compound-v-preeval.py" triage' in b and "--t3-category" not in b,
++    "reinvoke": lambda b: 'compound-v-preeval.py" triage' in b and "--t3-category" in b,
++    "t3req": lambda b: "t3-request" in b,
++    "parse": lambda b: 'compound-v-jev.py" parse' in b,
++    "pair": lambda b: 'compound-v-jev.py" pair' in b,
++}[sel]
++found = [b for b in blocks if pick(b)]
++if len(found) != 1:
++    sys.exit("expected one %s block, found %d" % (sel, len(found)))
++b = found[0]
++for ph, var in (("<the request text>", "FILL_REQUEST"), ("<category>", "FILL_CATEGORY"),
++                ("<engine>", "FILL_ENGINE"), ("<t3_reason>", "FILL_REASON"),
++                ("<request_file>", "FILL_REQ_FILE"), ("<response_file>", "FILL_RESP_FILE")):
++    if ph in b:
++        b = b.replace(ph, os.environ[var])
++open(out, "w", encoding="utf-8").write(b)
++PYEOF
++}
++P="$T/proj"
++mkdir -p "$P/.claude" "$P/src"
++printf 'def upload(chunk):\n    return chunk\n' >"$P/src/uploader.py"
++# Safety coverage, but nothing banded under src/: the shape that makes the engine ask for T3.
++cat >"$P/.claude/compound-v-impact-taxonomy.yaml" <<'YAML'
++version: 1
++
++path_patterns:
++  - glob: "docs/**"
++    difficulty_band: low
++    impact_band: low
++
++content_patterns:
++  - match: "terms of service"
++    pattern_type: literal
++    case: insensitive
++    scan: content
++    kind: legal_copy
++    impact_band: high
++
++sensitive_path_list:
++  - "**/*.env"
++  - "**/secrets/**"
++
++churn:
++  exclude_paths:
++    - "**/*.lock"
++  format_commit_patterns:
++    - "^chore: format"
++YAML
++git -C "$P" init -q >/dev/null 2>&1
++git -C "$P" add -A >/dev/null 2>&1
++git -C "$P" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -q -m fixture >/dev/null 2>&1
++cp -R "$P" "$T/proj-mut"
++export CV="$ROOT" CLAUDE_CODE_SESSION_ID="sess-jev-core"
++export FILL_REQUEST="please add a retry loop to the uploader module at src/uploader.py"
++export FILL_CATEGORY="user-facing-minor" FILL_ENGINE="parent"
++record_t3() { # repo pre_eval_id -> the record's t3 block as compact JSON, or "none"
++  "$PY" -B -c 'import json,sys; r=json.load(open(sys.argv[1])); print(json.dumps(r.get("t3"), sort_keys=True) if "t3" in r else "none")' \
++    "$1/docs/superpowers/pre-eval/$2.json" 2>/dev/null
++}
++block "$TRIAGE_MD" t2 "$T/work/t2.sh" && first="$(cd "$P" && bash "$T/work/t2.sh" 2>/dev/null)"
++if [ "$(jget "${first:-null}" 'd.get("needs_t3")')" = "True" ]; then pass "prose T2 on the fixture asks for T3"; else fail "prose T2: ${first:-no output}"; fi
++FILL_REASON="$(jget "${first:-null}" 'd.get("t3_reason") or "unbanded"')"
++export FILL_REASON
++export PROMPT_FILE="$T/work/t3-prompt.txt"
++jget "${first:-null}" 'd.get("t3_prompt", "")' >"$PROMPT_FILE"
++block "$TRIAGE_MD" reinvoke "$T/work/reinvoke.sh" && second="$(cd "$P" && bash "$T/work/reinvoke.sh" 2>/dev/null)"
++pid="$(jget "${second:-null}" 'd.get("pre_eval_id", "")')"
++t3b="$(record_t3 "$P" "$pid")"
++if [ "$t3b" = '{"category": "user-facing-minor", "engine": "parent"}' ]; then
++  pass "prose re-invocation writes a record with a t3 block"
++else
++  fail "prose re-invocation t3 block: ${t3b:-no record} (${second:-no output})"
++fi
++
++# The Jev step's commands, as written, in the same repo (same --repo .).
++block "$TRIAGE_MD" t3req "$T/work/t3req.sh" && jr="$(cd "$P" && bash "$T/work/t3req.sh" 2>/dev/null)"
++JREQ="$(jget "${jr:-null}" 'd.get("request_file", "")')"
++ctx="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["context"])' "$JREQ" 2>/dev/null)"
++if [ "$(jget "${jr:-null}" 'd.get("status")')" = "ok" ] && [ "$ctx" = "offline" ]; then
++  pass "prose t3-request builds an offline request"
++else
++  fail "prose t3-request: ${jr:-no output}"
++fi
++JRESP="$(dirname "$(dirname "$JREQ")")/resp/$(basename "$JREQ" .req.json).resp.json"
++printf '%s' '{"status": "ok", "latency_ms": 900, "body": {"model": "typesafe/jev-1.13-20260917", "answers": {"category": {"type": "choice", "choice": "user-facing-minor", "probabilities": {"user-facing-minor": 0.8, "unknown": 0.1, "user-facing-major": 0.05, "plumbing": 0.05}}}}}' >"$JRESP"
++export FILL_REQ_FILE="$JREQ" FILL_RESP_FILE="$JRESP"
++block "$TRIAGE_MD" parse "$T/work/parse.sh" && pr="$(cd "$P" && bash "$T/work/parse.sh" 2>/dev/null)"
++if [ "$(jget "${pr:-null}" 'd["answers"]["category"]["answer"]')" = "user-facing-minor" ]; then pass "prose parse reads the answer"; else fail "prose parse: ${pr:-no output}"; fi
++block "$TRIAGE_MD" pair "$T/work/pair.sh" && pa="$(cd "$P" && bash "$T/work/pair.sh" 2>/dev/null)"
++last="$(tail -n 1 "$(dirname "$(dirname "$JREQ")")/shadow-pairs.jsonl" 2>/dev/null)"
++if [ "$(jget "${pa:-null}" 'd.get("status")')" = "ok" ] \
++   && [ "$(jget "${last:-null}" 'd["backend"] + "/" + d["claude_category"] + "/" + d["t3_reason"]')" = "parent/user-facing-minor/$FILL_REASON" ]; then
++  pass "prose pair writes the carried category, engine and reason"
++else
++  fail "prose pair: ${pa:-no output} ${last:-no line}"
++fi
++case "$JREQ" in "$HOME"/.claude/compound-v-jev/*/req/*.req.json) pass "prose Jev request lands in the per-user data dir" ;; *) fail "prose Jev request path: $JREQ" ;; esac
++if [ -z "$(find "$P" \( -name '*.req.json' -o -name '*.resp.json' -o -name 'shadow-pairs.jsonl' \) 2>/dev/null)" ]; then
++  pass "no Jev file under the fixture repo"
++else
++  fail "Jev file under the fixture repo"
++fi
++
++# Planted: the same re-invocation with --t3-engine removed from the prose writes no t3 block.
++"$PY" -B - "$TRIAGE_MD" "$T/work/triage-noengine.md" <<'PYEOF'
++import sys
++src, dst = sys.argv[1:3]
++open(dst, "w", encoding="utf-8").write(open(src, encoding="utf-8").read().replace(" --t3-engine <engine>", ""))
++PYEOF
++block "$T/work/triage-noengine.md" t2 "$T/work/t2m.sh" && (cd "$T/proj-mut" && bash "$T/work/t2m.sh" >/dev/null 2>&1)
++block "$T/work/triage-noengine.md" reinvoke "$T/work/reinvokem.sh" \
++  && secm="$(cd "$T/proj-mut" && bash "$T/work/reinvokem.sh" 2>/dev/null)"
++pidm="$(jget "${secm:-null}" 'd.get("pre_eval_id", "")')"
++if [ -n "$pidm" ] && [ "$(record_t3 "$T/proj-mut" "$pidm")" = "none" ]; then
++  pass "planted: a re-invocation without --t3-engine writes no t3 block"
++else
++  fail "planted: the no-engine re-invocation did not show the missing block (${secm:-no output})"
++fi
++
+ [ "$fails" = "0" ] || { echo "$fails failure(s)"; exit 1; }
+ echo "all jev-core tests pass"
+diff --git a/tests/test-native-points.sh b/tests/test-native-points.sh
+index bd29e08..655a415 100755
+--- a/tests/test-native-points.sh
++++ b/tests/test-native-points.sh
+@@ -756,29 +756,184 @@ fi
+ check "JEV SHADOW: the descriptor has the seven contract keys, 0600, and a t3 request file in <dd>/req" \
+   "$desc_ok"
+ [ "$desc_ok" = 1 ] || tail -n 3 "$WORK/desc-check.log" 2>/dev/null | sed 's/^/    /'
+-check "JEV SHADOW: the state temp file is deleted after build" \
+-  "$([ -z "$(find "$TMPDIR" -name 'cv-jev-state.*' 2>/dev/null)" ] && echo 1 || echo 0)"
++# The prompt temp file `t3-request` reads replaced the old jq state file. Both held the
++# request text, so the assert moved with the file rather than going away.
++check "JEV SHADOW: the prompt temp file is deleted after t3-request" \
++  "$([ -z "$(find "$TMPDIR" -name 'cv-jev-prompt.*' 2>/dev/null)" ] && echo 1 || echo 0)"
+ check "JEV SHADOW: no half-written descriptor is left behind" \
+   "$([ -z "$(find "$JEVDATA" -name '.pending.*' 2>/dev/null)" ] && echo 1 || echo 0)"
+ check "JEV SHADOW: nothing Jev-related is written under the project" \
+-  "$([ -z "$(find "$T3ON" \( -name 'pending-*' -o -name '*.req.json' -o -name 'cv-jev-state.*' \) \
++  "$([ -z "$(find "$T3ON" \( -name 'pending-*' -o -name '*.req.json' -o -name 'cv-jev-prompt.*' \) \
+              2>/dev/null)" ] && echo 1 || echo 0)"
+ 
+-# A `build` that refuses must leave the hook's output untouched and no descriptor.
+-# The whole scripts/ tree is copied for the reason 3b gives.
++# A `t3-request` that refuses must leave the hook's output untouched and no descriptor.
++# The whole scripts/ tree is copied for the reason 3b gives. The stub also records the
++# argv it was given and the value of the variable `--request-env` named, so the
++# request is shown to arrive through the environment and never through argv.
+ JEVFAIL="$WORK/jevfailplugin"
+ mkdir -p "$JEVFAIL"
+ cp -R "$REPO/scripts" "$JEVFAIL/scripts"
+-printf '#!/usr/bin/env python3\nimport json\nprint(json.dumps({"status": "error", "reason": "bad_input"}))\n' \
+-  >"$JEVFAIL/scripts/compound-v-jev.py"
++cat >"$JEVFAIL/scripts/compound-v-jev.py" <<'STUB'
++#!/usr/bin/env python3
++import json, os, sys
++log = os.environ.get("JEV_STUB_LOG")
++if log:
++    argv = sys.argv[1:]
++    name = argv[argv.index("--request-env") + 1] if "--request-env" in argv else None
++    with open(log, "a") as fh:
++        fh.write(json.dumps({"argv": argv, "env": os.environ.get(name) if name else None}) + "\n")
++print(json.dumps({"status": "error", "reason": "bad_input"}))
++STUB
+ T3BF="$WORK/projT3buildfail"
+ cp -R "$T3TEMPLATE" "$T3BF"
+ t3_case_env 1
+-bf="$(prompt_payload sess-T3A "${T3_REQS[1]}" "$T3BF" | CLAUDE_PLUGIN_ROOT="$JEVFAIL" bash "$NUDGE" 2>/dev/null)"
+-check "JEV SHADOW: a refused build leaves the output byte-identical" \
++JEV_STUB_LOG="$WORK/jev-stub.log"
++bf="$(prompt_payload sess-T3A "${T3_REQS[1]}" "$T3BF" \
++      | JEV_STUB_LOG="$JEV_STUB_LOG" CLAUDE_PLUGIN_ROOT="$JEVFAIL" bash "$NUDGE" 2>/dev/null)"
++check "JEV SHADOW: a refused t3-request leaves the output byte-identical" \
+   "$([ -n "$bf" ] && [ "$(t3_norm "$bf")" = "$(t3_norm "${T3_OUTS[1]}")" ] && echo 1 || echo 0)"
+ check "JEV SHADOW: ...and writes no descriptor" \
+   "$([ -z "$(t3_descriptor "$T3BF" sess-T3A)" ] && echo 1 || echo 0)"
++check "JEV SHADOW: ...and leaves no prompt temp file behind" \
++  "$([ -z "$(find "$TMPDIR" -name 'cv-jev-prompt.*' 2>/dev/null)" ] && echo 1 || echo 0)"
++check "JEV SHADOW: the hook calls t3-request --context hook, once" \
++  "$([ -f "$JEV_STUB_LOG" ] && [ "$(wc -l <"$JEV_STUB_LOG" | tr -d ' ')" = 1 ] \
++     && jq -e '(.argv | index("--context")) as $i
++               | .argv[0] == "t3-request" and $i != null and .argv[$i + 1] == "hook"' \
++        "$JEV_STUB_LOG" >/dev/null 2>&1 && echo 1 || echo 0)"
++check "JEV SHADOW: the request reaches t3-request through the environment, never argv" \
++  "$([ -f "$JEV_STUB_LOG" ] \
++     && jq -e --arg r "${T3_REQS[1]}" '.env == $r and ([.argv[] | contains($r)] | any | not)' \
++        "$JEV_STUB_LOG" >/dev/null 2>&1 && echo 1 || echo 0)"
++
++# PLANTED FAILURE: a hook that forgets to remove the prompt temp file is caught. The
++# copy runs with a TMPDIR of its own, so its leak cannot be mistaken for anything else.
++MUTP="$WORK/nudge-prompt-leak.sh"
++python3 - "$NUDGE" "$MUTP" <<'PYEOF'
++import sys
++src, dst = sys.argv[1], sys.argv[2]
++text = open(src).read()
++old = '  rm -f "$promptf" 2>/dev/null || true\n'
++if text.count(old) != 1:
++    sys.exit("MUTATION TARGET NOT UNIQUE (%d hits)" % text.count(old))
++open(dst, "w").write(text.replace(old, ""))
++PYEOF
++mutp_built=$?
++check "the prompt-leak mutant could be built (the cleanup is where the test says it is)" \
++  "$([ "$mutp_built" = 0 ] && echo 1 || echo 0)"
++if [ "$mutp_built" = 0 ]; then
++  T3LEAK="$WORK/projT3leak"
++  cp -R "$T3TEMPLATE" "$T3LEAK"
++  mkdir -p "$WORK/tmp-leak"
++  t3_case_env 1
++  prompt_payload sess-T3A "${T3_REQS[1]}" "$T3LEAK" | TMPDIR="$WORK/tmp-leak" bash "$MUTP" >/dev/null 2>&1
++  check "PLANTED FAILURE: a prompt temp file left by the hook is caught by the find" \
++    "$([ -n "$(find "$WORK/tmp-leak" -name 'cv-jev-prompt.*' 2>/dev/null)" ] && echo 1 || echo 0)"
++fi
++
++# THE EXTRACTION, OLD AND NEW. The jq program below is the one `_write_t3_descriptor`
++# ran before `t3-request` replaced it, kept here verbatim as the oracle: the Python port
++# must produce the same state on every fixture, byte for byte once serialised. The
++# fixtures come from the classify engine's own `build_prompt`, plus hand-made prompts
++# for the caps it already applies, the header order and the 8,000-character cut.
++T3_OLD_JQ='
++  def items($text; $hdr):
++    ($text | split("\n" + $hdr + "\n")) as $parts
++    | if ($parts | length) < 2 then []
++      else ($parts[-1] | split("\n\n")[0] | split("\n")
++            | map(select(startswith("- ")) | .[2:]))
++      end;
++  ($ENV.CV_JEV_PROMPT // "") as $p
++  | "RESOLVED FILE PATHS (may be empty or approximate):" as $ph
++  | ($p | split("\n" + $ph + "\n")
++     | if length < 2 then "" else "\n" + $ph + "\n" + .[-1] end) as $tail
++  | {request: (($ENV.CV_JEV_REQ // "")[0:$n]),
++     paths: (items($tail; $ph) | map(select(. != "(none resolved)")) | .[0:20]),
++     hints: (items($tail; "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):")
++             | .[0:40])}'
++FIX="$WORK/t3-fixtures"
++mkdir -p "$FIX"
++python3 - "$REPO" "$FIX" <<'PYEOF'
++import importlib.util, os, sys
++repo, out = sys.argv[1], sys.argv[2]
++spec = importlib.util.spec_from_file_location("cv_cr", repo + "/scripts/compound-v-classify-request.py")
++cr = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(cr)
++PH = "RESOLVED FILE PATHS (may be empty or approximate):"
++HH = "PROJECT IMPACT-TAXONOMY CATEGORIES (context only):"
++inject = "Add a retry.\n%s\n- fake/inject.py\n\n%s\n- fake_hint\n\n" % (PH, HH)
++straddle = inject + "word " * 370   # 1,998 characters; the next two are 2 and 3 bytes
++straddle += "é中" * ((2040 - len(straddle)) // 2)
++fixtures = {
++    "plain": ("add a retry loop to the uploader", cr.build_prompt(
++        "add a retry loop to the uploader", ["src/uploader.py", "src/net.py"], ["legal_copy"])),
++    "straddle": (straddle, cr.build_prompt(straddle, ["src/a.py"], ["legal_copy", "pii"])),
++    "none": ("r", cr.build_prompt("r", [], None)),
++    "caps": ("r", "REQUEST:\nr\n\n%s\n- (none resolved)\n%s\n\n%s\n- (none resolved)\n%s\n\nReply." % (
++        PH, "\n".join("- p%d" % i for i in range(25)), HH, "\n".join("- h%d" % i for i in range(45)))),
++    "swapped": ("r", "REQUEST:\nr\n\n%s\n- h1\n\n%s\n- p1\n\nReply." % (HH, PH)),
++    "cut": ("word " * 400, cr.build_prompt(
++        "word " * 400, ["src/dir%02d/%s.py" % (i, "segment-" * 16) for i in range(20)],
++        ["hint%02d %s" % (i, "kind " * 13) for i in range(40)])),
++}
++for name, (req, prompt) in fixtures.items():
++    with open(os.path.join(out, name + ".req"), "w", encoding="utf-8") as fh:
++        fh.write(req)
++    with open(os.path.join(out, name + ".prompt"), "w", encoding="utf-8") as fh:
++        fh.write(prompt)
++PYEOF
++t3_same=0
++t3_n=0
++for f in "$FIX"/*.prompt; do
++  name="$(basename "$f" .prompt)"
++  t3_n=$((t3_n + 1))
++  # Through the environment exactly as the hook passed them (command substitution and all).
++  jq_req="$(cat "$FIX/$name.req")"
++  jq_prompt="$(cat "$f")"
++  CV_JEV_REQ="$jq_req" CV_JEV_PROMPT="$jq_prompt" jq -n --argjson n 2000 "$T3_OLD_JQ" \
++    >"$FIX/$name.jq.json" 2>/dev/null || continue
++  printf '%s' "$jq_prompt" >"$FIX/$name.hookprompt"
++  CV_JEV_REQ="$jq_req" python3 - "$REPO" "$FIX/$name.hookprompt" "$FIX/$name.jq.json" <<'PYEOF' \
++    && t3_same=$((t3_same + 1))
++import importlib.util, json, os, sys
++spec = importlib.util.spec_from_file_location("cv_jev", sys.argv[1] + "/scripts/compound-v-jev.py")
++jev = importlib.util.module_from_spec(spec)
++spec.loader.exec_module(jev)
++with open(sys.argv[2], "rb") as fh:
++    prompt = fh.read().decode("utf-8", "replace")
++new = jev.t3_state(jev._env_text("CV_JEV_REQ"), prompt)
++old = json.load(open(sys.argv[3], encoding="utf-8"))
++same = json.dumps(new, ensure_ascii=False) == json.dumps(old, ensure_ascii=False)
++sys.exit(0 if same else 1)
++PYEOF
++done
++check "JEV SHADOW: t3-request's extraction equals the old jq on all $t3_n fixtures ($t3_same same)" \
++  "$([ "$t3_n" = 6 ] && [ "$t3_same" = 6 ] && echo 1 || echo 0)"
++
++# And end to end on the plain fixture: the old route (jq -> state file -> build) and
++# `t3-request --context hook` write the same `body.state` and the same context.
++JEVCMP="$WORK/jevcmp"
++mkdir -p "$JEVCMP"
++plain_req="$(cat "$FIX/plain.req")"
++plain_prompt="$(cat "$FIX/plain.prompt")"
++CV_JEV_REQ="$plain_req" CV_JEV_PROMPT="$plain_prompt" jq -n --argjson n 2000 "$T3_OLD_JQ" \
++  >"$WORK/jevcmp-state.json" 2>/dev/null
++old_out="$(python3 "$REPO/scripts/compound-v-jev.py" build --point t3 \
++             --state-file "$WORK/jevcmp-state.json" --repo "$JEVCMP" 2>/dev/null)"
++printf '%s' "$plain_prompt" >"$WORK/jevcmp-prompt.txt"
++new_out="$(CV_JEV_REQ="$plain_req" python3 "$REPO/scripts/compound-v-jev.py" t3-request \
++             --repo "$JEVCMP" --request-env CV_JEV_REQ --prompt-file "$WORK/jevcmp-prompt.txt" \
++             --context hook 2>/dev/null)"
++same_file=0
++python3 - "$old_out" "$new_out" <<'PYEOF' && same_file=1
++import json, sys
++old, new = (json.load(open(json.loads(x)["request_file"], encoding="utf-8")) for x in sys.argv[1:3])
++ok = (old["body"]["state"] == new["body"]["state"] and old["context"] == new["context"] == "hook"
++      and old["timeout_ms"] == new["timeout_ms"] and old["catalogue_hash"] == new["catalogue_hash"])
++sys.exit(0 if ok else 1)
++PYEOF
++check "JEV SHADOW: old jq + build and t3-request --context hook write the same request state" \
++  "$same_file"
+ 
+ # PLANTED FAILURE: a hook that touches the context line only when the flag is set.
+ MUTJ="$WORK/nudge-flag-leak.sh"
+@@ -818,6 +973,10 @@ check "T3: the re-entry names the answering backend with --t3-engine" \
+   "$(grep -q -- '--t3-engine' "$NUDGE" && echo 1 || echo 0)"
+ check "T3: the hook's needs_t3 branch no longer degrades unconditionally" \
+   "$(grep -q 'the request needs the T3 classify step . degrading' "$NUDGE" && echo 0 || echo 1)"
++check "JEV SHADOW: the descriptor's request is built by t3-request --context hook" \
++  "$(grep -q 't3-request' "$NUDGE" && grep -q -- '--context hook' "$NUDGE" && echo 1 || echo 0)"
++check "JEV SHADOW: the hook keeps no cap of its own and no jq extraction" \
++  "$(grep -qE '_T3_STATE_MAX_CHARS|CV_JEV_PROMPT|cv-jev-state' "$NUDGE" && echo 0 || echo 1)"
+ check "T3: the shipped classify cap is 15 s" \
+   "$(grep -q '^_CLASSIFY_TIMEOUT_S=15$' "$NUDGE" && echo 1 || echo 0)"
+ check "T3: hooks.json gives UserPromptSubmit the 25 s the cap plus grace needs" \

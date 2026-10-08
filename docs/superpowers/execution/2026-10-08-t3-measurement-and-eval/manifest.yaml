@@ -1,0 +1,87 @@
+run_id: 2026-10-08-t3-measurement-and-eval
+feature: 'Measure the headless Claude T3 classify beside Jev in every shadow pair; a frozen, human-labelled T3 eval that can decide spec 1.5'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-t3-measurement-and-eval-design.md
+plan_path: docs/superpowers/plans/2026-10-08-t3-measurement-and-eval.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-t3-measurement-and-eval-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-t3-measurement-and-eval-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T161225Z-measure-the-claude-t3-classifier-next-to-jev-and-extend-the-517a
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T16:12:25Z'
+global_constraints:
+- 'Python 3.9 stdlib only. Every change ships a test row that fails when reverted.'
+- 'Trust the JSON result only when `type == "result"`, `subtype == "success"`, `is_error` is false and `result` is a string; otherwise today''s `parse_category(raw)` with null measure fields. Never store or print `total_cost_usd`. Token fields from `usage` (main loop), absent -> `null`. Prompt stays the first positional after `-p`; no `--bare`; never Haiku.'
+- '`_classify_headless` keeps two tab fields; the measure travels separately; descriptor gains one string key `claude_measure`; pinned key-set tests updated; `pair --claude-measure-json` optional; no request text in any pair or results line.'
+- 'Frozen protocol digest over `id`, `request`, `paths`, `hints` only; records both resolved model ids.'
+- '6 Jev calls per row (base x3 + 3 variants x1); report keyed by `(id, variant, repeat)`.'
+- 'Agreement and inversions vs `human_label` only; "not decidable" below 80 human labels.'
+- 'Eval files under the Jev data dir''s `eval/` subdirectory, skipped by the prune.'
+- '`--merge-human` reads `docs/superpowers/research/2026-10-08-jev-t3-labelling-sheet.md` (codes `p m M u`), refusing unknown codes or missing rows; it does not run in this job (no labels yet).'
+- 'Hook stdout unchanged. No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 compound-v-classify-request.py --selftest covers the JSON parse, the trust rule fallbacks and null codex tokens.
+- AC-2 compound-v-jev.py --selftest covers pair with and without the Claude measure, --freeze and its refusal, --merge-human, --prepare (6 per row, repeat index), and the new report sections on fixtures; no request text in pair or results lines.
+- AC-3 The hook and Phase T pass the measure; hook stdout unchanged; existing hook tests and test-jev-core.sh green with updated key sets.
+- AC-4 Full suite, lint-frontmatter.py . and shellcheck hooks/*.sh green.
+test_contract:
+  floor_command: bash -c '/usr/bin/python3 -B scripts/compound-v-classify-request.py --selftest >/dev/null && /usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && echo floor-ok'
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-*.py
+    run: bash -c 'for s in classify-request jev preeval; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo py-ok'
+  - when: hooks/*
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hooks-ok'
+  - when: '**/*.md'
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+  - when: tests/**
+    run: bash -c 'bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo tests-ok'
+jobs:
+- id: measure-eval
+  title: Task A — Claude classify measure in shadow pairs; frozen human-labelled T3 eval
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-classify-request.py
+  - scripts/compound-v-jev.py
+  - hooks/triage-prompt-nudge.sh
+  - hooks/jev-t3.tsx
+  - hooks/jev-t3.test.tsx
+  - types/index.d.ts
+  - commands/v-triage.md
+  - tests/test-native-points.sh
+  - tests/test-jev-core.sh
+  - tests/fixtures/jev-t3-corpus.jsonl
+  read_allowed:
+  - '**'
+  acceptance:
+  - AC-1..AC-3 rows pass and each fails on revert; the selftests, hook tests, test-jev-core, test-jev-t3-mod, lint and shellcheck green; no live call made.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-t3-measurement-and-eval.md (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-t3-measurement-and-eval-design.md and its Pre-flight amendments, and both audits (section 7) first. Tests first. Make no live Claude or Jev call. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec, its amendments and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - measure-eval
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-t3-measurement-and-eval-review.md with the section skeleton. Review against docs/superpowers/specs/2026-10-08-t3-measurement-and-eval-design.md (amendments override). Check: the trust rule; total_cost_usd never stored; null not 0; hook stdout and two tab fields unchanged; no request text in pairs or results; the frozen digest excludes labels; the report decides on human_label only and says not decidable when labels are missing. Revert checks only in a scratch copy. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/; keep memory frontmatter valid YAML. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

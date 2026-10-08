@@ -23,7 +23,7 @@ Recon exists because a brainstorm that starts cold on an unfamiliar topic asks s
 
 ## 2. Gate Order — Three Gates, Always in This Order
 
-Recon is gated, not fire-by-default (the same philosophy as [skill-escalation.md](skill-escalation.md)). Evaluate the gates in order; the first gate that says "skip" ends the check, emits the one-line log, and appends exactly one terminal event to the outcomes stream (§6). **Announce Phase 0 (`💉 Compound V — pre-brainstorm recon (gated).`) only when the gates decide to RUN** — a skip gets the log line and its event, no announcement:
+Recon is gated, not fire-by-default (the same philosophy as [skill-escalation.md](skill-escalation.md)). Evaluate the gates in order; the first gate that says "skip" ends the check, emits the one-line log, and appends exactly one terminal event to the outcomes stream (§6). **Announce Phase 0 (`Compound V — pre-brainstorm recon (gated).`) only when the gates decide to RUN** — a skip gets the log line and its event, no announcement:
 
 ```
 RECON fired — gates: plumbing=pass, KB=weak, config=ask→accepted (scope narrowed). Engine: deep-research.
@@ -36,11 +36,12 @@ Skip **only** when the change cannot alter a shipped artifact, runtime behavior,
 
 ### Gate 2 — Knowledge-base hit (V-memory)
 
-Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path). The engine script ships with the plugin, not with the target repository — resolve the plugin root once per session (`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo):
+Before searching the web, check what the repo already knows. From the **repo root** (agent bash cwd resets between calls — `cd` explicitly or use an absolute script path). The engine script ships with the plugin, not with the target repository — resolve the plugin root once per session (reuse the `CV` the command, skill or agent that sent you here resolved; this reference is read with the Read tool, so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only a `$PWD` that is a checkout of this plugin or says on stderr that it found none):
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 python3 "$CV/scripts/compound-v-memory.py" search "<topic>" --top 8 --json
 ```
 
@@ -151,7 +152,7 @@ Rules, all binding:
     Check each exit code. This is the v2.6.4 discipline — an uncommitted recon doc is not in the repository (a `git clean`, a fresh clone or a removed worktree loses it) and never indexes into V-memory (the FTS5 lane indexes **git-tracked** prose), so gate 2 can never hit on it.
 11. **On commit failure:** announce *"recon written but not committed: <reason>"* and continue the brainstorm — never claim the doc is committed or indexed when it isn't.
 
-When the doc is committed, announce: *"💉 Compound V — recon saved at `docs/superpowers/recon/<file>.md`. Starting the brainstorm with it (directions-late)."* The brainstorm consumes it per the §1 directions-late protocol and the `consumed` event is appended (§6).
+When the doc is committed, announce: *"Compound V — recon saved at `docs/superpowers/recon/<file>.md`. Starting the brainstorm with it (directions-late)."* The brainstorm consumes it per the §1 directions-late protocol and the `consumed` event is appended (§6).
 
 ---
 

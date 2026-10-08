@@ -1,0 +1,869 @@
+diff --git a/agents/parallel-dispatcher.md b/agents/parallel-dispatcher.md
+index 10faf52..7494861 100644
+--- a/agents/parallel-dispatcher.md
++++ b/agents/parallel-dispatcher.md
+@@ -138,8 +138,11 @@ worktree path is absolute.)
+ 
+    ```bash
+    # Resolve (backend, tier, effort, config) -> concrete model.
+-   # --config points at the project .claude/compound-v.json (its `models` map
+-   # overrides the built-in defaults per cell); omit it to use built-in defaults.
++   # The project's .claude/compound-v.json (its `models` map overrides the
++   # built-in defaults per cell) is read even WITHOUT --config: omitting it means
++   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
++   # the built-in table. --repo-dir "$PWD" pins that root (this runs from the
++   # project root), and the maxEffortLevel cap is read from the same root.
+    # Build the flag list with explicit if/else (portable across bash AND zsh —
+    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
+    # Read `routing_stance` once from the manifest and pass `--stance` on every
+@@ -148,6 +151,7 @@ worktree path is absolute.)
+    set -- --backend "$BACKEND" --tier "$TIER"
+    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
++   set -- "$@" --repo-dir "$PWD"
+    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
+    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
+    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
+diff --git a/scripts/compound-v-emit-workflow.py b/scripts/compound-v-emit-workflow.py
+index 65bdc17..a9efbb4 100644
+--- a/scripts/compound-v-emit-workflow.py
++++ b/scripts/compound-v-emit-workflow.py
+@@ -1829,7 +1829,7 @@ def load_recall_argument(value):
+ 
+ 
+ def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
+-                      config_path=None):
++                      config_path=None, repo_dir=None):
+     """(model, error). An explicit `model` wins; otherwise `tier` is resolved.
+ 
+     Fails closed: an external backend's argv cannot be completed without a
+@@ -1843,6 +1843,11 @@ def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
+     resolver's map is per-stance, and `/v:models` writes its discovered map into
+     .claude/compound-v.json. Until 3.0.5 neither was passed, so every resolution
+     silently used the built-in balanced defaults.
++
++    `repo_dir` is the project root this emitter already knows, passed as
++    `--repo-dir`: with no `--config` the resolver reads `<root>/.claude/
++    compound-v.json` itself, and it takes the `maxEffortLevel` cap from the same
++    root, so the answer never depends on the directory this process runs in.
+     """
+     explicit = job.get("model")
+     if isinstance(explicit, str) and explicit.strip():
+@@ -1860,6 +1865,8 @@ def resolve_job_model(job, python_bin, resolve_model=None, stance=None,
+         cmd += ["--stance", stance.strip()]
+     if isinstance(config_path, str) and config_path and os.path.isfile(config_path):
+         cmd += ["--config", config_path]
++    if isinstance(repo_dir, str) and repo_dir:
++        cmd += ["--repo-dir", repo_dir]
+     effort = job.get("effort")
+     if isinstance(effort, str) and effort.strip():
+         cmd += ["--effort", effort.strip()]
+@@ -2149,22 +2156,30 @@ def _provision_spec(manifest, job):
+     return command, timeout
+ 
+ 
++_SCOPE_CHECK_MODULE = []
++
++
+ def _toolchain_artifacts_spec(manifest):
+     """The manifest's top-level `toolchain_artifacts` globs, or `[]` (issue #22).
+ 
+-    MANIFEST-LEVEL ONLY, same reasoning as `_provision_spec`: `toolchain_artifacts`
+-    is a run-wide declaration, not a per-job one, so there is no job-level
+-    override to read. `compound-v-validate-manifest.py` is where a malformed
+-    value is REFUSED — a bare string, a catch-all glob, a non-string entry; this
+-    function only decides what the emitter passes through, and it fails closed
+-    into "nothing declared" rather than trying to salvage a partially-valid list,
+-    which would make the emitter's idea of the manifest disagree with the
+-    validator's.
++    NOT PARSED HERE. The one reader is `manifest_toolchain_artifacts` in
++    `compound-v-scope-check.py`, which owns what the globs mean; the integration
++    gate calls the same function, so its re-derivation forgives exactly what this
++    per-job gate forgives. (The gate cannot import this emitter — the emitter
++    imports the gate — so the reader lives with the scope gate.) That reader is
++    all or nothing: a malformed list is "nothing declared", never salvaged, and
++    `compound-v-validate-manifest.py` is where it is REFUSED.
++
++    If the scope gate cannot be loaded from source, nothing is declared: the
++    per-job gate is then stricter, never looser.
+     """
+-    raw = (manifest or {}).get("toolchain_artifacts") if isinstance(manifest, dict) else None
+-    if isinstance(raw, list) and raw and all(isinstance(g, str) and g.strip() for g in raw):
+-        return list(raw)
+-    return []
++    if not _SCOPE_CHECK_MODULE:
++        _SCOPE_CHECK_MODULE.append(
++            _load_module_from_path("cv_scope_check_reader", SCOPE_CHECK_DEFAULT))
++    reader = getattr(_SCOPE_CHECK_MODULE[0], "manifest_toolchain_artifacts", None)
++    if not callable(reader):
++        return []
++    return reader(manifest)
+ 
+ 
+ def build_launch_argv(job, entry, run_id, repo_root, run_dir, model):
+@@ -2363,7 +2378,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
+     # rather than inheriting whatever the session happens to be running.
+     transport_model, transport_note = resolve_job_model(
+         {"id": "__transport__", "backend": "claude", "tier": "light"},
+-        python_bin, stance=stance, config_path=config_path)
++        python_bin, stance=stance, config_path=config_path, repo_dir=abs_repo_root)
+     # `agents/transport.md` (3.6.4) — resolved ONCE per run, never per job or
+     # per stage, because Gate/Record/Finalize/Continuity are not job types and
+     # never key off a job's own `type` the way `AGENT_TYPE_BY_JOB_TYPE` does.
+@@ -2641,7 +2656,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
+             # agent inherited the session model. The tier existed, was validated,
+             # was documented — and never reached agent().
+             resolved, merr = resolve_job_model(routed_job, python_bin, stance=stance,
+-                                               config_path=config_path)
++                                               config_path=config_path, repo_dir=abs_repo_root)
+             if resolved:
+                 entry["model"] = resolved
+                 entry["model_source"] = ("explicit" if job.get("model") else "tier")
+@@ -2689,7 +2704,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
+                     % (job_id, backend, backend)
+                 )
+             model, err = resolve_job_model(routed_job, python_bin, stance=stance,
+-                                           config_path=config_path)
++                                           config_path=config_path, repo_dir=abs_repo_root)
+             if not model:
+                 raise ValueError(
+                     "job %r cannot be launched: %s. `--model` is required by the "
+@@ -2712,7 +2727,7 @@ def build_plan(manifest, run_dir, repo_root, python_bin, self_path,
+             # Engine C). Light tier, never Haiku: the wrapper only runs one command.
+             _wrap_model, _wrap_err = resolve_job_model(
+                 {"backend": "claude", "tier": "light"}, python_bin, stance=stance,
+-                config_path=config_path)
++                config_path=config_path, repo_dir=abs_repo_root)
+             entry["agent_model"] = _wrap_model or "sonnet"
+             artefacts[job_id]["launch_argv"] = argv
+             artefacts[job_id]["launch_argv_file"] = entry["launch_argv_file"]
+@@ -10303,7 +10318,8 @@ def selftest():
+         # `raised != unraised` would fail on a routing table that is behaving
+         # correctly.
+         _rk_std, _ = resolve_job_model({"id": "impl", "backend": "claude",
+-                                        "tier": "standard"}, "/usr/bin/python3")
++                                        "tier": "standard"}, "/usr/bin/python3",
++                                       repo_dir=tmp)
+         _check("...and the RESOLVER is handed the raised tier, not the manifest's",
+                _rk_on["impl"]["model"] == _rk_std
+                and _rk_on["impl"]["model_source"] == "tier",
+@@ -11337,6 +11353,27 @@ def selftest():
+                                     FASTPATH_DEFAULT, HERE)["waves"][0][0]["launch_argv"]
+             _check("A4: ...and none when the manifest declares no toolchain_artifacts",
+                    "--toolchain-artifact" not in _ta4b_argv, " ".join(_ta4b_argv))
++            _check("A5: the emitter's reader IS the scope gate's (one parse, no copy)",
++                   _toolchain_artifacts_spec({"toolchain_artifacts": ["b/**"]}) == ["b/**"]
++                   and _toolchain_artifacts_spec({"toolchain_artifacts": ["b/**", 1]}) == []
++                   and getattr(_SCOPE_CHECK_MODULE[0], "manifest_toolchain_artifacts",
++                               None) is not None,
++                   repr(_SCOPE_CHECK_MODULE))
++
++            # ---- resolve_job_model hands the resolver the project root ---------
++            # With no --config the resolver reads <root>/.claude/compound-v.json and
++            # the effort cap from the same root; the emitter knows the root, so it
++            # says so rather than leaving it to this process's cwd.
++            _fake_rm = os.path.join(tmp, "fake-resolve-model.py")
++            _atomic_write(_fake_rm,
++                         "import sys, json\na = sys.argv[1:]\n"
++                         "print(json.dumps({'model': a[a.index('--repo-dir') + 1] "
++                         "if '--repo-dir' in a else 'no-repo-dir'}))\n")
++            _rd_model, _rd_err = resolve_job_model(
++                {"id": "x", "backend": "claude", "tier": "deep"}, sys.executable,
++                resolve_model=_fake_rm, repo_dir="/the/project/root")
++            _check("resolve_job_model passes the project root as --repo-dir",
++                   _rd_model == "/the/project/root", "%s %s" % (_rd_model, _rd_err))
+ 
+             # ---- B1: worktree re-attempt re-pins the baseline ------------------
+             _repo_b1 = os.path.join(tmp, "v363-reattempt")
+diff --git a/scripts/compound-v-integration-gate.py b/scripts/compound-v-integration-gate.py
+index 9c74d21..b2c9675 100755
+--- a/scripts/compound-v-integration-gate.py
++++ b/scripts/compound-v-integration-gate.py
+@@ -53,6 +53,20 @@ the same case: missing, therefore re-derived, never silently passed.
+ A receipt that is present and well-formed but wrong is a different thing: a
+ forged claim. It is refused, not re-derived.
+ 
++TOOLCHAIN ARTIFACTS — THE SAME EXEMPTION THE PER-JOB GATE APPLIED
++-----------------------------------------------------------------
++Both re-derivations pass the manifest's top-level ``toolchain_artifacts`` globs
++to the scope gate as ``--toolchain-artifact``, read by the scope gate's own
++``manifest_toolchain_artifacts`` (one reader, shared with the emitter). Before
++this, a gitignored build artifact the per-job gate had forgiven was re-derived as
++a violation: an honest ``pass`` read as ``contradicted``, and a missing receipt
++re-derived to a false ``blocked`` (a missing receipt never reads ``forged``). The
++exemption is exactly as narrow as at the per-job gate: a path is forgiven only
++when it matches a DECLARED glob and ``git check-ignore`` confirms it is ignored in
++the gated tree. Nothing is forgiven by name or extension — ``.DS_Store``,
++``.phpunit.cache`` and a stray ``.baseline`` stay violations unless the manifest
++declares them.
++
+ DIFF DIGEST — THE SEAM THAT MATTERS MOST
+ ----------------------------------------
+ The recipe is PINNED in ``schemas/job_result.schema.json`` (the ``diff_digest``
+@@ -436,6 +450,39 @@ def load_scope_matcher(scope_check):
+     avoid. A full or unwritable temp dir is a condition an attacker can arrange,
+     so the protection had an off switch. This fails closed with a reason instead.
+     """
++    module, err = load_scope_module(scope_check)
++    if module is None:
++        return None, err
++    fn = getattr(module, "is_allowed", None)
++    if not callable(fn):
++        return None, "%s defines no is_allowed()" % scope_check
++    return fn, None
++
++
++def manifest_toolchain_artifacts(scope_check, manifest):
++    """(globs, error) — the manifest's ``toolchain_artifacts``, read by the scope
++    gate's OWN reader (``manifest_toolchain_artifacts`` in
++    ``scripts/compound-v-scope-check.py``), never re-parsed here.
++
++    The per-job gate reads the same list through the same function, so the
++    re-derivation below forgives exactly what the per-job gate forgave. A
++    manifest that declares no list costs no import at all.
++    """
++    if not (isinstance(manifest, dict) and "toolchain_artifacts" in manifest):
++        return [], None
++    module, err = load_scope_module(scope_check)
++    if module is None:
++        return None, err
++    reader = getattr(module, "manifest_toolchain_artifacts", None)
++    if not callable(reader):
++        return None, "%s defines no manifest_toolchain_artifacts()" % scope_check
++    return reader(manifest), None
++
++
++def load_scope_module(scope_check):
++    """(module, error) — ``scripts/compound-v-scope-check.py`` loaded FROM SOURCE
++    under a private bytecode cache; see ``load_scope_matcher`` for why, and why a
++    cache directory that cannot be created loads nothing."""
+     prev_prefix = getattr(sys, "pycache_prefix", None)
+     tmp_pycache = None
+     module = None
+@@ -464,10 +511,7 @@ def load_scope_matcher(scope_check):
+             pass
+         if tmp_pycache:
+             shutil.rmtree(tmp_pycache, ignore_errors=True)
+-    fn = getattr(module, "is_allowed", None)
+-    if not callable(fn):
+-        return None, "%s defines no is_allowed()" % scope_check
+-    return fn, None
++    return module, None
+ 
+ 
+ # --------------------------------------------------------------------------- #
+@@ -739,12 +783,22 @@ def receipt_binding_faults(receipt, pinned_baseline, observed_head, observed_dig
+ # --------------------------------------------------------------------------- #
+ # re-derivation
+ # --------------------------------------------------------------------------- #
+-def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None):
++def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None,
++                    toolchain_artifacts=None):
+     """Invoke scripts/compound-v-scope-check.py as a SUBPROCESS.
+ 
+     A subprocess, not an import: this script must not be able to perturb the
+     matcher it is checking against, and the matcher belongs to another lane.
+     Returns (verdict, stdout, exit_code, error).
++
++    ``toolchain_artifacts`` is the manifest's declared glob list, passed as one
++    ``--toolchain-artifact`` per glob exactly as the per-job gate passes it.
++    Without it this re-derivation charged a job for a gitignored build artifact
++    its own gate had forgiven, and an honest ``pass`` read as ``contradicted``.
++    The scope gate still forgives only a path that matches a declared glob AND
++    that ``git check-ignore`` confirms is ignored in the gated tree; nothing is
++    forgiven by name, so ``.DS_Store`` or ``.phpunit.cache`` stays a violation
++    unless the manifest declares it.
+     """
+     cmd = [sys.executable, scope_check]
+     cmd += ["--worktree" if mode == "worktree" else "--repo", root]
+@@ -754,6 +808,8 @@ def run_scope_check(scope_check, mode, root, baseline, allow, preexisting=None):
+         cmd += ["--allow", glob]
+     if preexisting:
+         cmd += ["--preexisting", preexisting]
++    for glob in (toolchain_artifacts or []):
++        cmd += ["--toolchain-artifact", glob]
+     try:
+         proc = subprocess.run(
+             cmd,
+@@ -825,8 +881,13 @@ def _leading_json(text):
+ # --------------------------------------------------------------------------- #
+ # per-job evaluation
+ # --------------------------------------------------------------------------- #
+-def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
+-    """Resolve one job to exactly one verdict class. Never raises."""
++def evaluate_job(job, state_job, run_dir, repo_root, scope_check,
++                 toolchain_artifacts=None):
++    """Resolve one job to exactly one verdict class. Never raises.
++
++    ``toolchain_artifacts`` is the manifest's run-wide list, threaded into both
++    re-derivations so they apply the exemption the per-job gate applied.
++    """
+     job_id = job.get("id") or "<unnamed>"
+     out = {
+         "job": job_id,
+@@ -1073,7 +1134,8 @@ def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
+                 "re-derived rather than refused"
+             )
+         verdict, raw, code, err = run_scope_check(
+-            scope_check, mode, gate_root, baseline, allow, preexisting
++            scope_check, mode, gate_root, baseline, allow, preexisting,
++            toolchain_artifacts=toolchain_artifacts,
+         )
+         if err:
+             out["verdict"] = "unverifiable"
+@@ -1174,7 +1236,8 @@ def evaluate_job(job, state_job, run_dir, repo_root, scope_check):
+ 
+     # ---- bindings hold; confirm the CONCLUSION independently --------------- #
+     verdict, raw, code, err = run_scope_check(
+-        scope_check, mode, gate_root, baseline, allow, preexisting
++        scope_check, mode, gate_root, baseline, allow, preexisting,
++        toolchain_artifacts=toolchain_artifacts,
+     )
+     if err:
+         out["verdict"] = "unverifiable"
+@@ -1305,6 +1368,16 @@ def evaluate_run(run_dir, repo_root, scope_check, manifest_path=None, only=None,
+     manifest = load_manifest(manifest_path)
+     if not isinstance(manifest, dict) or not isinstance(manifest.get("jobs"), list):
+         raise RuntimeError("manifest %s has no jobs list" % manifest_path)
++    # The run-wide `toolchain_artifacts` exemption, read ONCE by the scope gate's
++    # own reader so this re-derivation forgives exactly what the per-job gate
++    # forgave. A list that cannot be read fails the whole evaluation loudly
++    # rather than silently re-deriving without it.
++    toolchain_artifacts, ta_err = manifest_toolchain_artifacts(scope_check, manifest)
++    if ta_err:
++        raise RuntimeError(
++            "cannot read the manifest's toolchain_artifacts through the scope "
++            "gate: %s" % ta_err
++        )
+ 
+     state = {}
+     state_path = os.path.join(run_dir, "state.json")
+@@ -1335,6 +1408,7 @@ def evaluate_run(run_dir, repo_root, scope_check, manifest_path=None, only=None,
+                 run_dir,
+                 repo_root,
+                 scope_check,
++                toolchain_artifacts=toolchain_artifacts,
+             )
+         )
+ 
+diff --git a/scripts/compound-v-resolve-model.py b/scripts/compound-v-resolve-model.py
+index c4cadd8..0259a0b 100755
+--- a/scripts/compound-v-resolve-model.py
++++ b/scripts/compound-v-resolve-model.py
+@@ -11,11 +11,22 @@ No backend-specific routing logic is baked in here — every backend is just a
+ ``{tier -> model}`` map. Three layers of precedence, lowest to highest:
+ 
+   1. BUILT-IN default map (below) so the resolver works with NO config file.
+-  2. ``models.<backend>.<tier>`` in the --config JSON, if present, OVERRIDES
++  2. ``models.<backend>.<tier>`` in the project config, if present, OVERRIDES
+      the built-in value for that single (backend, tier) cell.
+   3. ``--explicit-model M`` (a manifest-level model override) always wins and
+      skips the map entirely.
+ 
++The project config is ``--config`` when given. OMITTING ``--config`` DOES NOT
++MEAN THE BUILT-IN DEFAULTS: the CLI then reads ``<root>/.claude/compound-v.json``,
++where root is ``--repo-dir`` when given, else the git toplevel of the current
++directory (``resolve_project_root``, ADR 0005). A missing file means the built-in
++map. The same root locates the ``maxEffortLevel`` settings below, so the models
++and the effort cap come from one place. Outside a git repository with neither
++``--config`` nor ``--repo-dir`` the CLI fails closed (exit 2), except that
++``--explicit-model`` needs no config and works anywhere. This default lives in
++``main()`` only: ``resolve()`` and ``load_config_models`` read exactly what they
++are handed, as before.
++
+ Vocabulary (never changes when models churn):
+   tier   ∈ { frontier, deep, standard, light }
+   effort ∈ { low, medium, high, xhigh }
+@@ -44,8 +55,8 @@ Exit non-zero if a tier cannot be resolved for a backend (and no
+ 
+ Usage
+ -----
+-    compound-v-resolve-model.py --backend codex --tier deep
+-    compound-v-resolve-model.py --backend claude --tier light --effort low
++    compound-v-resolve-model.py --backend codex --tier deep      # project config from the git toplevel
++    compound-v-resolve-model.py --backend claude --tier light --effort low --repo-dir /path/to/project
+     compound-v-resolve-model.py --backend codex --tier standard --config .claude/compound-v.json
+     compound-v-resolve-model.py --backend codex --tier deep --explicit-model gpt-5.6
+     compound-v-resolve-model.py --selftest
+@@ -529,7 +540,15 @@ def main(argv):
+     parser.add_argument("--effort", default=None, choices=list(EFFORTS))
+     parser.add_argument("--stance", default="balanced", choices=list(VALID_STANCES),
+                         help="routing stance (default balanced)")
+-    parser.add_argument("--config", default=None, help="path to compound-v.json")
++    parser.add_argument(
++        "--config",
++        default=None,
++        help=(
++            "path to compound-v.json; default is <root>/.claude/compound-v.json, "
++            "root = --repo-dir or the git toplevel (a missing file means the "
++            "built-in map)"
++        ),
++    )
+     parser.add_argument(
+         "--explicit-model",
+         default=None,
+@@ -539,9 +558,12 @@ def main(argv):
+         "--repo-dir",
+         default=None,
+         help=(
+-            "project root to locate .claude/settings.json and settings.local.json "
+-            "under (for the maxEffortLevel cap); default is --config's own "
+-            "directory when it ends in .claude, else the current directory"
++            "project root: without --config, its .claude/compound-v.json is the "
++            "config AND its .claude/settings.json / settings.local.json give the "
++            "maxEffortLevel cap; default is the git toplevel of the current "
++            "directory (outside git, pass this, --config or --explicit-model). "
++            "With --config, the settings come from --config's own directory when "
++            "it ends in .claude, else from this root or the current directory"
+         ),
+     )
+     parser.add_argument(
+@@ -549,8 +571,29 @@ def main(argv):
+     )
+     args = parser.parse_args(argv[1:])
+ 
++    # THE PROJECT'S CONFIG BY DEFAULT (this CLI only; resolve() and
++    # load_config_models keep their in-process behaviour). With no --config the
++    # config is <root>/.claude/compound-v.json, root = --repo-dir or the git
++    # toplevel (ADR 0005 rule 5), and the same root locates the effort-cap
++    # settings, so models and cap never come from two different places. Until
++    # this default existed, a caller that left --config off got the built-in
++    # table even in a project whose config said otherwise.
++    config_path = args.config
++    settings_repo_dir = args.repo_dir
++    if config_path is None:
++        root, root_err = _cli_project_root(args.repo_dir)
++        if root is not None:
++            settings_repo_dir = root
++            if not args.explicit_model:
++                config_path = os.path.join(root, ".claude", "compound-v.json")
++        elif not args.explicit_model:
++            # Fail closed: guessing the built-in table here is what this default
++            # exists to stop. --explicit-model needs no config, so it never lands here.
++            print(json.dumps({"error": root_err}), file=sys.stderr)
++            return 2
++
+     try:
+-        config_models = load_config_models(args.config)
++        config_models = load_config_models(config_path)
+     except Exception as e:  # noqa: BLE001 - report config errors cleanly
+         print(json.dumps({"error": str(e)}), file=sys.stderr)
+         return 2
+@@ -568,13 +611,32 @@ def main(argv):
+         print(json.dumps({"error": str(e)}), file=sys.stderr)
+         return 1
+ 
+-    settings_paths = default_settings_paths(config_path=args.config, repo_dir=args.repo_dir)
++    settings_paths = default_settings_paths(config_path=config_path,
++                                            repo_dir=settings_repo_dir)
+     result = apply_effort_cap(result, settings_paths)
+ 
+     print(json.dumps(result))
+     return 0
+ 
+ 
++def _cli_project_root(repo_dir):
++    """(root, error) for ``main()``'s config default: ``--repo-dir`` when given,
++    else the git toplevel of the current directory, by the shared
++    ``resolve_project_root`` (loaded by explicit path like the config loader).
++    ``(None, message)`` when the sibling cannot be loaded or no root exists."""
++    mod = _project_config_module()
++    fn = getattr(mod, "resolve_project_root", None) if mod is not None else None
++    if not callable(fn):
++        return None, ("cannot locate the project config: compound-v-project-config.py "
++                      "(resolve_project_root) could not be loaded; pass --config or "
++                      "--explicit-model")
++    try:
++        return fn(repo=repo_dir), None
++    except ValueError as e:
++        return None, ("cannot locate the project config: %s (or pass --config, "
++                      "--repo-dir or --explicit-model)" % e)
++
++
+ # --------------------------------------------------------------------------- #
+ # Self-test.
+ # --------------------------------------------------------------------------- #
+diff --git a/scripts/compound-v-scope-check.py b/scripts/compound-v-scope-check.py
+index 1c66897..6a446d0 100755
+--- a/scripts/compound-v-scope-check.py
++++ b/scripts/compound-v-scope-check.py
+@@ -593,6 +593,32 @@ def _check_ignore(cwd, paths):
+     return _split_nul(proc.stdout)
+ 
+ 
++def manifest_toolchain_artifacts(manifest):
++    """The manifest's top-level ``toolchain_artifacts`` globs, or ``[]``.
++
++    THE ONE READER. This gate owns what the globs mean, so it owns how they are
++    read off a parsed manifest too: the emitter's per-job gate
++    (``compound-v-emit-workflow.py`` ``_toolchain_artifacts_spec``) and the
++    run-wide re-derivation (``compound-v-integration-gate.py``) both call this,
++    so the two can never disagree about which globs a run declared. The
++    integration gate cannot import the emitter (the emitter imports the gate),
++    and a second copy of this parse would be a second definition.
++
++    MANIFEST-LEVEL ONLY: a run-wide declaration, not a per-job one, so there is
++    no job-level override to read. ALL OR NOTHING: a non-empty list whose every
++    entry is a non-blank string is returned as-is; anything else — absent, a
++    bare string, an empty list, one non-string or blank entry, a manifest that
++    is not a mapping — is ``[]``, "nothing declared". Salvaging part of a
++    malformed list would make this reader's idea of the manifest disagree with
++    ``compound-v-validate-manifest.py``, which is where a malformed value is
++    REFUSED (a bare string, a catch-all glob, a non-string entry).
++    """
++    raw = manifest.get("toolchain_artifacts") if isinstance(manifest, dict) else None
++    if isinstance(raw, list) and raw and all(isinstance(g, str) and g.strip() for g in raw):
++        return list(raw)
++    return []
++
++
+ def check(cwd, baseline, allowed, preexisting=None, toolchain_artifacts=None):
+     """Compute the changed set, the violations against ``allowed``, and the
+     (possibly empty) list of paths FORGIVEN as toolchain artifacts.
+@@ -1465,6 +1491,37 @@ def _selftest():
+             cli_ta_none_verdict.get("toolchain_artifacts") == [],
+         )
+ 
++        # The manifest READER (moved here from the emitter so the integration
++        # gate and the per-job gate share one parse). All or nothing.
++        expect(
++            "toolchain reader: a well-formed list is returned as-is",
++            manifest_toolchain_artifacts(
++                {"toolchain_artifacts": ["build/**", "tsconfig.tsbuildinfo"]}
++            ) == ["build/**", "tsconfig.tsbuildinfo"],
++        )
++        expect(
++            "toolchain reader: absent key -> []",
++            manifest_toolchain_artifacts({"jobs": []}) == [],
++        )
++        expect(
++            "toolchain reader: a bare string is not salvaged -> []",
++            manifest_toolchain_artifacts({"toolchain_artifacts": "build/**"}) == [],
++        )
++        expect(
++            "toolchain reader: one non-string entry voids the whole list -> []",
++            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", 3]}) == [],
++        )
++        expect(
++            "toolchain reader: one blank entry voids the whole list -> []",
++            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", " "]}) == [],
++        )
++        expect(
++            "toolchain reader: an empty list and a non-mapping manifest -> []",
++            manifest_toolchain_artifacts({"toolchain_artifacts": []}) == []
++            and manifest_toolchain_artifacts(["build/**"]) == []
++            and manifest_toolchain_artifacts(None) == [],
++        )
++
+         # UNUSUAL-FILENAME case: with NUL-delimited (-z) parsing, a path with a
+         # space — and (where the OS allows) a literal newline — is attributed as a
+         # SINGLE path, not split into phantom paths. A newline-containing name on a
+diff --git a/skills/compound-v/execution-manifest.md b/skills/compound-v/execution-manifest.md
+index fe4c493..0daf73f 100644
+--- a/skills/compound-v/execution-manifest.md
++++ b/skills/compound-v/execution-manifest.md
+@@ -147,7 +147,7 @@ choose would be a fabricated routing decision.
+ 
+ Resolution is **stance-aware**: the `standard` Claude row resolves to `sonnet` under `balanced` / `cost-aware` / `claude-only`, and to `opus` under `conservative` — that is what the conservative stance means. `frontier` is `fable` everywhere except `cost-aware`, whose ceiling is `opus`. `deep` (incl. all reviewers + sensitive surfaces) is `opus` in every stance, and `codex`/`antigravity`/`cursor`/`opencode` are identical across stances.
+ 
+-The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map; omitting the stance defaults to `balanced`. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
++The dispatcher reads the manifest's `routing_stance` and passes it (`--stance`) to the resolver on every resolve, along with `--config` for the project map and `--repo-dir` for the project root; omitting the stance defaults to `balanced`. Omitting `--config` does **not** mean the built-in defaults: the resolver then reads `<root>/.claude/compound-v.json`, root = `--repo-dir` or the git toplevel, and takes the `maxEffortLevel` cap from the same root. **Both were unwired until 3.0.5** — every resolution silently used the built-in balanced defaults, and on `backend: claude` the resolver was not called at all.
+ 
+ ### Config `models` map (project `.claude/compound-v.json`)
+ 
+diff --git a/skills/compound-v/phase-3-parallel-opus-dispatch.md b/skills/compound-v/phase-3-parallel-opus-dispatch.md
+index 4b77efd..3e87868 100644
+--- a/skills/compound-v/phase-3-parallel-opus-dispatch.md
++++ b/skills/compound-v/phase-3-parallel-opus-dispatch.md
+@@ -165,9 +165,12 @@ Each dispatch must include:
+ 1. **Backend + tier/effort from the manifest; resolve the concrete model BEFORE dispatch** — never re-decide backend/tier/isolation here. The manifest carries the routing **intent** (`tier` ∈ {deep, standard, light}, optional `effort` ∈ {low, medium, high, xhigh} — `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead)) instead of a hardcoded model string, so the plugin survives model churn (refresh the config `models` map via `/v:models`, never the call sites). Before invoking the backend for a job, resolve the model with [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py):
+ 
+    ```bash
+-   # (backend, tier, effort, config) -> concrete model. --config points at the
+-   # project .claude/compound-v.json whose `models` map overrides built-in
+-   # defaults per cell; omit --config to use built-in defaults.
++   # (backend, tier, effort, config) -> concrete model. The project
++   # .claude/compound-v.json, whose `models` map overrides built-in defaults per
++   # cell, is read even WITHOUT --config: omitting it means
++   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
++   # the built-in table. Outside git, pass --repo-dir (or --config); the
++   # maxEffortLevel cap comes from the same root.
+    # Build the flag list with explicit if/else (portable across bash AND zsh —
+    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
+    # Read `routing_stance` once from the manifest and pass `--stance` on every
+@@ -176,6 +179,7 @@ Each dispatch must include:
+    set -- --backend "$BACKEND" --tier "$TIER"
+    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
+    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
++   set -- "$@" --repo-dir "$PWD"
+    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
+    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
+    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
+diff --git a/skills/compound-v/routing-policy.md b/skills/compound-v/routing-policy.md
+index bc8f728..2f15a90 100644
+--- a/skills/compound-v/routing-policy.md
++++ b/skills/compound-v/routing-policy.md
+@@ -377,7 +377,12 @@ compound-v-resolve-model.py --backend codex --tier deep --effort high \
+ Precedence, lowest to highest:
+ 
+ 1. **Built-in default map** (the one above) so the resolver works with no config file.
+-2. **`models.<backend>.<tier>`** from `--config`, if present, overrides that one cell.
++2. **`models.<backend>.<tier>`** from the project config, if present, overrides that one
++   cell. The project config is `--config` when given; **omitting `--config` does not mean
++   the built-in defaults** — it means `<root>/.claude/compound-v.json`, where root is
++   `--repo-dir` or the git toplevel of the current directory (a missing file is the
++   built-in map). The `maxEffortLevel` cap is read from the same root. Outside a git
++   repository with neither flag the resolver fails closed, except under `--explicit-model`.
+ 3. **`--explicit-model M`** (a manifest `model` override) always wins and skips the
+    map entirely.
+ 
+diff --git a/tests/test-integration-gate.sh b/tests/test-integration-gate.sh
+index 0120911..c884851 100755
+--- a/tests/test-integration-gate.sh
++++ b/tests/test-integration-gate.sh
+@@ -164,14 +164,14 @@ PY
+ # schemas/job_result.schema.json, executed verbatim in the shell against a COPY
+ # of the worktree so the `git add -A` it mandates cannot disturb the case under
+ # test. The copy is byte-identical, so the digest is the recipe's own answer.
+-literal_digest() {
+-  local wt="$1" copy
++literal_digest() { # <tree> [baseline, default $BASE]
++  local wt="$1" base="${2:-$BASE}" copy
+   copy="$(mktemp -d)"
+   # cp -R of a linked worktree copies the .git FILE (a gitdir pointer), which
+   # still resolves — the administrative dir lives in $SANDBOX, inside $WORK.
+   cp -R "$wt/." "$copy/"
+   git -C "$copy" add -A >/dev/null 2>&1
+-  git -C "$copy" diff --cached --binary "$BASE" | shasum -a 256 | awk '{print "sha256:"$1}'
++  git -C "$copy" diff --cached --binary "$base" | shasum -a 256 | awk '{print "sha256:"$1}'
+   rm -rf "$copy"
+ }
+ 
+@@ -410,6 +410,91 @@ run_gate "$RUN"
+ check "a GITIGNORED out-of-lane write ⇒ BLOCKED (the digest alone would miss it)" \
+       "$([ "$(verdict_of)" = blocked ] && echo 1 || echo 0)"
+ 
++# 5d. TOOLCHAIN ARTIFACTS at the run-wide gate. The per-job gate forgives a
++#     gitignored path that matches a manifest `toolchain_artifacts` glob; the
++#     re-derivation must apply the SAME exemption, or an honest pass reads as
++#     `contradicted`. A DIRECT job on purpose: a sealed worktree job is already
++#     rescued by the sealed-patch rule, so only a direct job proves the flag is
++#     threaded. The .gitignore is committed BEFORE the baseline, so
++#     `git check-ignore` confirms the path in the gated tree, and the receipt is
++#     the real scope gate's own output with `--toolchain-artifact`.
++TA="$WORK/ta-direct"
++mkdir -p "$TA/scripts"
++git -C "$TA" init -q
++git -C "$TA" config user.email "test@example.invalid"
++git -C "$TA" config user.name  "integration-gate-test"
++git -C "$TA" config commit.gpgsign false
++printf 'seed\n' >"$TA/README.md"
++printf 'build/\n' >"$TA/.gitignore"
++git -C "$TA" add -A
++git -C "$TA" commit -q -m seed
++TA_BASE="$(git -C "$TA" rev-parse HEAD)"
++TA_RUN="$WORK/run-ta-direct"
++mkdir -p "$TA_RUN/results"
++printf 'in lane\n' >"$TA/scripts/allowed.py"
++mkdir -p "$TA/build"
++printf 'built\n' >"$TA/build/out.js"
++check "5d precondition: build/out.js is really gitignored in the gated tree" \
++      "$(git -C "$TA" check-ignore -q build/out.js && echo 1 || echo 0)"
++
++ta_manifest() { # <run-dir> <with-globs: 1|0>
++  {
++    printf 'version: 1\nrun_id: gate-test\n'
++    if [ "$2" = "1" ]; then printf 'toolchain_artifacts:\n  - "build/**"\n'; fi
++    printf 'jobs:\n  - id: job-a\n    title: "direct job"\n    backend: claude\n'
++    printf '    isolation: direct\n    write_allowed:\n      - "scripts/allowed.py"\n'
++  } >"$1/manifest.yaml"
++}
++"$PY" - "$TA_RUN" "$TA_BASE" <<'PY'
++import json, os, sys
++run, base = sys.argv[1:3]
++with open(os.path.join(run, "state.json"), "w") as fh:
++    json.dump({"run_id": "gate-test", "phase": "COLLECTED",
++               "jobs": {"job-a": {"status": "done", "isolation": "direct",
++                                  "baseline": base}}}, fh)
++PY
++TA_RAW="$("$PY" "$SCOPE" --repo "$TA" --baseline "$TA_BASE" --allow 'scripts/allowed.py' \
++          --toolchain-artifact 'build/**' 2>&1)"
++TA_RC=$?
++check "5d precondition: the per-job gate forgives the artifact (pass)" \
++      "$([ "$TA_RC" = 0 ] && echo 1 || echo 0)"
++TA_DIGEST="$(literal_digest "$TA" "$TA_BASE")"
++"$PY" - "$TA_RUN/receipt.json" "$TA_BASE" "$(git -C "$TA" rev-parse HEAD)" "$TA_DIGEST" \
++      "$TA_RC" "$TA_RAW" <<'PY'
++import json, sys
++out, base, realised, digest, rc, raw = sys.argv[1:7]
++verdict = {"0": "pass", "1": "blocked"}.get(rc, "error")
++with open(out, "w") as fh:
++    json.dump({"baseline_commit": base, "realised_commit": realised,
++               "diff_digest": digest, "verdict": verdict,
++               "raw_stdout": raw, "exit_code": int(rc)}, fh)
++PY
++"$PY" - "$TA_RUN" "$TA_RUN/receipt.json" <<'PY'
++import json, os, sys
++run, receipt_file = sys.argv[1:3]
++with open(receipt_file) as fh:
++    receipt = json.load(fh)
++doc = {"status": "success", "blocked": False, "files_changed": [], "violations": [],
++       "summary": "planted", "session_id": "", "worktree": "", "exit_code": 0,
++       "failure_class": None, "retry_after_seconds": 0, "gate_receipt": receipt}
++with open(os.path.join(run, "results", "job-a.json"), "w") as fh:
++    json.dump(doc, fh)
++PY
++ta_gate() {
++  GATE_OUT="$("$PY" "$GATE" --run-dir "$TA_RUN" --repo-root "$TA" --json 2>"$WORK/gate.err")"
++  GATE_RC=$?
++}
++ta_manifest "$TA_RUN" 1
++ta_gate
++check "a declared, gitignored toolchain artifact ⇒ PASS at the run-wide gate (direct job, honest receipt)" \
++      "$([ "$(verdict_of)" = pass ] && [ "$GATE_RC" = 0 ] && echo 1 || echo 0)"
++ta_manifest "$TA_RUN" 0
++ta_gate
++TA_V="$(verdict_of)"
++check "...and with the glob removed from the manifest the same tree is still caught ($TA_V)" \
++      "$( { [ "$TA_V" = contradicted ] || [ "$TA_V" = blocked ]; } && [ "$GATE_RC" != 0 ] \
++          && violations_of | grep -q 'build/out.js' && echo 1 || echo 0)"
++
+ # --------------------------------------------------------------------------- #
+ # 6. FAIL-CLOSED paths. An unknown must never read as a pass.
+ # --------------------------------------------------------------------------- #
+diff --git a/tests/test-resolve-model.sh b/tests/test-resolve-model.sh
+new file mode 100755
+index 0000000..833b2ae
+--- /dev/null
++++ b/tests/test-resolve-model.sh
+@@ -0,0 +1,130 @@
++#!/usr/bin/env bash
++# tests/test-resolve-model.sh — compound-v-resolve-model.py driven through its CLI.
++#
++# WHAT IT PINS
++#   Omitting --config means the PROJECT's .claude/compound-v.json, found from
++#   --repo-dir or the git toplevel of the current directory — not the built-in
++#   table. Until this row existed, a project whose config mapped claude.standard
++#   to opus still got `sonnet` from every caller that left --config off.
++#
++#   The models and the maxEffortLevel cap come from the SAME root, so a call from
++#   a subdirectory reads both from the toplevel's .claude/.
++#
++#   Outside a git repository with neither --config nor --repo-dir the resolver
++#   fails closed (ADR 0005), except that --explicit-model needs no config and
++#   keeps working anywhere.
++#
++# The --selftest covers resolve() and load_config_models in-process; their
++# behaviour is unchanged. This file covers what only main() decides.
++
++set -uo pipefail
++
++REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
++RESOLVER="${RESOLVE_MODEL_SRC:-$REPO/scripts/compound-v-resolve-model.py}"
++PY="${PY:-python3}"
++export PYTHONDONTWRITEBYTECODE=1
++
++pass=0
++fail=0
++ok()  { pass=$((pass + 1)); printf 'PASS %s\n' "$1"; }
++bad() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; }
++check(){ if [ "$2" = "1" ]; then ok "$1"; else bad "$1"; fi; }
++
++[ -f "$RESOLVER" ] || { echo "FATAL: $RESOLVER missing"; exit 1; }
++command -v "$PY" >/dev/null 2>&1 || { echo "FATAL: $PY required"; exit 1; }
++command -v git   >/dev/null 2>&1 || { echo "FATAL: git required"; exit 1; }
++
++WORK="$(cd "$(mktemp -d)" && pwd -P)"
++trap 'rm -rf "$WORK"' EXIT
++
++# The user's own ~/.claude/settings.json must not decide a row here.
++mkdir -p "$WORK/userhome"
++export CLAUDE_CONFIG_DIR="$WORK/userhome"
++# Nothing above $WORK may be mistaken for the fixture's repository.
++export GIT_CEILING_DIRECTORIES="$WORK"
++
++# Fixture project: claude.standard -> opus, and a project effort cap of `low`.
++FIX="$WORK/project"
++mkdir -p "$FIX/.claude" "$FIX/sub/deeper"
++git -C "$FIX" init -q
++git -C "$FIX" config user.email "test@example.invalid"
++git -C "$FIX" config user.name  "resolve-model-test"
++git -C "$FIX" config commit.gpgsign false
++printf '{"models": {"claude": {"standard": "opus"}}}\n' >"$FIX/.claude/compound-v.json"
++printf '{"maxEffortLevel": "low"}\n' >"$FIX/.claude/settings.json"
++printf 'seed\n' >"$FIX/README.md"
++git -C "$FIX" add -A
++git -C "$FIX" commit -q -m seed
++
++OUTSIDE="$WORK/not-a-repo"
++mkdir -p "$OUTSIDE"
++
++field() { # <json> <key>
++  printf '%s' "$1" | "$PY" -c \
++    "import json,sys
++try:
++    v = json.load(sys.stdin).get('$2')
++except ValueError:
++    v = None
++print(json.dumps(v) if isinstance(v, (dict, list)) else v)"
++}
++cap_source() { # <json>
++  printf '%s' "$1" | "$PY" -c \
++    'import json,sys
++try:
++    c = json.load(sys.stdin).get("effort_capped") or {}
++except ValueError:
++    c = {}
++print(c.get("source") or "")'
++}
++
++# 1. From the project root, no --config: the project's map wins.
++OUT="$(cd "$FIX" && "$PY" "$RESOLVER" --backend claude --tier standard)"
++check "no --config, from the root ⇒ the project's models (opus), not the built-in sonnet" \
++      "$([ "$(field "$OUT" model)" = opus ] && echo 1 || echo 0)"
++
++# 2. From a subdirectory: the git toplevel, not the current directory.
++OUT="$(cd "$FIX/sub/deeper" && "$PY" "$RESOLVER" --backend claude --tier standard)"
++check "no --config, from a subdirectory ⇒ still the toplevel's models (opus)" \
++      "$([ "$(field "$OUT" model)" = opus ] && echo 1 || echo 0)"
++
++# 3. --repo-dir from somewhere else entirely.
++OUT="$(cd "$OUTSIDE" && "$PY" "$RESOLVER" --backend claude --tier standard --repo-dir "$FIX")"
++check "no --config, --repo-dir names the project ⇒ its models (opus)" \
++      "$([ "$(field "$OUT" model)" = opus ] && echo 1 || echo 0)"
++
++# 4. One root for the models AND the effort cap, from a subdirectory.
++OUT="$(cd "$FIX/sub" && "$PY" "$RESOLVER" --backend claude --tier deep)"
++check "from a subdirectory the effort cap comes from the same root as the models" \
++      "$([ "$(field "$OUT" effort)" = low ] \
++         && [ "$(cap_source "$OUT")" = "$FIX/.claude/settings.json" ] && echo 1 || echo 0)"
++
++# 5. An explicit --config still wins, unchanged.
++printf '{"models": {"claude": {"standard": "explicit-cfg-model"}}}\n' >"$WORK/other.json"
++OUT="$(cd "$FIX" && "$PY" "$RESOLVER" --backend claude --tier standard --config "$WORK/other.json")"
++check "an explicit --config is still the config read" \
++      "$([ "$(field "$OUT" model)" = explicit-cfg-model ] && echo 1 || echo 0)"
++
++# 6. A project with no config file: the built-in table, as before.
++NOCFG="$WORK/nocfg"
++mkdir -p "$NOCFG"
++git -C "$NOCFG" init -q
++OUT="$(cd "$NOCFG" && "$PY" "$RESOLVER" --backend claude --tier standard)"
++check "a project with no .claude/compound-v.json ⇒ the built-in table (sonnet)" \
++      "$([ "$(field "$OUT" model)" = sonnet ] && echo 1 || echo 0)"
++
++# 7. --explicit-model needs no config and works outside git.
++OUT="$(cd "$OUTSIDE" && "$PY" "$RESOLVER" --backend claude --tier deep --explicit-model opus)"
++RC=$?
++check "--explicit-model outside git ⇒ succeeds" \
++      "$([ "$RC" = 0 ] && [ "$(field "$OUT" model)" = opus ] && echo 1 || echo 0)"
++
++# 8. Outside git with no flags: fail closed, with a message.
++OUT="$(cd "$OUTSIDE" && "$PY" "$RESOLVER" --backend claude --tier standard 2>&1)"
++RC=$?
++check "outside git with neither --config nor --repo-dir ⇒ exits non-zero" \
++      "$([ "$RC" != 0 ] && printf '%s' "$OUT" | grep -q 'git' && echo 1 || echo 0)"
++
++printf '\n%d passed, %d failed\n' "$pass" "$fail"
++[ "$fail" = "0" ] || exit 1
++exit 0

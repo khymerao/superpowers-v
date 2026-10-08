@@ -37,7 +37,7 @@
     },
     "reviewer_model": {
       "type": "string",
-      "description": "The concrete model the driver resolved to (e.g. gpt-5.6-sol, or the advisor's Claude model id). Recorded, not constrained: the codex family map moves faster than this schema."
+      "description": "The concrete model the driver resolved to (e.g. gpt-6.1-sol, or the advisor's Claude model id). Recorded, not constrained: the codex family map moves faster than this schema."
     },
     "cross_model": {
       "type": "boolean",

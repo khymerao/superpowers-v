@@ -1,0 +1,63 @@
+{
+  "phase": "MERGED",
+  "updated_at": "2026-10-08T06:55:00Z",
+  "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
+  "jobs": {
+    "host-desktop": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_5faaf59f-f79-2",
+      "session_id": null,
+      "baseline": "4b876c0682374c38c134e32421750f1746e6c17d",
+      "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+      "merged": {
+        "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "d0fb32cb747efba0e57afa924d964119269c7148"
+      }
+    },
+    "spec-review": {
+      "status": "done",
+      "isolation": "direct",
+      "worktree": "",
+      "session_id": null,
+      "baseline": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+      "realised_commit": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+      "merged": {
+        "realised_commit": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "7e7c63269190d5b034abb248eee329115f892efd"
+      }
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "host-desktop"
+      ],
+      "merged": [
+        "host-desktop"
+      ],
+      "commit": "d0fb32cb747efba0e57afa924d964119269c7148",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "7e7c63269190d5b034abb248eee329115f892efd",
+      "integrated": true
+    }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
+    "run_id": "2026-10-08-v-init-vault-host-and-desktop"
+  },
+  "merged_at": "2026-10-08T06:55:00Z"
+}

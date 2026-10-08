@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # Compound V — PreToolUse lane guard (Feature E, v3.0)
 #
+# This hook deliberately IGNORES CV_DISABLED_HOOKS (unlike the other 8 hooks/*.sh).
+# It is the pre-write refusal that enforces job lanes; an env var that can switch
+# enforcement off — and that a project's committed .claude/settings.json `env` block
+# could set for every clone — would widen an authorization instead of silencing a
+# nudge. session-banner.sh reports `lane-guard` as "ignored (enforcement hook)" if a
+# user names it there.
+#
 # WHAT THIS IS
 # ------------
 # A native `PreToolUse` DENY that refuses a write outside the acting job's
@@ -675,6 +682,32 @@ def _rel_under(path, root):
     return None
 
 
+def _crosses_worktree_boundary(cwd, wt):
+    """True when a separate git working tree (a nested worktree, a submodule, a nested repository)
+    sits between `wt` and `cwd`: some directory from `cwd` up to, but excluding, `wt` holds a
+    `.git` entry (a file counts). The scope gate cannot see inside such a tree, and a lane claim on
+    `wt` does not reach into it. Walks in the same path form under which `cwd` is inside `wt`;
+    if no form puts `cwd` inside `wt`, returns False and the claim stands as before."""
+    forms = [(os.path.normpath(cwd), os.path.normpath(wt))]
+    try:
+        forms.append((os.path.realpath(cwd), os.path.realpath(wt)))
+    except Exception:
+        pass
+    for p, r in forms:
+        r = r.rstrip(os.sep)
+        if p != r and not p.startswith(r + os.sep):
+            continue
+        d = p
+        for _ in range(p.count(os.sep) - r.count(os.sep)):
+            if d == r:
+                break
+            if os.path.lexists(os.path.join(d, ".git")):
+                return True
+            d = os.path.dirname(d)
+        return False
+    return False
+
+
 UNRESOLVABLE = ("$", "`", "\n")
 
 
@@ -836,6 +869,10 @@ def resolve_job(agent_id, cwd, maps=None):
         # job (stage-4 dogfood, finding 78: `sort_keys` put the root first).
         for wt, job in sorted(worktrees.items(), key=lambda kv: -len(kv[0])):
             if cwd and _rel_under(cwd, wt) is not None:
+                # A claim stops at a git working-tree boundary: a nested worktree, submodule or
+                # repository under `wt` is another tree, which the scope gate of this job cannot see.
+                if _crosses_worktree_boundary(cwd, wt):
+                    continue
                 return job, manifest, wt, proj, "cwd->worktree"
     return None
 

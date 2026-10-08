@@ -1,0 +1,268 @@
+diff --git a/scripts/compound-v-emit-workflow.py b/scripts/compound-v-emit-workflow.py
+index d879948..6d633ad 100644
+--- a/scripts/compound-v-emit-workflow.py
++++ b/scripts/compound-v-emit-workflow.py
+@@ -4193,8 +4193,9 @@ def read_preexisting_unchanged(snapshot_path, repo_root):
+ # listing taken at register time. Rewrite the manifest and its digest stops
+ # matching, the exemption is lost, and the write is a violation.
+ #
+-# Every entry is self-referential, shared, or written by the pipeline AFTER the
+-# gate built its list — consequences, not choices. Exempting a file from the SCOPE
++# Every entry is self-referential, shared, written by the pipeline AFTER the
++# gate built its list, or written by the lane guard hook rather than by any job
++# — consequences, not choices. Exempting a file from the SCOPE
+ # check does not make it trusted: the receipt, the result and the sealed patch are
+ # each verified by `compound-v-integration-gate.py` (digest against the tree,
+ # exactly one result per job, the artifact hashed against the receipt), and the
+@@ -4219,6 +4220,8 @@ RUN_DIR_EXEMPT_BY_NAME = (
+      "the sealed patch, written by the gate after its verdict; hashed against the receipt"),
+     ("results/{id}.json",
+      "written by Record after the gate; the authority requires exactly one per job"),
++    ("lane-guard-unresolved.jsonl",
++     "written by hooks/lane-guard.sh, never by a job; an append-only record of sessions the guard could not resolve"),
+ )
+ # A re-attempt archives its predecessor as results/attempts/<id>.<n>.json, written
+ # by the same Record call, for the same reason — an unbounded family, matched by
+@@ -5947,6 +5950,78 @@ def _gate_mode_from_receipt(gate_doc):
+     return mode if mode in ("direct", "worktree") else None
+ 
+ 
++_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
++
++
++def _wave_commit_subject(wave, run_id, merged):
++    """The finalizer's own wave-commit subject: the one place its format is spelled."""
++    return "compound-v: wave %d of run %s (%s)" % (wave, run_id, ", ".join(merged) or "no jobs")
++
++
++def _already_integrated_wave(run_dir, repo_root, wave, job_ids):
++    """The wave's result (a dict) when state.json records it integrated at a commit git
++    confirms is in HEAD and carries this run's wave commit; else None. Writes nothing and
++    merges nothing.
++
++    Every condition must hold: the wave record says `integrated: true`; its `jobs` and
++    `merged` both equal `job_ids` as sets; every one of those jobs is recorded integrated;
++    the recorded `commit` is a full hex SHA (checked before it reaches git's argv); git says
++    it is an ancestor of HEAD; and a commit reachable from it, itself included, has exactly
++    the subject `_wave_commit_subject` builds from the recorded `merged` list. Only git exit
++    0 counts as yes. The subject is searched for in the recorded commit's history rather
++    than on the recorded commit alone because the finalizer itself records HEAD as the wave
++    commit when a re-finalize has nothing left to commit, and HEAD is then a later commit.
++
++    Accepted limits: state.json is worker-writable, so a forged wave entry plus a forged
++    commit in HEAD's history carrying the finalizer's subject would make a re-finalize skip
++    that wave (work not re-merged, never ungated work landing). A later revert of the wave
++    commit is not detected. A squash or rebase that drops the commit declines, and the
++    finalizer runs as before."""
++    try:
++        state = _load_state(run_dir)
++    except Exception:  # noqa: BLE001
++        return None
++    rec = (state.get("waves") or {}).get(str(wave))
++    if not isinstance(rec, dict) or rec.get("integrated") is not True:
++        return None
++
++    def decline(why):
++        sys.stderr.write("compound-v: finalize-wave %s: no idempotent short-circuit: %s\n"
++                         % (wave, why))
++        return None
++
++    commit = rec.get("commit")
++    if not isinstance(commit, str) or not _SHA_RE.match(commit):
++        return decline("the recorded commit %r is not a full hex SHA" % (commit,))
++    merged = rec.get("merged") or []
++    if not isinstance(merged, list) or sorted(rec.get("jobs") or []) != sorted(job_ids) \
++            or sorted(merged) != sorted(job_ids):
++        return decline("the recorded wave's jobs/merged are not exactly %s" % ", ".join(job_ids))
++    jobs = state.get("jobs") or {}
++    for jid in job_ids:
++        if (((jobs.get(jid) or {}).get("merged") or {}).get("integrated")) is not True:
++            return decline("job %s is not recorded integrated" % jid)
++    run_id = state.get("run_id") or os.path.basename(os.path.normpath(run_dir))
++    subject = _wave_commit_subject(wave, run_id, merged)
++    try:
++        rc, _o, err = _git(repo_root, ["merge-base", "--is-ancestor", commit, "HEAD"])
++        if rc != 0:
++            return decline("git merge-base --is-ancestor %s HEAD exited %d %s"
++                           % (commit[:12], rc, (err or "").strip()[:160]))
++        rc, subjects, err = _git(repo_root, ["log", "--format=%s", "--fixed-strings",
++                                             "--grep=" + subject, commit])
++    except Exception as exc:  # noqa: BLE001
++        return decline("git raised %s" % exc)
++    if rc != 0:
++        return decline("git log exited %d %s" % (rc, (err or "").strip()[:160]))
++    if subject not in subjects.splitlines():
++        return decline("no commit reachable from %s has the subject %r" % (commit[:12], subject))
++    return {"integrated": True, "merged": list(merged), "commit": commit,
++            "reason": ("wave already integrated at %s, which is in HEAD and carries this run's "
++                       "wave commit (idempotent re-finalize; the authority was not re-run)"
++                       % commit[:12])}
++
++
+ def cmd_finalize_wave(argv):
+     ap = argparse.ArgumentParser(prog="compound-v-emit-workflow.py finalize-wave")
+     ap.add_argument("--run-dir", required=True)
+@@ -5996,6 +6071,18 @@ def cmd_finalize_wave(argv):
+         out["refused"] = job_ids
+         return emit(1)
+ 
++    # ---- 0. ALREADY INTEGRATED? ASK GIT ------------------------------------ #
++    # A relaunch re-runs finalize-wave for every wave, including one state.json
++    # records as integrated. Its receipts may no longer bind (a re-emitted
++    # manifest) and its worktrees may be pruned, so the authority below would
++    # refuse it and the refusal path would write the run BLOCKED. When git
++    # confirms the recorded wave commit is in HEAD and is this run's wave commit,
++    # return its result unchanged: nothing is merged and nothing is written.
++    done = _already_integrated_wave(run_dir, repo_root, args.wave, job_ids)
++    if done is not None:
++        out.update(done)
++        return emit(0)
++
+     # ---- 1. THE AUTHORITY, first ------------------------------------------- #
+     _gate_argv = [
+         args.python, "-B", args.integration_gate,
+@@ -6242,11 +6329,8 @@ def cmd_finalize_wave(argv):
+     if args.no_commit:
+         out["reason"] = "merged but not committed (--no-commit)"
+     else:
+-        message = "compound-v: wave %d of run %s (%s)" % (
+-            args.wave,
+-            state.get("run_id") or os.path.basename(run_dir),
+-            ", ".join(out["merged"]) or "no jobs",
+-        )
++        message = _wave_commit_subject(
++            args.wave, state.get("run_id") or os.path.basename(run_dir), out["merged"])
+         sha, err = _commit_paths(repo_root, unique, message)
+         if err:
+             out["reason"] = err
+@@ -8771,6 +8855,103 @@ def selftest():
+                bool(first) and sha is None and cerr is None
+                and _head_commit(idem_repo) == head_before, str(cerr))
+ 
++        # Re-finalizing a wave state.json records as INTEGRATED, after a relaunch.
++        # The authority here is a stub that always refuses — what the real one
++        # said on 2026-10-05 once the manifest had been re-emitted and the wave's
++        # worktrees pruned — so the only way a row can exit 0 with state.json
++        # untouched is the git-verified short-circuit. Every other row must reach
++        # the refusal path and write the run BLOCKED, exactly as before.
++        rf_repo = os.path.join(tmp, "refin-repo")
++        rf_seed = _init_repo(rf_repo)
++        os.makedirs(os.path.join(rf_repo, "src"), exist_ok=True)
++
++        def _rf_commit(name, message):
++            with open(os.path.join(rf_repo, "src", name), "w", encoding="utf-8") as fh:
++                fh.write("%s\n" % message)
++            return _commit_paths(rf_repo, ["src/" + name], message)[0]
++
++        rf_wave = _rf_commit("w1.txt", _wave_commit_subject(1, "refin", ["w1"]))
++        rf_stub = os.path.join(tmp, "refusing-gate.py")
++        with open(rf_stub, "w", encoding="utf-8") as fh:
++            fh.write("import json, sys\n"
++                     "print(json.dumps({'integration': 'refused', 'tally': {'unverifiable': 1}}))\n"
++                     "sys.exit(1)\n")
++
++        def _refin_run(commit):
++            d = tempfile.mkdtemp(dir=tmp)
++            with open(os.path.join(d, "manifest.yaml"), "w", encoding="utf-8") as fh:
++                json.dump({"run_id": "refin", "jobs": [
++                    {"id": "w1", "isolation": "direct", "write_allowed": ["src/**"]}]}, fh)
++            st = {"run_id": "refin", "phase": "MERGED",
++                  "jobs": {"w1": {"status": "done", "isolation": "direct",
++                                  "merged": {"integrated": True, "commit": commit}}},
++                  "waves": {"1": {"jobs": ["w1"], "merged": ["w1"], "commit": commit,
++                                  "integrated": True}}}
++            with open(os.path.join(d, "state.json"), "w", encoding="utf-8") as fh:
++                json.dump(st, fh, indent=2)
++            return d
++
++        def _refin(d):
++            with open(os.path.join(d, "state.json"), "rb") as fh:
++                before = fh.read()
++            with _quiet():
++                rc = cmd_finalize_wave([
++                    "--run-dir", d, "--repo-root", rf_repo,
++                    "--manifest", os.path.join(d, "manifest.yaml"),
++                    "--jobs", "w1", "--wave", "1", "--integration-gate", rf_stub])
++            with open(os.path.join(d, "state.json"), "rb") as fh:
++                after = fh.read()
++            return rc, before == after, json.loads(after.decode("utf-8")).get("phase")
++
++        _rf = _refin(_refin_run(rf_wave))
++        _check("re-finalize row A: a wave recorded integrated at HEAD, whose commit "
++               "carries this run's wave subject, exits 0 with state.json byte-identical "
++               "and the phase still MERGED, though the authority would refuse it",
++               bool(rf_wave) and _rf == (0, True, "MERGED"), str(_rf))
++        if have_yaml:
++            _rf = _refin(_refin_run("0" * 40))
++            _check("re-finalize row B: a recorded commit git does not have (exit 128) "
++                   "takes no short-circuit; the refusal writes the run BLOCKED",
++                   _rf[0] != 0 and _rf[2] == "BLOCKED", str(_rf))
++            _run(["git", "-C", rf_repo, "checkout", "-q", "-b", "side"])
++            rf_side = _rf_commit("side.txt", _wave_commit_subject(1, "refin", ["w1"]))
++            _run(["git", "-C", rf_repo, "checkout", "-q", "-"])
++            _rf = _refin(_refin_run(rf_side))
++            _check("re-finalize row C: a real commit with the wave subject that is NOT "
++                   "an ancestor of HEAD (exit 1) takes no short-circuit; BLOCKED",
++                   bool(rf_side) and _head_commit(rf_repo) == rf_wave
++                   and _rf[0] != 0 and _rf[2] == "BLOCKED", str(_rf))
++            _rf = _refin(_refin_run(rf_seed))
++            _check("re-finalize row D: an ancestor of HEAD whose history carries no "
++                   "commit with the wave subject takes no short-circuit; BLOCKED",
++                   bool(rf_seed) and _rf[0] != 0 and _rf[2] == "BLOCKED", str(_rf))
++            rf_planted = os.path.join(tmp, "refin-planted-output")
++            _rf = _refin(_refin_run("--output=" + rf_planted))
++            _check("re-finalize row E: a recorded commit starting with '-' never "
++                   "reaches git's argv (no file planted) and takes no short-circuit; "
++                   "BLOCKED",
++                   not os.path.exists(rf_planted)
++                   and _rf[0] != 0 and _rf[2] == "BLOCKED", str(_rf))
++        # The finalizer records HEAD as the wave commit when a re-finalize has
++        # nothing left to commit, and HEAD is then a LATER commit than the wave
++        # commit (run jev-classifier-foundation wave 1 recorded a bookkeeping
++        # commit). Its history still carries the wave subject, so it short-circuits.
++        rf_later = _rf_commit("later.txt", "an ordinary later commit")
++        _rf = _refin(_refin_run(rf_later))
++        _check("re-finalize row F: a wave recorded at a later commit whose history "
++               "carries the wave commit exits 0 with state.json byte-identical",
++               bool(rf_later) and _rf == (0, True, "MERGED"), str(_rf))
++        _check("the wave-commit subject is spelled once, in _wave_commit_subject",
++               _wave_commit_subject(2, "r", ["a", "b"]) == "compound-v: wave 2 of run r (a, b)"
++               and _wave_commit_subject(3, "r", []) == "compound-v: wave 3 of run r (no jobs)"
++               and "_wave_commit_subject" in cmd_finalize_wave.__code__.co_names)
++        # The lane guard's record of sessions it could not resolve is the hook's,
++        # never a job's: exempt by name for any job, and only that exact name.
++        _check("exempt by name: lane-guard-unresolved.jsonl, for any job",
++               run_dir_owned_by_name("run/lane-guard-unresolved.jsonl", "run", "any"))
++        _check("NOT exempt: lane-guard-unresolved.jsonl.bak beside it",
++               not run_dir_owned_by_name("run/lane-guard-unresolved.jsonl.bak", "run", "any"))
++
+         # The authority's refusal is a refusal: nothing merges, nothing commits.
+         if have_yaml:
+             ref_dir = os.path.join(tmp, "refuse")
+@@ -9564,7 +9745,7 @@ def selftest():
+             _check("NOT exempt: a sibling of %s" % _tmpl,
+                    not run_dir_owned_by_name(_own + ".bak", "run", "j1"))
+             _check("NOT exempt: another job's %s" % _tmpl,
+-                   run_dir_owned_by_name(_own, "run", "j2") == (_tmpl == "state.json"))
++                   run_dir_owned_by_name(_own, "run", "j2") == ("{id}" not in _tmpl))
+         _check("exempt by pattern: results/attempts/j1.3.json",
+                run_dir_owned_by_name("run/results/attempts/j1.3.json", "run", "j1"))
+         _check("NOT exempt: manifest.yaml is digest-bound, never by name",
+diff --git a/scripts/compound-v-scope-check.py b/scripts/compound-v-scope-check.py
+index e5ae4e1..1c66897 100755
+--- a/scripts/compound-v-scope-check.py
++++ b/scripts/compound-v-scope-check.py
+@@ -46,9 +46,10 @@ is WHEN it is taken, not a digest:
+ 3. **The pipeline's own files for this job, by name** — the closed list
+    ``RUN_DIR_EXEMPT_BY_NAME`` in ``compound-v-emit-workflow.py`` (``state.json``,
+    ``preexisting/<id>.txt``, ``preexisting/<id>.verified.txt``,
+-   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``) plus
+-   the ``results/attempts/<id>.<n>.json`` family: each is shared, self-referential,
+-   or written by the pipeline after the gate built its list. Exempt from THIS
++   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``,
++   ``lane-guard-unresolved.jsonl``) plus the ``results/attempts/<id>.<n>.json``
++   family: each is shared, self-referential, written by the pipeline after the gate
++   built its list, or written by ``hooks/lane-guard.sh`` and never by a job. Exempt from THIS
+    check only; the authority verifies every one of them by digest.
+    ``manifest.yaml`` is deliberately NOT among them: it DEFINES ``write_allowed``,
+    so a by-name exemption for it would let a job widen its own lane and have both

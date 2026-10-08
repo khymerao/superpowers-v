@@ -1,0 +1,54 @@
+{
+  "base_commit": "82987b1be8724426366d6bb341d392f4c2b0aeb5",
+  "confidence": "localization:exact; tiers:localization,T1,T3",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "scripts/compound-v-jev.py"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:d3875fc10ecc7cc1d391183b5a4bd1a8d2e04e50552d5477fa38a81c3a3ba7b9",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 1,
+    "flags": [],
+    "resolved_paths": [
+      "scripts/compound-v-jev.py"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": null,
+  "pre_eval_id": "2026-10-08T123420Z-the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu-7276",
+  "request_slug": "the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "t3": {
+    "category": "user-facing-major",
+    "engine": "claude"
+  },
+  "t3_demotion": {
+    "applied": false,
+    "category": "user-facing-major",
+    "from": {
+      "difficulty": "high",
+      "impact": "high"
+    }
+  },
+  "t3_reason": "demotion",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T123420Z-the-detect-ui-jev-request-is-rejected-with-http-400-bad-inpu-7276.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1",
+    "T3"
+  ],
+  "ts": "2026-10-08T12:35:05Z"
+}

@@ -13,13 +13,20 @@ Computes the set of files a job actually changed, purely from git:
               ∪ (git ls-files --others --exclude-standard -z)
               ∪ (git ls-files --others --ignored --exclude-standard -z -- .)
               − (preexisting untracked/ignored snapshot, both modes)
+              − (toolchain-artifact paths, glob-matched AND gitignore-verified)
 
-Three union terms and ONE subtraction. THIS SCRIPT ORIGINATES NO EXEMPTION OF ITS
-OWN: it forgives nothing by extension and nothing by name. Everything it forgives
-arrives in ``--preexisting``, and that list is not empty — so naming its contents
-is part of describing the gate honestly (eighth review pass, 2026-09-03; the
-previous wording said "NO carve-outs" full stop, which read as "the gate exempts
-nothing" and is not what a direct-mode run actually does).
+Three union terms and TWO subtractions. THIS SCRIPT ORIGINATES NO EXEMPTION OF
+ITS OWN INITIATIVE: it forgives nothing by extension and nothing by name on its
+own say-so. Everything it forgives arrives from a CALLER, and both lists are
+named here rather than glossed over as "no carve-outs" (eighth review pass,
+2026-09-03, extended for ``toolchain_artifacts``). ``--preexisting`` is a
+before/after snapshot describing what already existed. ``--toolchain-artifact``
+is different in kind: it is a human-reviewed, manifest-declared glob list, and a
+glob match ALONE never forgives anything — a candidate is only dropped once
+``git check-ignore`` independently confirms, at gate time, that the path is
+actually gitignored. A tracked file, or an untracked file that is NOT
+gitignored, is never forgiven this way even if its path matches a declared
+glob.
 
 WHAT THE ``--preexisting`` LIST CONTAINS TODAY. Classes 1-3 are written by
 ``compound-v-emit-workflow.py`` at ``register-lane`` time and verified by it again
@@ -39,9 +46,10 @@ is WHEN it is taken, not a digest:
 3. **The pipeline's own files for this job, by name** — the closed list
    ``RUN_DIR_EXEMPT_BY_NAME`` in ``compound-v-emit-workflow.py`` (``state.json``,
    ``preexisting/<id>.txt``, ``preexisting/<id>.verified.txt``,
-   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``) plus
-   the ``results/attempts/<id>.<n>.json`` family: each is shared, self-referential,
-   or written by the pipeline after the gate built its list. Exempt from THIS
+   ``receipts/<id>.gate.json``, ``jobs/<id>.patch``, ``results/<id>.json``,
+   ``lane-guard-unresolved.jsonl``) plus the ``results/attempts/<id>.<n>.json``
+   family: each is shared, self-referential, written by the pipeline after the gate
+   built its list, or written by ``hooks/lane-guard.sh`` and never by a job. Exempt from THIS
    check only; the authority verifies every one of them by digest.
    ``manifest.yaml`` is deliberately NOT among them: it DEFINES ``write_allowed``,
    so a by-name exemption for it would let a job widen its own lane and have both
@@ -59,9 +67,30 @@ is WHEN it is taken, not a digest:
    and is therefore never exempt — fail closed, the same rule as an unreadable file
    in class 1.
 
-Two exemptions of a different kind — interpreter bytecode by extension, and the
-pipeline's two outcome streams by name — existed briefly in 3.4.0 development and
-were WITHDRAWN by the fourth review pass — a forged ``.pyc`` is executed in place by
+``--toolchain-artifact`` GLOBS ARE A SEPARATE MECHANISM, NOT A FIFTH CLASS OF
+``--preexisting``. A downstream toolchain's OWN first run inside a fresh
+worktree — ``tsc --noEmit`` with an incremental build cache, ``vitest run``
+writing a results cache under ``node_modules/.vite/`` — drops gitignored files
+that did NOT exist at the post-provisioning snapshot, because the test floor
+runs AFTER that snapshot, inside the model's own turn. ``write_allowed`` cannot
+name them without widening a job's lane (globs must stay disjoint across
+jobs), so the manifest instead carries a top-level ``toolchain_artifacts`` glob
+list, reviewed by a human at the same time as the partition. The gate accepts
+these globs via repeated ``--toolchain-artifact GLOB`` and subtracts a
+candidate path ONLY when TWO conditions both hold: it matches one of the
+globs, AND ``git check-ignore`` — run fresh, against the gated tree, at gate
+time — confirms it is actually gitignored. A tracked file matching the glob is
+never forgiven; an untracked file matching the glob that is NOT gitignored is
+never forgiven either. This is why the rule stated above still holds: the
+gate itself forgives nothing by extension or name on its own initiative — this
+is a caller-declared, human-reviewed exemption, verified against
+``git check-ignore`` before it is honoured, not a blanket pattern the gate
+invents.
+
+Two exemptions of a DIFFERENT and narrower kind — a BLIND carve-out by
+extension for interpreter bytecode, and one by name for the pipeline's two
+outcome streams — existed briefly in 3.4.0 development and were WITHDRAWN by
+the fourth review pass — a forged ``.pyc`` is executed in place by
 ``hooks/lane-guard.sh`` and by this file's own importer in
 ``compound-v-integration-gate.py``, so hiding one from the gate removed the last
 signal for it; and the pipeline commits ``triage-outcomes.jsonl`` by name, so a
@@ -69,7 +98,9 @@ worker's rewrite of it rode the next such commit unreported. The honest cases
 both served are handled UPSTREAM instead: nobody writes bytecode (every python
 command the pipeline emits carries ``-B``), and the pipeline's own bookkeeping
 append happens AFTER the integration authority has run, never between a job's
-gate and its re-derivation.
+gate and its re-derivation. ``toolchain_artifacts`` does not repeat that
+mistake: it is never blind, because ``git check-ignore`` is checked every time,
+at gate time, never cached and never trusted from the manifest alone.
 
 All three probes use NUL-delimited (``-z``) output and are split on ``\0``, not
 ``\n`` — NUL is the only byte that cannot appear in a POSIX path, so a filename
@@ -331,6 +362,14 @@ def changed_files(cwd, baseline, preexisting=None):
     # introduced for — an implementer's own selftest leaving scripts/__pycache__ —
     # is fixed where it starts: every python command the pipeline emits runs with
     # `-B`, and the workers are told to do the same.
+    #
+    # A SECOND, LATER subtraction happens one layer up, in `check()`, not here:
+    # `toolchain_artifacts` globs (from the manifest, via `--toolchain-artifact`)
+    # drop a path from what THIS function returns only after `git check-ignore`
+    # independently reconfirms it is gitignored at gate time. It is deliberately
+    # not folded into this function, because it is verified against the SAME
+    # `changed` set this function produces, not against the three raw git probes —
+    # `changed_files()` itself still originates no exemption of its own.
     return sorted(files)
 
 
@@ -521,13 +560,102 @@ def scan_escaping_symlinks(root):
     )
 
 
-def check(cwd, baseline, allowed, preexisting=None):
+def _check_ignore(cwd, paths):
+    """Return the subset of ``paths`` that ``git check-ignore`` confirms are
+    gitignored in the GATED TREE, AT GATE TIME — never ``--no-index``, so the
+    verdict reflects the ``.gitignore`` that actually governs this checkout,
+    not a guess from a glob or a filename.
+
+    ONE ``git check-ignore -z --stdin`` call, fed every candidate NUL-separated
+    on stdin. With ``--stdin -z``, git echoes back — NUL-separated — only the
+    paths that ARE ignored; a tracked path or a plain untracked path that
+    matches no ignore rule is never echoed, so it is never forgiven by this
+    function no matter what glob it also happens to match.
+
+    Exit code 1 means "none of the candidates are ignored" — not an error.
+    Exit code 0 means "at least one was". Anything else (128, a git/path
+    error) IS an error and is raised, same as the other git probes in this
+    file.
+    """
+    if not paths:
+        return []
+    proc = subprocess.run(
+        ["git", "-C", cwd, "check-ignore", "-z", "--stdin"],
+        input="\0".join(paths) + "\0",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        universal_newlines=True,
+    )
+    if proc.returncode not in (0, 1):
+        raise RuntimeError(
+            "git check-ignore failed: %s" % proc.stderr.strip()
+        )
+    return _split_nul(proc.stdout)
+
+
+def manifest_toolchain_artifacts(manifest):
+    """The manifest's top-level ``toolchain_artifacts`` globs, or ``[]``.
+
+    THE ONE READER. This gate owns what the globs mean, so it owns how they are
+    read off a parsed manifest too: the emitter's per-job gate
+    (``compound-v-emit-workflow.py`` ``_toolchain_artifacts_spec``) and the
+    run-wide re-derivation (``compound-v-integration-gate.py``) both call this,
+    so the two can never disagree about which globs a run declared. The
+    integration gate cannot import the emitter (the emitter imports the gate),
+    and a second copy of this parse would be a second definition.
+
+    MANIFEST-LEVEL ONLY: a run-wide declaration, not a per-job one, so there is
+    no job-level override to read. ALL OR NOTHING: a non-empty list whose every
+    entry is a non-blank string is returned as-is; anything else — absent, a
+    bare string, an empty list, one non-string or blank entry, a manifest that
+    is not a mapping — is ``[]``, "nothing declared". Salvaging part of a
+    malformed list would make this reader's idea of the manifest disagree with
+    ``compound-v-validate-manifest.py``, which is where a malformed value is
+    REFUSED (a bare string, a catch-all glob, a non-string entry).
+    """
+    raw = manifest.get("toolchain_artifacts") if isinstance(manifest, dict) else None
+    if isinstance(raw, list) and raw and all(isinstance(g, str) and g.strip() for g in raw):
+        return list(raw)
+    return []
+
+
+def check(cwd, baseline, allowed, preexisting=None, toolchain_artifacts=None):
+    """Compute the changed set, the violations against ``allowed``, and the
+    (possibly empty) list of paths FORGIVEN as toolchain artifacts.
+
+    ``toolchain_artifacts`` (optional iterable of globs, from the manifest's
+    ``toolchain_artifacts`` key) is a CALLER-DECLARED, human-reviewed exemption
+    for a narrow class of paths: build/test-tool bookkeeping files
+    (``tsconfig.tsbuildinfo``, a Vite/Vitest results cache, ...) that a
+    downstream toolchain's OWN first run drops into the tree, gitignored, with
+    no ``write_allowed`` glob that could name them without widening a job's
+    lane. It is subtracted from ``changed`` ONLY IF a path BOTH (a) matches one
+    of these globs AND (b) ``git check-ignore`` independently confirms, right
+    now, that the path is gitignored. Condition (b) is what keeps this honest:
+    a glob alone never forgives anything — a TRACKED file matching the glob,
+    or an untracked-but-NOT-ignored file matching it, is never forgiven and
+    still BLOCKS like any other out-of-lane write. This is a verified,
+    caller-declared exemption, not a new blanket carve-out: the gate still
+    forgives nothing by extension or name on its own initiative.
+    """
     changed = changed_files(cwd, baseline, preexisting=preexisting)
+    forgiven = []
+    if toolchain_artifacts:
+        candidates = [
+            p
+            for p in changed
+            if any(matches(p, glob) for glob in toolchain_artifacts)
+        ]
+        if candidates:
+            forgiven = sorted(_check_ignore(cwd, candidates))
+    if forgiven:
+        forgiven_set = set(forgiven)
+        changed = [p for p in changed if p not in forgiven_set]
     violations = [p for p in changed if not is_allowed(p, allowed)]
     # Escaping symlinks are violations unconditionally — even inside the allowed
     # area, even pre-existing: the link is a write channel out of the tree.
     violations.extend(scan_escaping_symlinks(cwd))
-    return changed, violations
+    return changed, violations, forgiven
 
 
 # A single stray file under a gitignored directory is not a pattern worth
@@ -628,6 +756,18 @@ def build_parser():
         "BEFORE the model launches, so an installed node_modules/ is not charged "
         "to the model.",
     )
+    p.add_argument(
+        "--toolchain-artifact",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        dest="toolchain_artifacts",
+        help="a glob for a toolchain-artifact path (repeatable), from the "
+        "manifest's 'toolchain_artifacts' list. A changed path is subtracted "
+        "ONLY when it ALSO passes 'git check-ignore' at gate time — a tracked "
+        "path, or a plain untracked path that is not gitignored, is NEVER "
+        "forgiven by this flag even if it matches the glob.",
+    )
     p.add_argument("--selftest", action="store_true", help="run built-in tests")
     return p
 
@@ -676,7 +816,13 @@ def main(argv):
         preexisting = load_preexisting_file(args.preexisting)
 
     try:
-        changed, violations = check(cwd, baseline, allowed, preexisting=preexisting)
+        changed, violations, forgiven = check(
+            cwd,
+            baseline,
+            allowed,
+            preexisting=preexisting,
+            toolchain_artifacts=args.toolchain_artifacts,
+        )
     except RuntimeError as e:
         print(json.dumps({"verdict": "error", "error": str(e)}), file=sys.stderr)
         return 2
@@ -689,6 +835,7 @@ def main(argv):
         "changed": changed,
         "allowed": allowed,
         "violations": violations,
+        "toolchain_artifacts": sorted(forgiven),
     }
     print(json.dumps(report, indent=2))
     if violations:
@@ -791,7 +938,7 @@ def _selftest():
             f.write("base modified\n")
         with open(os.path.join(repo, "src", "extra.ts"), "w") as f:
             f.write("extra\n")
-        changed, violations = check(repo, "HEAD", ["src/*"])
+        changed, violations, _ = check(repo, "HEAD", ["src/*"])
         expect(
             "good: changed detects both files",
             set(changed) == {"src/base.ts", "src/extra.ts"},
@@ -801,21 +948,21 @@ def _selftest():
         # BAD case: also touch a forbidden file outside write_allowed.
         with open(os.path.join(repo, "docs", "leak.md"), "w") as f:
             f.write("leak\n")
-        changed, violations = check(repo, "HEAD", ["src/*"])
+        changed, violations, _ = check(repo, "HEAD", ["src/*"])
         expect("bad: docs/leak.md flagged as violation", violations == ["docs/leak.md"])
 
         # ** recursion BAD: nested file not matched by single-star glob.
         os.makedirs(os.path.join(repo, "src", "nested"))
         with open(os.path.join(repo, "src", "nested", "deep.ts"), "w") as f:
             f.write("deep\n")
-        changed, violations = check(repo, "HEAD", ["src/*"])
+        changed, violations, _ = check(repo, "HEAD", ["src/*"])
         expect(
             "bad: src/nested/deep.ts violates src/* (single-star)",
             "src/nested/deep.ts" in violations,
         )
 
         # ** recursion GOOD: src/** allows the nested file.
-        changed, violations = check(repo, "HEAD", ["src/**", "docs/*"])
+        changed, violations, _ = check(repo, "HEAD", ["src/**", "docs/*"])
         expect("good: src/** + docs/* clears all", violations == [])
 
         # worktree mode: create a worktree, change a file, gate it.
@@ -823,7 +970,7 @@ def _selftest():
         run(["git", "worktree", "add", "-q", wt, "HEAD"])
         with open(os.path.join(wt, "src", "wt_only.ts"), "w") as f:
             f.write("wt\n")
-        changed, violations = check(wt, "HEAD", ["src/**"])
+        changed, violations, _ = check(wt, "HEAD", ["src/**"])
         expect("worktree: wt_only.ts detected", "src/wt_only.ts" in changed)
         expect("worktree: no violation under src/**", violations == [])
 
@@ -846,12 +993,12 @@ def _selftest():
         run(["git", "commit", "-q", "-m", "sneaky commit inside worktree"], cwd=wt2)
         # `git diff HEAD` now sees NOTHING (the commit moved HEAD), so a HEAD-baselined
         # gate would falsely PASS. The SHA-baselined gate must still detect + block it.
-        changed_head, _ = check(wt2, "HEAD", ["src/**"])
+        changed_head, _, _ = check(wt2, "HEAD", ["src/**"])
         expect(
             "committed: HEAD-baseline would MISS the committed leak (clean tree)",
             "docs/committed_leak.md" not in changed_head,
         )
-        changed_sha, viol_sha = check(wt2, base_sha, ["src/**"])
+        changed_sha, viol_sha, _ = check(wt2, base_sha, ["src/**"])
         expect(
             "committed: baseline-SHA detects the committed-inside-worktree file",
             "docs/committed_leak.md" in changed_sha,
@@ -869,14 +1016,14 @@ def _selftest():
         with open(os.path.join(repo, "docs", "new_leak.md"), "w") as f:
             f.write("created by the job\n")
         # Without the snapshot: BOTH untracked docs files are flagged.
-        _, viol_no_snap = check(repo, "HEAD", ["src/**"])
+        _, viol_no_snap, _ = check(repo, "HEAD", ["src/**"])
         expect(
             "preexisting: without snapshot both docs files flagged",
             "docs/preexisting.md" in viol_no_snap and "docs/new_leak.md" in viol_no_snap,
         )
         # With the snapshot listing the pre-existing file: it is excluded; the new
         # file outside write_allowed still BLOCKS.
-        changed_snap, viol_snap = check(
+        changed_snap, viol_snap, _ = check(
             repo, "HEAD", ["src/**"], preexisting=["docs/preexisting.md"]
         )
         expect(
@@ -934,7 +1081,7 @@ def _selftest():
                 )
             )
         )
-        changed_noprov, viol_noprov = check(pwt, "HEAD", ["src/**"])
+        changed_noprov, viol_noprov, _ = check(pwt, "HEAD", ["src/**"])
         expect(
             "provisioning: without the snapshot the installed file is a violation",
             "node_modules/x/a" in changed_noprov and "node_modules/x/a" in viol_noprov,
@@ -943,7 +1090,7 @@ def _selftest():
             "provisioning: the worker's two probes list the installed file",
             "node_modules/x/a" in prov_snapshot,
         )
-        changed_prov, viol_prov = check(
+        changed_prov, viol_prov, _ = check(
             pwt, "HEAD", ["src/**"], preexisting=prov_snapshot
         )
         expect(
@@ -954,7 +1101,7 @@ def _selftest():
         # the MODEL then writes outside write_allowed still BLOCKS.
         with open(os.path.join(pwt, "node_modules", "x", "b"), "w") as f:
             f.write("written by the model, after the snapshot\n")
-        _, viol_after = check(pwt, "HEAD", ["src/**"], preexisting=prov_snapshot)
+        _, viol_after, _ = check(pwt, "HEAD", ["src/**"], preexisting=prov_snapshot)
         expect(
             "provisioning: a post-snapshot ignored write still BLOCKS",
             "node_modules/x/b" in viol_after,
@@ -979,7 +1126,7 @@ def _selftest():
         os.makedirs(os.path.join(irepo, "dist"))
         with open(os.path.join(irepo, "dist", "leak.js"), "w") as f:
             f.write("leaked\n")
-        changed, violations = check(irepo, "HEAD", ["src/**"])
+        changed, violations, _ = check(irepo, "HEAD", ["src/**"])
         expect(
             "ignored: dist/leak.js detected despite .gitignore",
             "dist/leak.js" in changed,
@@ -999,7 +1146,7 @@ def _selftest():
             f.write("leaked2\n")
         with open(os.path.join(irepo, "dist", "nested", "leak3.js"), "w") as f:
             f.write("leaked3\n")
-        changed, violations = check(irepo, "HEAD", ["src/**"])
+        changed, violations, _ = check(irepo, "HEAD", ["src/**"])
         expect(
             "hint setup: all three dist/ leaks are BLOCKED (verdict unchanged)",
             {"dist/leak.js", "dist/leak2.js", "dist/nested/leak3.js"}
@@ -1074,7 +1221,7 @@ def _selftest():
         for _nm in ("a.txt", "b.txt", "c.txt"):
             with open(os.path.join(irepo, "loose", _nm), "w") as f:
                 f.write("x\n")
-        _, loose_violations = check(irepo, "HEAD", ["src/**"])
+        _, loose_violations, _ = check(irepo, "HEAD", ["src/**"])
         expect(
             "hint setup: loose/ files BLOCK too (not gitignored)",
             {"loose/a.txt", "loose/b.txt", "loose/c.txt"} <= set(loose_violations),
@@ -1115,7 +1262,7 @@ def _selftest():
             f.write("KEY\n")
         with open(os.path.join(irepo, "evil.py"), "w") as f:
             f.write("print(1)\n")
-        changed, violations = check(irepo, "HEAD", ["docs/**"])
+        changed, violations, _ = check(irepo, "HEAD", ["docs/**"])
         expect("no carve-out: scripts/__pycache__/x.cpython-314.pyc BLOCKS outside the lane",
                "scripts/__pycache__/x.cpython-314.pyc" in changed
                and "scripts/__pycache__/x.cpython-314.pyc" in violations)
@@ -1147,13 +1294,233 @@ def _selftest():
         for _nm in ("triage-outcomes.jsonl", "worker-performance.jsonl", "other.jsonl"):
             with open(os.path.join(irepo, "docs", "superpowers", "memory", _nm), "a") as f:
                 f.write('{"event":"actual","merge_pending":true}\n')
-        changed, violations = check(irepo, "HEAD", ["src/**"])
+        changed, violations, _ = check(irepo, "HEAD", ["src/**"])
         expect("no carve-out: triage-outcomes.jsonl BLOCKS outside the lane",
                "docs/superpowers/memory/triage-outcomes.jsonl" in violations)
         expect("no carve-out: worker-performance.jsonl BLOCKS outside the lane",
                "docs/superpowers/memory/worker-performance.jsonl" in violations)
         expect("no carve-out: a sibling file in memory/ still BLOCKS",
                "docs/superpowers/memory/other.jsonl" in violations)
+
+        # TOOLCHAIN_ARTIFACTS case (issue #22): a downstream test floor
+        # (`tsc --noEmit --incremental`, `vitest run`) drops gitignored
+        # bookkeeping files INSIDE a fresh worktree, after the post-provisioning
+        # --preexisting snapshot was taken. write_allowed can't name them without
+        # widening a job's lane, so a manifest-declared, human-reviewed
+        # `toolchain_artifacts` glob list is subtracted from `changed` — but ONLY
+        # when `git check-ignore` independently reconfirms the path is actually
+        # gitignored. A glob match alone never forgives anything.
+        trepo = os.path.join(tmp, "trepo")
+        os.makedirs(os.path.join(trepo, "src"))
+        os.makedirs(os.path.join(trepo, "reports"))
+        run(["git", "init", "-q"], cwd=trepo)
+        run(["git", "config", "user.email", "t@t.t"], cwd=trepo)
+        run(["git", "config", "user.name", "t"], cwd=trepo)
+        with open(os.path.join(trepo, ".gitignore"), "w") as f:
+            f.write("tsconfig.tsbuildinfo\nnode_modules/\ndist/\n")
+        with open(os.path.join(trepo, "src", "base.ts"), "w") as f:
+            f.write("base\n")
+        # A tracked file that ALSO matches a toolchain glob, but whose path is
+        # NOT covered by .gitignore — row (4).
+        with open(os.path.join(trepo, "reports", "committed.json"), "w") as f:
+            f.write("{}\n")
+        run(["git", "add", "-A"], cwd=trepo)
+        run(["git", "commit", "-q", "-m", "base"], cwd=trepo)
+        artifacts = ["tsconfig.tsbuildinfo", "node_modules/.vite/**", "reports/*.json"]
+
+        # Row (1): ignored path matching a glob IS forgiven — pass verdict,
+        # listed in `toolchain_artifacts`, absent from `changed`.
+        with open(os.path.join(trepo, "tsconfig.tsbuildinfo"), "w") as f:
+            f.write("{}\n")
+        changed_ta, viol_ta, forgiven_ta = check(
+            trepo, "HEAD", ["src/**"], toolchain_artifacts=artifacts
+        )
+        expect(
+            "toolchain: ignored+matched artifact forgiven (pass verdict)",
+            viol_ta == [],
+        )
+        expect(
+            "toolchain: forgiven artifact absent from changed",
+            "tsconfig.tsbuildinfo" not in changed_ta,
+        )
+        expect(
+            "toolchain: forgiven artifact listed in the forgiven set",
+            forgiven_ta == ["tsconfig.tsbuildinfo"],
+        )
+        os.remove(os.path.join(trepo, "tsconfig.tsbuildinfo"))
+
+        # Row (2): an ignored path that matches NO declared glob still BLOCKS —
+        # condition (a) (glob match) is required, gitignore status alone is not
+        # enough.
+        os.makedirs(os.path.join(trepo, "dist"), exist_ok=True)
+        with open(os.path.join(trepo, "dist", "build.js"), "w") as f:
+            f.write("built\n")
+        changed_ta2, viol_ta2, forgiven_ta2 = check(
+            trepo, "HEAD", ["src/**"], toolchain_artifacts=artifacts
+        )
+        expect(
+            "toolchain: ignored file matching NO glob still BLOCKS",
+            "dist/build.js" in viol_ta2,
+        )
+        expect(
+            "toolchain: ignored-but-unmatched file never enters forgiven",
+            "dist/build.js" not in forgiven_ta2,
+        )
+        os.remove(os.path.join(trepo, "dist", "build.js"))
+
+        # Row (3): an untracked path that matches a declared glob but is NOT
+        # gitignored is never forgiven — condition (b) (git check-ignore) is
+        # required, a glob match alone is not enough.
+        with open(os.path.join(trepo, "reports", "fresh.json"), "w") as f:
+            f.write("{}\n")
+        changed_ta3, viol_ta3, forgiven_ta3 = check(
+            trepo, "HEAD", ["src/**"], toolchain_artifacts=artifacts
+        )
+        expect(
+            "toolchain: untracked NON-ignored glob match still BLOCKS",
+            "reports/fresh.json" in viol_ta3,
+        )
+        expect(
+            "toolchain: untracked NON-ignored glob match never forgiven",
+            "reports/fresh.json" not in forgiven_ta3,
+        )
+        os.remove(os.path.join(trepo, "reports", "fresh.json"))
+
+        # Row (4): a TRACKED file, modified, matching a declared glob, but not
+        # gitignored — never forgiven either. Tracking status isn't even the
+        # mechanism here: it is simply not ignored, so condition (b) fails.
+        with open(os.path.join(trepo, "reports", "committed.json"), "w") as f:
+            f.write('{"changed": true}\n')
+        changed_ta4, viol_ta4, forgiven_ta4 = check(
+            trepo, "HEAD", ["src/**"], toolchain_artifacts=artifacts
+        )
+        expect(
+            "toolchain: TRACKED file matching glob still BLOCKS",
+            "reports/committed.json" in viol_ta4,
+        )
+        expect(
+            "toolchain: TRACKED file matching glob never forgiven",
+            "reports/committed.json" not in forgiven_ta4,
+        )
+        run(["git", "checkout", "--", "reports/committed.json"], cwd=trepo)
+
+        # Row (6): a '**' glob forgives a NESTED ignored path.
+        os.makedirs(
+            os.path.join(trepo, "node_modules", ".vite", "vitest", "abc123")
+        )
+        with open(
+            os.path.join(
+                trepo, "node_modules", ".vite", "vitest", "abc123", "results.json"
+            ),
+            "w",
+        ) as f:
+            f.write("{}\n")
+        changed_ta6, viol_ta6, forgiven_ta6 = check(
+            trepo, "HEAD", ["src/**"], toolchain_artifacts=artifacts
+        )
+        expect(
+            "toolchain: '**' glob forgives a nested ignored path",
+            "node_modules/.vite/vitest/abc123/results.json" in forgiven_ta6,
+        )
+        expect(
+            "toolchain: nested forgiven artifact stays out of violations",
+            viol_ta6 == [],
+        )
+        shutil.rmtree(os.path.join(trepo, "node_modules"))
+
+        # Row (7): no toolchain_artifacts at all ⇒ behaviour byte-identical to
+        # before this feature existed. Re-plant the row-1 artifact and confirm
+        # it is NOT forgiven (and BLOCKS, since it's outside write_allowed) when
+        # no glob list is passed.
+        with open(os.path.join(trepo, "tsconfig.tsbuildinfo"), "w") as f:
+            f.write("{}\n")
+        changed_ta7, viol_ta7, forgiven_ta7 = check(trepo, "HEAD", ["src/**"])
+        expect(
+            "toolchain: no flag -> forgiven is empty",
+            forgiven_ta7 == [],
+        )
+        expect(
+            "toolchain: no flag -> the same path BLOCKS like any other ignored write",
+            "tsconfig.tsbuildinfo" in viol_ta7,
+        )
+
+        # Row (5): CLI round trip. --toolchain-artifact repeated twice; the JSON
+        # report carries the key either way, forgiving the planted artifact.
+        cli_ta = subprocess.run(
+            [
+                sys.executable, "-B", os.path.abspath(__file__),
+                "--worktree", trepo, "--allow", "src/**",
+                "--toolchain-artifact", "tsconfig.tsbuildinfo",
+                "--toolchain-artifact", "reports/*.json",
+            ],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+        )
+        expect("toolchain: CLI round trip exits 0 (pass)", cli_ta.returncode == 0)
+        try:
+            cli_ta_verdict = json.loads(cli_ta.stdout)
+        except ValueError:
+            cli_ta_verdict = {}
+        expect(
+            "toolchain: CLI JSON report has a 'toolchain_artifacts' key",
+            "toolchain_artifacts" in cli_ta_verdict,
+        )
+        expect(
+            "toolchain: CLI report lists the forgiven artifact",
+            cli_ta_verdict.get("toolchain_artifacts") == ["tsconfig.tsbuildinfo"],
+        )
+        expect(
+            "toolchain: CLI 'changed' does not include the forgiven artifact",
+            "tsconfig.tsbuildinfo" not in (cli_ta_verdict.get("changed") or []),
+        )
+        os.remove(os.path.join(trepo, "tsconfig.tsbuildinfo"))
+
+        # CLI round trip with NO --toolchain-artifact flag: report still carries
+        # the key, empty — byte-identical shape, just an empty list (row 7, CLI
+        # side).
+        cli_ta_none = subprocess.run(
+            [sys.executable, "-B", os.path.abspath(__file__),
+             "--worktree", trepo, "--allow", "src/**"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True,
+        )
+        try:
+            cli_ta_none_verdict = json.loads(cli_ta_none.stdout)
+        except ValueError:
+            cli_ta_none_verdict = {}
+        expect(
+            "toolchain: CLI with no flag reports an empty toolchain_artifacts list",
+            cli_ta_none_verdict.get("toolchain_artifacts") == [],
+        )
+
+        # The manifest READER (moved here from the emitter so the integration
+        # gate and the per-job gate share one parse). All or nothing.
+        expect(
+            "toolchain reader: a well-formed list is returned as-is",
+            manifest_toolchain_artifacts(
+                {"toolchain_artifacts": ["build/**", "tsconfig.tsbuildinfo"]}
+            ) == ["build/**", "tsconfig.tsbuildinfo"],
+        )
+        expect(
+            "toolchain reader: absent key -> []",
+            manifest_toolchain_artifacts({"jobs": []}) == [],
+        )
+        expect(
+            "toolchain reader: a bare string is not salvaged -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": "build/**"}) == [],
+        )
+        expect(
+            "toolchain reader: one non-string entry voids the whole list -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", 3]}) == [],
+        )
+        expect(
+            "toolchain reader: one blank entry voids the whole list -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": ["build/**", " "]}) == [],
+        )
+        expect(
+            "toolchain reader: an empty list and a non-mapping manifest -> []",
+            manifest_toolchain_artifacts({"toolchain_artifacts": []}) == []
+            and manifest_toolchain_artifacts(["build/**"]) == []
+            and manifest_toolchain_artifacts(None) == [],
+        )
 
         # UNUSUAL-FILENAME case: with NUL-delimited (-z) parsing, a path with a
         # space — and (where the OS allows) a literal newline — is attributed as a
@@ -1172,7 +1539,7 @@ def _selftest():
         # A file with a space in the name, OUTSIDE write_allowed → must BLOCK as one path.
         with open(os.path.join(nrepo, "docs with space.md"), "w") as f:
             f.write("space\n")
-        changed_sp, viol_sp = check(nrepo, "HEAD", ["src/**"])
+        changed_sp, viol_sp, _ = check(nrepo, "HEAD", ["src/**"])
         expect(
             "unusual: 'docs with space.md' attributed as one path",
             "docs with space.md" in changed_sp,
@@ -1192,7 +1559,7 @@ def _selftest():
         except (OSError, ValueError):
             created_nl = False
         if created_nl:
-            changed_nl, viol_nl = check(nrepo, "HEAD", ["src/**"])
+            changed_nl, viol_nl, _ = check(nrepo, "HEAD", ["src/**"])
             expect(
                 "unusual: newline filename kept intact as one path",
                 nl_name in changed_nl,
@@ -1226,7 +1593,7 @@ def _selftest():
         run(["git", "add", "-A"], cwd=rrepo)
         run(["git", "commit", "-q", "-m", "base"], cwd=rrepo)
         run(["git", "mv", "docs/important.md", "src/renamed.md"], cwd=rrepo)
-        changed_rn, viol_rn = check(rrepo, "HEAD", ["src/**"])
+        changed_rn, viol_rn, _ = check(rrepo, "HEAD", ["src/**"])
         expect(
             "rename: out-of-scope source docs/important.md surfaces in changed",
             "docs/important.md" in changed_rn,
@@ -1258,7 +1625,7 @@ def _selftest():
             os.makedirs(outside_dir)
         os.symlink(outside_dir, os.path.join(srepo, "src", "escape"))
         os.symlink("base.ts", os.path.join(srepo, "src", "inside_link"))
-        changed_sl, viol_sl = check(srepo, "HEAD", ["src/**"])
+        changed_sl, viol_sl, _ = check(srepo, "HEAD", ["src/**"])
         expect(
             "symlink: job-created escaping link BLOCKS despite matching src/**",
             "src/escape (symlink escapes the worktree)" in viol_sl,
@@ -1281,7 +1648,7 @@ def _selftest():
         os.symlink(outside_dir, os.path.join(perepo, "src", "pre_escape"))
         run(["git", "add", "-A"], cwd=perepo)
         run(["git", "commit", "-q", "-m", "base with escaping symlink"], cwd=perepo)
-        changed_pe, viol_pe = check(perepo, "HEAD", ["src/**"])
+        changed_pe, viol_pe, _ = check(perepo, "HEAD", ["src/**"])
         expect(
             "symlink: pre-existing (committed) escaping link — git diff is empty",
             changed_pe == [],
@@ -1298,7 +1665,7 @@ def _selftest():
         # variants must BLOCK; the repo root's own real .git must NOT be flagged.
         os.makedirs(os.path.join(srepo, "src", "vendor"))
         os.symlink(outside_dir, os.path.join(srepo, "src", "vendor", ".git"))
-        _, viol_gl = check(srepo, "HEAD", ["src/**"])
+        _, viol_gl, _ = check(srepo, "HEAD", ["src/**"])
         expect(
             "symlink: nested .git-named escaping link BLOCKS (job-created)",
             "src/vendor/.git (symlink escapes the worktree)" in viol_gl,
@@ -1313,7 +1680,7 @@ def _selftest():
         # UNTRACKED (as a leftover from a prior job / base image would be).
         os.makedirs(os.path.join(perepo, "sub"))
         os.symlink(outside_dir, os.path.join(perepo, "sub", ".git"))
-        _, viol_gp = check(perepo, "HEAD", ["src/**", "sub/**"])
+        _, viol_gp, _ = check(perepo, "HEAD", ["src/**", "sub/**"])
         expect(
             "symlink: nested .git-named escaping link BLOCKS (untracked leftover)",
             "sub/.git (symlink escapes the worktree)" in viol_gp,
@@ -1325,7 +1692,7 @@ def _selftest():
         # under any .git path, so the FS scan is again the only detector.
         os.makedirs(os.path.join(perepo, "deep", ".git"))
         os.symlink(outside_dir, os.path.join(perepo, "deep", ".git", "out"))
-        _, viol_gd = check(perepo, "HEAD", ["src/**", "sub/**", "deep/**"])
+        _, viol_gd, _ = check(perepo, "HEAD", ["src/**", "sub/**", "deep/**"])
         expect(
             "symlink: escaping link INSIDE a nested real .git dir BLOCKS",
             "deep/.git/out (symlink escapes the worktree)" in viol_gd,
@@ -1343,7 +1710,7 @@ def _selftest():
         os.symlink(outside_dir, os.path.join(hidden, "sneak"))
         os.chmod(hidden, 0)
         try:
-            _, viol_ur = check(perepo, "HEAD", ["src/**", "sub/**", "deep/**", "hidden/**"])
+            _, viol_ur, _ = check(perepo, "HEAD", ["src/**", "sub/**", "deep/**", "hidden/**"])
             expect(
                 "symlink: chmod-000 dir is a loud violation (cannot rule out a link)",
                 any("hidden" in v and "unreadable during symlink scan" in v for v in viol_ur),
@@ -1360,7 +1727,7 @@ def _selftest():
         os.symlink(outside_dir, os.path.join(nx, "sneak"))
         os.chmod(nx, 0o400)
         try:
-            _, viol_nx = check(perepo, "HEAD",
+            _, viol_nx, _ = check(perepo, "HEAD",
                                ["src/**", "sub/**", "deep/**", "hidden/**", "noexec/**"])
             expect(
                 "symlink: 0400 non-searchable dir surfaces as unreadable (no false PASS)",
@@ -1425,7 +1792,7 @@ def _selftest():
             "spec = importlib.util.spec_from_file_location('_cv_probe', sys.argv[1])\n"
             "mod = importlib.util.module_from_spec(spec)\n"
             "spec.loader.exec_module(mod)\n"
-            "changed, viol = mod.check(sys.argv[2], 'HEAD', ['src/**'])\n"
+            "changed, viol, _f = mod.check(sys.argv[2], 'HEAD', ['src/**'])\n"
             "print(json.dumps({'changed': changed, 'violations': viol}))\n"
         )
         proc = subprocess.run(

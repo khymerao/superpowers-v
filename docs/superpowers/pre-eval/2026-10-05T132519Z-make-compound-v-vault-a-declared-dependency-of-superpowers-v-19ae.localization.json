@@ -1,0 +1,10 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:eceb65ccd176a8ecbd46c831a9868e1fbd5595cabe618a6f9638c9d5a925a2b8",
+  "fan_out": 2,
+  "flags": [],
+  "resolved_paths": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json"
+  ]
+}

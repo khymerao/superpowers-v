@@ -1,0 +1,500 @@
+diff --git a/schemas/pre-eval-record.schema.json b/schemas/pre-eval-record.schema.json
+index 71cc159..ff8e7d9 100644
+--- a/schemas/pre-eval-record.schema.json
++++ b/schemas/pre-eval-record.schema.json
+@@ -184,6 +184,39 @@
+       "enum": ["unbanded", "demotion", "sensitive"],
+       "description": "OPTIONAL (v3.4.1). WHY the light classify was consulted: `unbanded` (T1 could not band the path at all — the pre-3.4.1 case), `demotion` (T1 banded it, but only from a broad directory glob, §A2), or `sensitive` (a small edit on a sensitive path that may reach SCOPED+, §A3). The re-entry is identical in all three cases, so nothing branches on this — it exists so a log or an audit can tell a classify that RESCUED a change from a broad glob apart from one that merely filled a gap."
+     },
++    "t3": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["engine", "category"],
++      "description": "OPTIONAL (Jev classifier foundation, spec 1). WHICH engine answered the T3 question, and what it said. Written only when the caller supplied it AND T3 was actually consulted (`T3` in `tiers_signalled`); a record on which T3 was never asked has no `t3` key at all. IT IS EVIDENCE, NEVER A GATE: `decision` is derived from the T3 category passed to the engine, never from this block, and a reader that wants the tier reads `decision`. It is covered by `digest` like every other field, because `build_record` adds it before the digest is computed.",
++      "properties": {
++        "engine": {
++          "type": "string",
++          "enum": ["jev", "claude", "codex", "parent"],
++          "description": "The engine whose answer decided T3: the Claude or Codex classifier, or the parent session. `jev` is reserved: in spec 1 Jev runs only in shadow and never decides, so the triage CLI does not offer it."
++        },
++        "category": {
++          "type": "string",
++          "enum": ["plumbing", "user-facing-minor", "user-facing-major", "unknown"],
++          "description": "The T3 enum the deciding engine answered — the same value the engine scored with."
++        },
++        "probs": {
++          "type": "object",
++          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 },
++          "description": "OPTIONAL. The engine's probability per category label, when it reports one. Keyed by label, because the order an engine returns them in is not stable."
++        },
++        "model": {
++          "type": "string",
++          "maxLength": 80,
++          "description": "OPTIONAL. The model id the engine's response named, as returned (a resolved id, not an alias)."
++        },
++        "catalogue_hash": {
++          "type": "string",
++          "maxLength": 80,
++          "description": "OPTIONAL. The content hash of the question catalogue the request was built from."
++        }
++      }
++    },
+     "session_id": {
+       "type": ["string", "null"],
+       "minLength": 1,
+diff --git a/scripts/compound-v-preeval.py b/scripts/compound-v-preeval.py
+index 04218de..1cdbf5e 100644
+--- a/scripts/compound-v-preeval.py
++++ b/scripts/compound-v-preeval.py
+@@ -110,8 +110,10 @@ Python 3.9-safe, stdlib only; soft-PyYAML via the shared taxonomy loader (never
+ `import yaml`); no external CLI is launched from here (localize owns the supervisor boundary).
+ 
+ Usage:
+-    compound-v-preeval.py triage --request-env VAR --repo DIR [--session-id S]
+-        [--base-commit SHA] [--t3-category C] [--json]
++    compound-v-preeval.py triage (--request-env VAR | --request-file PATH) --repo DIR
++        [--session-id S] [--base-commit SHA] [--t3-category C] [--json]
++        [--t3-engine claude|codex|parent [--t3-probs-json JSON] [--t3-model STR]
++         [--t3-catalogue-hash STR]]   # record which engine answered T3 (evidence only)
+         # Phase T: score + BIND + write the record, and report the tier with spec §A4
+         # predicates 1-6. Its two callers are `hooks/triage-prompt-nudge.sh` (the
+         # UserPromptSubmit producer) and `commands/v-triage.md` step T2 — see
+@@ -266,6 +268,47 @@ DEMOTION_MAX_FAN_OUT = 2
+ # identical in all three cases (`--t3-category <enum>`); nothing branches on this.
+ T3_REASONS = ("unbanded", "demotion", "sensitive")
+ 
++# The record's `t3` block: which engine answered T3. The schema enum keeps `jev`, but in
++# spec 1 Jev runs only in shadow and never decides, so the triage CLI offers the other three.
++T3_ENGINES = ("jev", "claude", "codex", "parent")
++T3_CLI_ENGINES = ("claude", "codex", "parent")
++_T3_META_KEYS = ("engine", "category", "probs", "model", "catalogue_hash")
++_T3_META_STR_MAX = 80
++
++
++def _t3_probs_ok(probs):
++    """True when `probs` is an object of label -> number in [0, 1]. Booleans are refused
++    although Python counts them as ints: a `true` probability is a caller bug."""
++    if not isinstance(probs, dict):
++        return False
++    for label, p in probs.items():
++        if not isinstance(label, str) or isinstance(p, bool) \
++                or not isinstance(p, (int, float)):
++            return False
++        if not 0 <= p <= 1:  # also refuses NaN, which compares false both ways
++            return False
++    return True
++
++
++def _clean_t3_meta(t3_meta):
++    """Return the record's `t3` block for `t3_meta`: the known keys, minus `None` values.
++    Raises ValueError on anything the schema would reject, so a bad block fails the call
++    BEFORE any artifact is written instead of producing a record that does not validate."""
++    if not isinstance(t3_meta, dict):
++        raise ValueError("t3_meta must be a dict")
++    out = {k: t3_meta[k] for k in _T3_META_KEYS if t3_meta.get(k) is not None}
++    if out.get("engine") not in T3_ENGINES:
++        raise ValueError("t3_meta.engine must be one of %s" % ", ".join(T3_ENGINES))
++    if out.get("category") not in T3_CATEGORIES:
++        raise ValueError("t3_meta.category must be one of %s" % ", ".join(T3_CATEGORIES))
++    if "probs" in out and not _t3_probs_ok(out["probs"]):
++        raise ValueError("t3_meta.probs must map labels to numbers in [0, 1]")
++    for k in ("model", "catalogue_hash"):
++        if k in out and (not isinstance(out[k], str) or len(out[k]) > _T3_META_STR_MAX):
++            raise ValueError("t3_meta.%s must be a string of at most %d characters"
++                             % (k, _T3_META_STR_MAX))
++    return out
++
+ # Derived 1-10 DISPLAY (spec §2 — post-decision label, NEVER the gate). Band-midpoint.
+ _BAND_DISPLAY = {"low": 2, "medium": 5, "high": 8}  # unknown/None → null
+ 
+@@ -1002,7 +1045,10 @@ def build_record(pre_eval_id, request, verdict, localization, taxonomy_version,
+     # that took none of the new paths produces byte-for-byte the record it produced before
+     # this release, which matters because `write_record` is write-once and re-running
+     # triage on the same request must not collide with its own earlier answer.
+-    for _k in ("flavor", "t3_demotion", "t3_reason"):
++    # `t3` (which engine answered T3) follows the same rule: `run_preeval` sets it on the
++    # verdict only when T3 was consulted and the caller supplied it, and it lands here,
++    # before the digest, so the digest covers it.
++    for _k in ("flavor", "t3_demotion", "t3_reason", "t3"):
+         if verdict.get(_k) is not None:
+             rec[_k] = verdict[_k]
+ 
+@@ -1201,10 +1247,18 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+                 pre_eval_id=None, ts=None, config_values=None, tier2=None,
+                 churn_hot=None, advisor_hot=None, run_dir=None, _localize=None,
+                 write_localization=True, stream_path=None, append_predicted=True,
+-                binding=None):
++                binding=None, t3_meta=None):
+     """End-to-end Phase-P run. Writes intent → (localization) → taxonomy snapshot → record,
+     then appends the `predicted` triage event. NEVER runs git (the orchestrator commits).
+ 
++    `t3_meta` is the OPTIONAL record `t3` block: `{"engine", "category", "probs"?, "model"?,
++    "catalogue_hash"?}` — which engine answered T3 and what it said. It is evidence, never
++    an input: `score()` still decides from `t3_category` alone. It reaches the record only
++    when T3 was consulted (`"T3"` in the verdict's `tiers_signalled`), through the verdict
++    and so through `build_record`'s optional-key loop, before the digest. `None` fields are
++    dropped; a block the schema would reject raises ValueError before anything is written.
++    With `t3_meta=None` (the default) the record is byte-for-byte what it was before.
++
+     `binding` is the OPTIONAL Feature-C coverage binding (`session_id` / `base_commit`) that
+     `triage_request` supplies. When given, `declared_paths` is derived HERE from the
+     localization this run actually produced and the pair is threaded into `build_record`'s
+@@ -1232,6 +1286,7 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+     """
+     repo = repo or "."
+     ts = ts or _now_iso()
++    t3_block = _clean_t3_meta(t3_meta) if t3_meta is not None else None
+ 
+     # Config (fail-closed): enabled, fast_path, fan_out_threshold, token_cap, min_sample_count.
+     if config_values is None:
+@@ -1345,6 +1400,11 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+     # `declared_paths` is derived from THIS run's localization and rides in on the same
+     # kwarg as the rest of the binding, so the digest covers all of it (build_record's
+     # docstring: attaching binding fields after the fact silently breaks the digest).
++    # The `t3` block rides on the verdict only when T3 was actually consulted: a record
++    # that never asked T3 has nothing to say about who answered it.
++    if t3_block is not None and "T3" in (verdict.get("tiers_signalled") or []):
++        verdict = dict(verdict, t3=t3_block)
++
+     record_binding = None
+     refused_paths = []
+     if binding:
+@@ -1517,9 +1577,13 @@ def auto_route_predicates(record, repo, pre_eval_id):
+ 
+ 
+ def triage_request(request, repo=".", session_id=None, base_commit=None,
+-                   t3_category=None, ts=None, **kwargs):
++                   t3_category=None, ts=None, t3_meta=None, **kwargs):
+     """Score ONE change request, bind it, write its record, and report the tier.
+ 
++    `t3_meta` is passed straight to `run_preeval` (see there). When the record carries a
++    `t3` block, the result echoes it as `t3`; otherwise the result has no `t3` key, so a
++    caller that never passes `t3_meta` sees exactly the result it saw before.
++
+     Called by `hooks/triage-prompt-nudge.sh` (the UserPromptSubmit hook, which is the
+     mechanical producer) and by `commands/v-triage.md` step T2 (the human/agent entry
+     point). Both go through here; neither re-derives any of it.
+@@ -1568,7 +1632,7 @@ def triage_request(request, repo=".", session_id=None, base_commit=None,
+     binding = {"session_id": sid, "base_commit": base}
+ 
+     res = run_preeval(request, repo=repo, t3_category=t3_category, ts=ts,
+-                      binding=binding, **kwargs)
++                      binding=binding, t3_meta=t3_meta, **kwargs)
+ 
+     base_out = {
+         "pre_eval_id": res.get("pre_eval_id"),
+@@ -1617,9 +1681,24 @@ def triage_request(request, repo=".", session_id=None, base_commit=None,
+         override_fired=rec.get("override_fired"),
+         flavor=rec.get("flavor"),
+     )
++    if rec.get("t3") is not None:
++        base_out["t3"] = rec["t3"]
+     return base_out
+ 
+ 
++def _read_request_file(path):
++    """Read a `--request-file`: UTF-8, with exactly one trailing newline stripped (the one
++    an editor or `printf '%s\\n'` adds). Raises OSError / UnicodeDecodeError on a file that
++    cannot be read as UTF-8; the caller turns either into a refusal."""
++    with open(path, "r", encoding="utf-8", newline="") as fh:
++        text = fh.read()
++    if text.endswith("\r\n"):
++        return text[:-2]
++    if text.endswith("\n"):
++        return text[:-1]
++    return text
++
++
+ def _triage_cli(argv):
+     """`compound-v-preeval.py triage …` — the subcommand both callers invoke."""
+     ap = argparse.ArgumentParser(prog="compound-v-preeval.py triage")
+@@ -1630,6 +1709,9 @@ def _triage_cli(argv):
+                           "form both shipped callers use: a prompt is arbitrary user text "
+                           "and does not belong on argv, where it is visible to every "
+                           "process on the machine and has to survive shell quoting.")
++    src.add_argument("--request-file", dest="request_file", metavar="PATH",
++                     help="read the request from file PATH (UTF-8; one trailing newline "
++                          "is stripped). Like --request-env, it keeps the request off argv.")
+     ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
+     ap.add_argument("--session-id", dest="session_id", default=None,
+                     help="the harness session id to BIND this record to. Bound verbatim; "
+@@ -1639,6 +1721,16 @@ def _triage_cli(argv):
+                          "module never runs git.")
+     ap.add_argument("--t3-category", dest="t3_category", choices=list(T3_CATEGORIES),
+                     help="pre-resolved T3 enum for a needs_t3 re-invocation")
++    ap.add_argument("--t3-engine", dest="t3_engine", choices=list(T3_CLI_ENGINES),
++                    help="which engine answered T3 (recorded as the record's `t3` block; "
++                         "needs --t3-category). Evidence only: it never changes the tier.")
++    ap.add_argument("--t3-probs-json", dest="t3_probs_json", metavar="JSON",
++                    help="the answering engine's probabilities: a JSON object of label to "
++                         "number in [0, 1]")
++    ap.add_argument("--t3-model", dest="t3_model", metavar="STR",
++                    help="the model id the answering engine's response named")
++    ap.add_argument("--t3-catalogue-hash", dest="t3_catalogue_hash", metavar="STR",
++                    help="content hash of the question catalogue the request was built from")
+     ap.add_argument("--taxonomy", help="taxonomy YAML path (default: .claude/…yaml)")
+     ap.add_argument("--json", action="store_true",
+                     help="emit the result as JSON (the only supported output today; the "
+@@ -1647,17 +1739,51 @@ def _triage_cli(argv):
+ 
+     if args.request_env:
+         request = os.environ.get(args.request_env) or ""
++    elif args.request_file:
++        try:
++            request = _read_request_file(args.request_file)
++        except (OSError, UnicodeDecodeError):
++            # The path is the caller's own argument; the contents are never echoed.
++            sys.stderr.write("REFUSED: --request-file cannot be read as UTF-8 text\n")
++            return 2
+     else:
+         request = args.request or ""
+     if not request.strip():
+         sys.stderr.write("REFUSED: triage needs a non-empty request\n")
+         return 2
+ 
++    # The `t3` block is built only when an engine is named, and it must name the category
++    # that engine answered: a block without one would make a record the schema rejects.
++    t3_meta = None
++    if args.t3_engine:
++        if args.t3_category is None:
++            sys.stderr.write("REFUSED: --t3-engine needs --t3-category\n")
++            return 2
++        probs = None
++        if args.t3_probs_json is not None:
++            try:
++                probs = json.loads(args.t3_probs_json)
++            except ValueError:
++                probs = None
++            if not _t3_probs_ok(probs):
++                sys.stderr.write("REFUSED: --t3-probs-json must be a JSON object of "
++                                 "label to number in [0, 1]\n")
++                return 2
++        for _flag, _val in (("--t3-model", args.t3_model),
++                            ("--t3-catalogue-hash", args.t3_catalogue_hash)):
++            if _val is not None and len(_val) > _T3_META_STR_MAX:
++                sys.stderr.write("REFUSED: %s is longer than %d characters\n"
++                                 % (_flag, _T3_META_STR_MAX))
++                return 2
++        t3_meta = {"engine": args.t3_engine, "category": args.t3_category,
++                   "probs": probs, "model": args.t3_model,
++                   "catalogue_hash": args.t3_catalogue_hash}
++
+     try:
+         out = triage_request(request, repo=args.repo, session_id=args.session_id,
+                              base_commit=args.base_commit,
+                              t3_category=args.t3_category,
+-                             taxonomy_path=args.taxonomy)
++                             taxonomy_path=args.taxonomy, t3_meta=t3_meta)
+     except (OSError, ValueError, RuntimeError) as exc:
+         sys.stderr.write("triage failed: %s\n" % exc)
+         return 1
+@@ -3077,6 +3203,209 @@ def _selftest():
+                                          "a/x.spec.ts", "a/conftest.py"))
+            and not is_test_path("src/ui/button.css"))
+ 
++    # ----------------------------------------------------------------------- #
++    # The record `t3` block (Jev classifier foundation, Task A): WHICH engine answered
++    # the T3 question, with its category and, when it has them, its probabilities. It is
++    # evidence beside the decision, never an input to it, and it is written only when T3
++    # was actually consulted. Every row names the planted failure it exists to catch.
++    # ----------------------------------------------------------------------- #
++    _t3_ts = "2026-10-05T09:00:00Z"
++    _t3_meta = {"engine": "claude", "category": "plumbing"}
++
++    def _t3_repo(repo, text):
++        os.makedirs(os.path.join(repo, ".claude"))
++        with open(os.path.join(repo, ".claude", "compound-v-impact-taxonomy.yaml"), "w",
++                  encoding="utf-8") as fh:
++            fh.write(text)
++        return os.path.join(repo, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
++
++    def _t3_run(text, paths, flags, cat, pid, request, **kw):
++        """One run_preeval in a fresh repo. Returns (result, stream lines)."""
++        with tempfile.TemporaryDirectory() as _r:
++            _s = _t3_repo(_r, text)
++            _res = run_preeval(request, repo=_r, pre_eval_id=pid, t3_category=cat,
++                               ts=_t3_ts, config_values=_cfg(), stream_path=_s,
++                               _localize=fake_localize_factory(
++                                   _loc(paths, flags=flags, fan_out=len(paths))), **kw)
++            _lines = []
++            if os.path.isfile(_s):
++                with open(_s, "r", encoding="utf-8") as fh:
++                    _lines = [json.loads(ln) for ln in fh if ln.strip()]
++        return _res, _lines
++
++    _demo = (_BREADTH_TAXONOMY_TEXT, ["scripts/x.py"], [], "plumbing",
++             "2026-10-05T090000Z-fix-a-typo-t3a", "fix a typo in a log line")
++
++    # (a) demotion fixture + plumbing + t3_meta -> the record carries the block, valid.
++    _ra, _ = _t3_run(*_demo, t3_meta=dict(_t3_meta))
++    expect("T3META (a): the demotion record carries t3 == the engine and category given "
++           "[planted: omit `t3` from build_record's optional-key loop]",
++           _ra["record"].get("t3") == {"engine": "claude", "category": "plumbing"}
++           and _ra["decision"] == DECISION_SCOPED)
++    _schema_check(expect, _ra["record"], must_validate=True,
++                  label="T3META (a): a record with a t3 block validates "
++                        "[planted: no `t3` in the schema's closed properties]")
++    _ra_full, _ = _t3_run(*_demo, t3_meta={"engine": "codex", "category": "plumbing",
++                                           "probs": {"plumbing": 0.9, "unknown": 0.1},
++                                           "model": "gpt-x", "catalogue_hash": "sha256:ab",
++                                           "ignored": None})
++    expect("T3META (a): optional fields ride through and None fields are dropped "
++           "[planted: copy t3_meta verbatim]",
++           _ra_full["record"].get("t3") == {
++               "engine": "codex", "category": "plumbing",
++               "probs": {"plumbing": 0.9, "unknown": 0.1}, "model": "gpt-x",
++               "catalogue_hash": "sha256:ab"})
++    with tempfile.TemporaryDirectory() as _r:
++        _s = _t3_repo(_r, _BREADTH_TAXONOMY_TEXT)
++        _tt = triage_request("fix a typo in a log line", repo=_r, session_id="sess-t3",
++                             t3_category="plumbing", t3_meta=dict(_t3_meta), ts=_t3_ts,
++                             _localize=fake_localize_factory(
++                                 _loc(["scripts/x.py"], flags=[], fan_out=1)),
++                             stream_path=_s, config_values=_cfg())
++    expect("T3META (a): triage JSON echoes the record's t3 block "
++           "[planted: triage_request drops `t3` from its result]",
++           _tt.get("t3") == {"engine": "claude", "category": "plumbing"})
++
++    # (b) the digest covers t3.engine: a different engine is a different digest, and each
++    # record's own digest still verifies.
++    _rb, _ = _t3_run(*_demo, t3_meta={"engine": "codex", "category": "plumbing"})
++    expect("T3META (b): the digest changes when t3.engine changes, and both verify "
++           "[planted: attach `t3` after the digest is computed]",
++           _ra["record"]["digest"] != _rb["record"]["digest"]
++           and all(_x["record"]["digest"]
++                   == _tax().record_digest(_x["record"], exclude_field="digest")
++                   for _x in (_ra, _rb)))
++
++    # (c) t3_meta given but T3 never consulted -> no t3 key at all.
++    _rc, _ = _t3_run(_EXAMPLE_TAXONOMY_TEXT, ["src/ui/button.css"], [], None,
++                     "2026-10-05T090000Z-tweak-padding-t3c", "tweak local button padding",
++                     t3_meta=dict(_t3_meta))
++    expect("T3META (c): T3 not consulted -> no t3 key even when t3_meta is given "
++           "[planted: drop the `\"T3\" in tiers_signalled` test]",
++           "T3" not in _rc["record"]["tiers_signalled"] and "t3" not in _rc["record"])
++
++    # (d) t3_meta=None is byte-identical to a call without the parameter, on every
++    # existing T3 fixture shape: unbanded (three answers), demotion (three answers) and
++    # the SCOPED+ sensitive path.
++    _fixtures = [
++        (_EXAMPLE_TAXONOMY_TEXT, ["tools/gen.py"], [], "plumbing"),
++        (_EXAMPLE_TAXONOMY_TEXT, ["tools/gen.py"], [], "user-facing-minor"),
++        (_EXAMPLE_TAXONOMY_TEXT, ["tools/gen.py"], [], "user-facing-major"),
++        (_BREADTH_TAXONOMY_TEXT, ["scripts/x.py"], [], "plumbing"),
++        (_BREADTH_TAXONOMY_TEXT, ["scripts/x.py"], [], "user-facing-major"),
++        (_BREADTH_TAXONOMY_TEXT, ["scripts/x.py"], [], "unknown"),
++        (_BREADTH_TAXONOMY_TEXT, ["hooks/lane-guard.sh"], ["sensitive_path"], "plumbing"),
++    ]
++    _same, _none_has_t3, _consulted = True, False, 0
++    for _i, (_txt, _p, _fl, _cat) in enumerate(_fixtures):
++        _pid = "2026-10-05T090000Z-fixture-t3d%d" % _i
++        _r0, _ = _t3_run(_txt, _p, _fl, _cat, _pid, "a t3 fixture")
++        _r1, _ = _t3_run(_txt, _p, _fl, _cat, _pid, "a t3 fixture", t3_meta=None)
++        _consulted += int("T3" in _r0["record"]["tiers_signalled"])
++        _same = _same and (json.dumps(_r0["record"], sort_keys=True)
++                           == json.dumps(_r1["record"], sort_keys=True))
++        _none_has_t3 = _none_has_t3 or "t3" in _r0["record"] or "t3" in _r1["record"]
++    expect("T3META (d): t3_meta=None leaves every T3 fixture's record byte-identical and "
++           "t3-free [planted: synthesise a default t3 block when t3_meta is None]",
++           _same and not _none_has_t3 and _consulted == len(_fixtures))
++
++    # (e) --request-file reads the request (one trailing newline stripped); an empty file
++    # is REFUSED with exit 2 before any work; a malformed --t3-probs-json is REFUSED too.
++    import contextlib
++    with tempfile.TemporaryDirectory() as _r:
++        _rf = os.path.join(_r, "req.txt")
++        with open(_rf, "w", encoding="utf-8") as fh:
++            fh.write("line one\n\n")
++        _rq = _read_request_file(_rf)
++        expect("T3META (e): --request-file strips exactly one trailing newline "
++               "[planted: read the file without stripping, or strip all whitespace]",
++               _rq == "line one\n")
++
++        def _cli(argv):
++            _out, _err = io.StringIO(), io.StringIO()
++            with contextlib.redirect_stdout(_out), contextlib.redirect_stderr(_err):
++                _rc_ = _triage_cli(argv)
++            return _rc_, _out.getvalue(), _err.getvalue()
++
++        _repo_e = os.path.join(_r, "repo")
++        os.makedirs(_repo_e)
++        _t3_repo(_repo_e, _EXAMPLE_TAXONOMY_TEXT)
++        with open(_rf, "w", encoding="utf-8") as fh:
++            fh.write("tweak the local button padding\n")
++        _code, _out, _ = _cli(["--request-file", _rf, "--repo", _repo_e, "--json"])
++        _rec_e = {}
++        if _code == 0:
++            with open(os.path.join(_repo_e, json.loads(_out)["record_ref"]), "r",
++                      encoding="utf-8") as fh:
++                _rec_e = json.load(fh)
++        expect("T3META (e): `triage --request-file PATH` scores the file's request "
++               "[planted: --request-file missing from the request group]",
++               _code == 0
++               and _rec_e.get("request_slug") == slugify("tweak the local button padding"))
++        _empty = os.path.join(_r, "empty.txt")
++        with open(_empty, "w", encoding="utf-8") as fh:
++            fh.write("\n")
++        _code, _out, _err = _cli(["--request-file", _empty, "--repo", _repo_e])
++        expect("T3META (e): an empty request file -> REFUSED, exit 2, nothing printed "
++               "[planted: treat an empty file as a request]",
++               _code == 2 and _err.startswith("REFUSED") and _out == "")
++        _code, _, _err = _cli(["--request-file", os.path.join(_r, "absent.txt"),
++                               "--repo", _repo_e])
++        expect("T3META (e): an unreadable request file -> REFUSED, exit 2 "
++               "[planted: let the OSError escape]",
++               _code == 2 and _err.startswith("REFUSED"))
++        _bad_probs = ('[0.5]', '{"plumbing": "high"}', '{"plumbing": 1.5}',
++                      '{"plumbing": true}', 'not json')
++        _refused = [
++            _cli(["--request-file", _rf, "--repo", _repo_e, "--t3-category", "plumbing",
++                  "--t3-engine", "claude", "--t3-probs-json", _bp])
++            for _bp in _bad_probs]
++        expect("T3META (e): a --t3-probs-json that is not an object of numbers in [0, 1] "
++               "-> REFUSED: --t3-probs-json, exit 2 [planted: pass the parse through]",
++               all(_c == 2 and _e.startswith("REFUSED: --t3-probs-json")
++                   for _c, _, _e in _refused))
++        _code, _, _err = _cli(["--request-file", _rf, "--repo", _repo_e,
++                               "--t3-engine", "claude"])
++        expect("T3META (e): --t3-engine without --t3-category -> REFUSED, exit 2 "
++               "[planted: build a t3 block with no category]",
++               _code == 2 and _err.startswith("REFUSED"))
++
++    # (f) the schema closes the block: an unknown engine, a probability outside [0, 1]
++    # and a block without `category` are all rejected. The structural cells run on the
++    # stdlib so they hold where jsonschema is not installed; the validation cells run
++    # wherever it is (CI installs it).
++    with open(os.path.join(os.path.dirname(_here()), "schemas",
++                           "pre-eval-record.schema.json"), "r", encoding="utf-8") as fh:
++        _t3s = json.load(fh).get("properties", {}).get("t3", {})
++    _t3p = _t3s.get("properties", {})
++    expect("T3META (f): the schema's t3 block is closed, needs engine and category, "
++           "bounds probs to [0, 1] and names exactly four engines "
++           "[planted: loosen the t3 schema]",
++           _t3s.get("additionalProperties") is False
++           and set(_t3s.get("required", [])) == {"engine", "category"}
++           and _t3p.get("engine", {}).get("enum") == ["jev", "claude", "codex", "parent"]
++           and _t3p.get("probs", {}).get("additionalProperties")
++           == {"type": "number", "minimum": 0, "maximum": 1})
++    for _bad, _why in (({"engine": "jev2", "category": "plumbing"}, "engine 'jev2'"),
++                       ({"engine": "jev", "category": "plumbing",
++                         "probs": {"plumbing": 1.2}}, "a prob above 1"),
++                       ({"engine": "jev", "category": "plumbing",
++                         "probs": {"plumbing": -0.1}}, "a prob below 0"),
++                       ({"engine": "jev"}, "no category")):
++        _schema_check(expect, dict(_ra["record"], t3=_bad), must_validate=False,
++                      label="T3META (f): the schema rejects a t3 block with %s "
++                            "[planted: loosen the t3 schema]" % _why)
++
++    # (g) t3_meta never changes the outcome stream: same count of `predicted` events, and
++    # the event itself identical.
++    _, _lg0 = _t3_run(*_demo)
++    _, _lg1 = _t3_run(*_demo, t3_meta=dict(_t3_meta))
++    _pg0 = [e for e in _lg0 if e.get("event") == "predicted"]
++    _pg1 = [e for e in _lg1 if e.get("event") == "predicted"]
++    expect("T3META (g): t3_meta leaves the predicted event count and content unchanged "
++           "[planted: append a second event when t3_meta is given]",
++           len(_pg0) == 1 and _pg0 == _pg1 and len(_lg0) == len(_lg1))
++
+     if failures:
+         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
+         return 1

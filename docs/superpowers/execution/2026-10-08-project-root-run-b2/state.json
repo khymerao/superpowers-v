@@ -1,0 +1,63 @@
+{
+  "phase": "MERGED",
+  "updated_at": "2026-10-08T11:40:00Z",
+  "pre_eval_id": "2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6",
+  "jobs": {
+    "b2-fix": {
+      "status": "done",
+      "isolation": "worktree",
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_0b5947eb-44d-2",
+      "session_id": null,
+      "baseline": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+      "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+      "merged": {
+        "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "eb7675fc0ec32098b22cd42fec97761018bb045b"
+      }
+    },
+    "spec-review": {
+      "status": "done",
+      "isolation": "direct",
+      "worktree": "",
+      "session_id": null,
+      "baseline": "0be448f803f113c9661fc7cd1b70b0e246074d77",
+      "realised_commit": "0be448f803f113c9661fc7cd1b70b0e246074d77",
+      "merged": {
+        "realised_commit": "0be448f803f113c9661fc7cd1b70b0e246074d77",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "e6ee6dc624ea7b135ad163521beb1d907a9c57d0"
+      }
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "b2-fix"
+      ],
+      "merged": [
+        "b2-fix"
+      ],
+      "commit": "eb7675fc0ec32098b22cd42fec97761018bb045b",
+      "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "e6ee6dc624ea7b135ad163521beb1d907a9c57d0",
+      "integrated": true
+    }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6",
+    "run_id": "2026-10-08-project-root-run-b2"
+  },
+  "merged_at": "2026-10-08T11:40:00Z"
+}

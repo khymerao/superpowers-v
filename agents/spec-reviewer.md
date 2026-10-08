@@ -23,17 +23,31 @@ Per-task you typically run as the SPEC pass (after each implementer reports DONE
 the caller's repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## Step 0 — ask what this project already knows (V-memory)
 
-**Before reviewing, ask the recall layer**, at review intent:
+**Before reviewing, read what the recall layer already found.** Launched as an Engine C
+review job, your prompt already carries it: `scripts/compound-v-emit-workflow.py` runs one
+V-memory search at emit time (`--intent review`, keyed on the manifest's `feature` and its
+feature-level `acceptance_criteria`), and every review job's prompt carries the hits under
+`## Prior context from this repository (V-memory)`. The emit summary and your job entry
+(`recall_search`) record what it showed. Start from that block.
+
+**Fallback: if your prompt has no `## Prior context` block**, ask the recall layer yourself
+at review intent. The block is missing when the engine or its index was unavailable at
+emit time (`recall_search` says `recall: unavailable (<reason>)`), when recall was off for
+the run, or when you were launched outside Engine C:
 
 ```bash
 python3 "$CV/scripts/compound-v-memory.py" search "<the feature, in 3-8 words>" --intent review --top 8

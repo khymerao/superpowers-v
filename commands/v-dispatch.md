@@ -20,19 +20,33 @@ delegating, the epic inherits Engine C along with everything else.
 | a **manifest path** (`…/execution/<run-id>/manifest.yaml`) | dispatch it directly (already materialized). |
 | a **run-id** (a dir name under `docs/superpowers/execution/`) | resolve to that run's `manifest.yaml` and dispatch directly. |
 
+**Re-dispatching a halted run (v3.6.3).** Running `/v:dispatch` again on a run-id or manifest path
+that already halted is not the same thing as `/v:resume`, but a `worktree` job now re-pins itself
+safely either way: `register-lane` detects the concluded previous attempt (a receipt or result
+already on disk) and re-baselines against the fresh worktree's `HEAD` before re-registering, so the
+bookkeeping this pipeline committed between attempts is no longer charged to the job (see
+[`state-machine.md`](../skills/compound-v/state-machine.md) § `baseline` re-pins on a re-attempt).
+A `direct` job does **not** re-pin automatically — it still needs [`/v:resume <run-id>`](v-resume.md),
+which is the only path that clears its stale pin.
+
 ## Resolving the plugin root
 
 The `scripts/` and `schemas/` this command calls ship with the plugin — they are not files in
 your own repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
+Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
 `schemas/` get `$CV`.
 
 ## Steps
@@ -173,6 +187,38 @@ of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's o
    artefact, and `scriptPath` takes documented precedence. **Verify the run's reported script path
    equals the path you emitted** — otherwise the committed artefact is not what ran. Timestamps
    arrive via `args` because the runtime makes the clock globals throw.
+
+   **Wave width vs. the runtime's concurrency cap.** The native Workflow runtime runs "up to 16
+   concurrent agents by default, fewer when Claude Code has fewer CPUs available, including inside
+   a CPU-limited container" (docs: code.claude.com/docs/en/workflows, "Behavior and limits",
+   fetched 2026-09-21). Engine C's `pipeline(wave, implementStage, gateStage, recordStage)` chains
+   Implement → Gate → Record **per job**, so a job holds exactly one agent slot at a time — a wave
+   of W jobs competes for W of those 16 slots, with no per-job multiplier
+   (`compound-v-validate-manifest.py`'s `WAVE_EXCEEDS_RUNTIME_CONCURRENCY` advisory, surfaced by
+   step 3's partition-reviewer, already did this arithmetic against this manifest). A wave over the
+   cap does **not** fail — the extra jobs queue for a slot as earlier ones finish — but before
+   launching a manifest with any wave wider than 16, decide whether you want it to run at full
+   width:
+   ```bash
+   export CLAUDE_CODE_WORKFLOW_MAX_CONCURRENT_AGENTS=<n>   # 1-256, Claude Code >= 2.1.269;
+                                                            # <n> >= the widest wave's job count
+   ```
+   Pro plans default the size guideline to `small` (fewer than 5 agents) — that guideline is
+   **advice Claude takes when writing a NEW workflow script, never a cap on a manifest-driven
+   Engine C run you already emitted**; it does not shrink or reject this wave.
+
+   **The usage-limit pause (>= 2.1.271) — three lines.** A run pauses (agents wait, no new ones
+   start) only when **all** of: it is an interactive session signed in with a claude.ai
+   subscription; `autoContinueAtUsageLimit` is on; and the reset is within 24h with the run not
+   already having waited twice. **In `claude -p`/headless, a background session, Remote Control, or
+   an agent-team teammate session the run never pauses at all — the affected agent just fails**,
+   and it is the emitted script's own retry/escalation ladder
+   (`RETRY_MAX_ATTEMPTS_DEFAULT`, the one-shot `CLAUDE_ESCALATION` reviewer lift — see
+   [`failure-policy.md`](../skills/compound-v/failure-policy.md)'s `timeout` class) that catches
+   it, not a pause. This dispatch runs at the top level per the header above, so check which of the
+   two you actually are before reading a `STALE` job's `PAUSED?` hint (step 7's transcript watch,
+   or the liveness sweep on the residual path) as "go check `/workflows`" versus "this already
+   failed and the ladder already handled it."
 
    While it runs, the script writes what the rest of the pipeline needs:
    - `lane-map.json` — each implementer registers its real worktree as its first command, which is
@@ -370,6 +416,10 @@ of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's o
    so many words — and its cleanup removes a worktree only when
    the path sits under `.worktrees/` or `worktrees/` (`SKILL.md:169-178`).)
 
+   In the final report, after a run with any BLOCKED or failed job, suggest
+   [`/v:lessons`](v-lessons.md) — it drafts a routing lesson when the same failure has recurred
+   across independent runs, and writes nothing until the human accepts it.
+
 ## Safety
 
 - Do NOT dispatch implementers if partition-reviewer returned FAIL.
@@ -378,7 +428,7 @@ of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's o
 - Do NOT delegate the run to a subagent — it has no Workflow tool.
 - A scope-gate **BLOCKED** halts the run; the offending worktree is left for inspection and never
   merged. Recover with [`/v:resume <run-id>`](v-resume.md).
-- `backend` / `model` (e.g. `gpt-5.6-sol`) are **execution-layer data** — manifest only, never
+- `backend` / `model` (e.g. `gpt-6.1-sol`) are **execution-layer data** — manifest only, never
   frontmatter. Reviewers stay `model: opus`.
 - Never arm a headless Engine C launch under `bypassPermissions`: a run could start with no prompt
   and no spend cap.

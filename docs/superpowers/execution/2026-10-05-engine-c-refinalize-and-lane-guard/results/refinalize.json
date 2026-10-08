@@ -1,0 +1,45 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-emit-workflow.py",
+    "scripts/compound-v-scope-check.py"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+    "diff_digest": "sha256:04de1e759d0631939951ff8e2998cd90b2ea5f9bb9f395f4535f3c4f6d3dd388",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b1be7dd775eaaaea4bad2ce64de33f7dfb63749f\",\n  \"changed\": [\n    \"scripts/compound-v-emit-workflow.py\",\n    \"scripts/compound-v-scope-check.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-emit-workflow.py\",\n    \"scripts/compound-v-scope-check.py\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 idempotent re-finalize of an integrated wave",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c '/usr/bin/python3 -B scripts/compound-v-emit-workflow.py --selftest >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo emit-ok'\n/usr/bin/python3 -B scripts/compound-v-scope-check.py --selftest",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 158226,
+    "cache_read_input_tokens": 4582569,
+    "input_tokens": 98,
+    "measured": true,
+    "output_tokens": 11226,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a127b0e55ecc41c4e.jsonl",
+      "agent-a379c72168abf96e8.jsonl",
+      "agent-ab64b68961449ac2d.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-2"
+}

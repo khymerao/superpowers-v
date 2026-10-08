@@ -1,0 +1,18 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:e35f0e191164cef32b952fbd0054d5814515364b434c698ad0ac2d4ec72212dd",
+  "fan_out": 7,
+  "flags": [
+    "new_file",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "agents/*.md",
+    "commands/v-*.md",
+    "evals/README.md",
+    "hooks/session-banner.sh:35,51",
+    "skills/backend-launcher/*.md",
+    "skills/compound-v/*.md",
+    "tests/test-plugin-root.sh"
+  ]
+}

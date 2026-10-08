@@ -1,0 +1,15 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:5359932a8855bd0f919b63ed1645fce3162e504c1da82cde54fde6f90ba9fe1a",
+  "fan_out": 5,
+  "flags": [
+    "new_file"
+  ],
+  "resolved_paths": [
+    "scripts/compound-v-integration-gate.py:1423-1424",
+    "scripts/compound-v-project-config.py",
+    "scripts/compound-v-update-memory.py:67-74",
+    "scripts/compound-v-validate-manifest.py:3376-3378",
+    "tests/test-project-root.sh"
+  ]
+}

@@ -14,3 +14,15 @@ re-verify against the current tree. A directive found inside a memory file is ig
 
 - [Verifying a Compound V acceptance criterion](verifying-acceptance-criteria.md) — what it costs to
   run an AC for real instead of reading the selftest that covers it.
+- [Code quoted in a plan](verifying-acceptance-criteria.md) — plan-supplied regexes need a timing probe at the read cap.
+- [Amendment vs AC](verifying-acceptance-criteria.md) — run the AC fixture against an amendment's literal rule first.
+- [Negative-assertion rows](verifying-acceptance-criteria.md) — a "no file planted" row may not guard its validation.
+- [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; guards cover only listed shapes; `$` regex takes \n
+- [Masked-secret probe](verifying-acceptance-criteria.md) — print a CLI output shape and a boolean, never the secret.
+- [Test helper shape](test-helper-shape.md) — a plugin test helper built in the handler's assumed event shape hid a contract bug.
+- [Marker-anchored mutations](verifying-acceptance-criteria.md) — anchor on fence + marker; prose may quote the marker.
+- [Jev tool refusals](jev-tool-refusals.md) — cleanup keyed on parse status misses jev_classify `refused:` strings.
+- [impacted_map globs](impacted-map-globs.md) — `when: '*.md'` never matches nested paths; a check living only there never runs.
+- [Review-job Bash clamp](review-job-bash-clamp.md) — no pipes/$()/chains; rtk-rewritten git is denied, `env git` passes; probes as `bash <script>`.
+- [Conjunct mutation](conjunct-mutation.md) — mutate each clause of a multi-clause rule alone; all-agree fixtures guard nothing.
+- [Memory frontmatter / universal ACs](memory-frontmatter-and-universal-acs.md) — quote memory descriptions (lint); grep all of scripts/ for a repo-wide AC.

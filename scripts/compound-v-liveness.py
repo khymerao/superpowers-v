@@ -48,6 +48,33 @@ LIVENESS_CLASSES = ("WORKING", "LIKELY-DONE", "STALE", "DEAD", "UNKNOWN")
 DEFAULT_STALE_SEC = 600
 ATTENTION = ("STALE", "DEAD")
 
+# Engine C (the native Workflow runtime) can PAUSE a run — never a hang — when an
+# agent hits the operator's claude.ai usage limit (docs: code.claude.com/docs/en/
+# workflows, "When a run hits your usage limit", fetched 2026-09-21). A paused run
+# has no progress signal either, so it reads as STALE exactly like a real hang.
+# There is no file the runtime writes for the pause that this script could read
+# instead — checked (see failure-policy.md's `timeout` class for what was
+# grepped and found absent) — so this is a HINT to go look, never a detection.
+# `dispatch.workflow.js` (the committed, emitted script — state-machine.md:144,
+# ~165) and `lane-map.json` (the lane guard's job map, retired only at a
+# terminal phase — finding 68/105) are the two run-dir artefacts that exist iff
+# this run dispatched through Engine C; either is enough to ask the question.
+ENGINE_C_MARKERS = ("dispatch.workflow.js", "lane-map.json")
+PAUSED_HINT = (
+    "PAUSED? this is an Engine C (native Workflow) run — a usage-limit pause "
+    "looks identical to a hang from here (no git/filesystem progress). Check "
+    "the /workflows header for a usage-limit reset time before treating this "
+    "as a hang. This never applies in claude -p/headless: there the run cannot "
+    "pause at all, the agent just fails, and the existing retry/escalation "
+    "ladder is what catches it."
+)
+
+
+def _is_engine_c_run(run_dir):
+    """True iff `run_dir` carries a run-dir artefact that only an Engine C
+    (native Workflow) dispatch writes — never a model self-report."""
+    return any(os.path.exists(os.path.join(run_dir, m)) for m in ENGINE_C_MARKERS)
+
 
 def _git(args, cwd):
     """Run `git -C <cwd> <args>`; return stdout stripped, or None on any failure."""
@@ -219,12 +246,20 @@ def probe(run_dir, stale_sec, now):
     except (OSError, ValueError) as exc:
         raise ValueError("cannot read %s: %s" % (state_path, exc))
 
+    engine_c = _is_engine_c_run(run_dir)
     results = {}
     for jid, job in (state.get("jobs") or {}).items():
         if not isinstance(job, dict) or job.get("status") != "running":
             continue
         liveness, evidence, last_prog = classify_job(job, now, stale_sec)
-        results[jid] = {"liveness": liveness, "evidence": evidence, "last_progress_s": last_prog}
+        entry = {"liveness": liveness, "evidence": evidence, "last_progress_s": last_prog}
+        # The hint is STALE-only: DEAD has a dead pid (a pause never kills the
+        # process), and every other class is not something an operator needs to
+        # second-guess.
+        if liveness == "STALE" and engine_c:
+            entry["evidence"] = evidence + " -- " + PAUSED_HINT
+            entry["attention_hint"] = PAUSED_HINT
+        results[jid] = entry
     return results
 
 
@@ -405,6 +440,52 @@ def _selftest():
         check("exit 0 when nothing STALE/DEAD", _exit_code(res) == 0)
         check("exit 3 when a STALE is present",
               _exit_code({"x": {"liveness": "STALE"}}) == 3)
+
+    # --- PAUSED? hint: STALE on an Engine C run carries it, STALE elsewhere does not ---
+    # The job's worktree is a directory SEPARATE from run_dir: run_dir also holds
+    # state.json (and, for the Engine-C cases, the marker file), and writing those
+    # inside the worktree itself would give it a fresh mtime and flip STALE back
+    # to WORKING before the hint logic is ever reached.
+    def _stale_worktree(wt):
+        old = now - 4000
+        with open(os.path.join(wt, "a.txt"), "w") as fh:
+            fh.write("x")
+        os.utime(os.path.join(wt, "a.txt"), (old, old))
+
+    def _write_state(rundir, wt):
+        state = {"jobs": {"j1": {"status": "running", "worktree": wt,
+                                  "baseline": "deadbeef"}}}
+        with open(os.path.join(rundir, "state.json"), "w") as fh:
+            json.dump(state, fh)
+
+    with tempfile.TemporaryDirectory() as ec_run, tempfile.TemporaryDirectory() as ec_wt:
+        _stale_worktree(ec_wt)
+        _write_state(ec_run, ec_wt)
+        with open(os.path.join(ec_run, "dispatch.workflow.js"), "w") as fh:
+            fh.write("export const meta = {};\n")
+        res = probe(ec_run, 600, now)
+        check("STALE on an Engine C run (dispatch.workflow.js) carries the PAUSED? hint",
+              res["j1"]["liveness"] == "STALE" and "PAUSED?" in res["j1"]["evidence"])
+        check("...and sets attention_hint in the result dict",
+              res["j1"].get("attention_hint", "").startswith("PAUSED?"))
+
+    with tempfile.TemporaryDirectory() as ec_run2, tempfile.TemporaryDirectory() as ec_wt2:
+        _stale_worktree(ec_wt2)
+        _write_state(ec_run2, ec_wt2)
+        with open(os.path.join(ec_run2, "lane-map.json"), "w") as fh:
+            fh.write("{}")
+        res = probe(ec_run2, 600, now)
+        check("STALE on an Engine C run (lane-map.json) also carries the hint",
+              "PAUSED?" in res["j1"]["evidence"] and "attention_hint" in res["j1"])
+
+    with tempfile.TemporaryDirectory() as non_ec_run, tempfile.TemporaryDirectory() as non_ec_wt:
+        _stale_worktree(non_ec_wt)
+        _write_state(non_ec_run, non_ec_wt)
+        res = probe(non_ec_run, 600, now)
+        check("STALE on a non-Engine-C run carries no PAUSED? hint",
+              res["j1"]["liveness"] == "STALE" and "PAUSED?" not in res["j1"]["evidence"])
+        check("...and attention_hint is absent from the result dict",
+              "attention_hint" not in res["j1"])
 
     # --- degrade-safe: unreadable state raises ValueError (caught in main → exit 2) ---
     raised = False

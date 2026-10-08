@@ -1,0 +1,54 @@
+{
+  "base_commit": "7af038fd996bdbe0787a135929998142d966c71c",
+  "confidence": "localization:exact; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "commands/v-triage.md",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-classify-request.py",
+    "tests/fixtures/jev-t3-corpus.jsonl"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:51b37e825d6aab91d03a98b44480903571429353ae755749798949fb64dd5b77",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 5,
+    "flags": [
+      "content:config_literal",
+      "content:feature_flag",
+      "content:i18n_placeholder",
+      "content:legal_copy",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "commands/v-triage.md",
+      "hooks/jev-t3.tsx",
+      "hooks/triage-prompt-nudge.sh",
+      "scripts/compound-v-classify-request.py",
+      "tests/fixtures/jev-t3-corpus.jsonl"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-08T161225Z-measure-the-claude-t3-classifier-next-to-jev-and-extend-the-517a",
+  "request_slug": "measure-the-claude-t3-classifier-next-to-jev-and-extend-the",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T161225Z-measure-the-claude-t3-classifier-next-to-jev-and-extend-the-517a.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T16:12:25Z"
+}

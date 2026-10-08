@@ -1,0 +1,45 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md",
+    "docs/superpowers/dogfood/2026-10-08-gate-toolchain-and-model-config-review.md"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "e0e392eadca13d615ec5d7032d7e53e8d6ea1c70",
+    "diff_digest": "sha256:b0cfac3a6af1462dc05ba4920be69e5b08685df7b7fbf6ab361c6e793cccf807",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"e0e392eadca13d615ec5d7032d7e53e8d6ea1c70\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md\",\n    \"docs/superpowers/dogfood/2026-10-08-gate-toolchain-and-model-config-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-gate-toolchain-and-model-config-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "e0e392eadca13d615ec5d7032d7e53e8d6ea1c70",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Review Gate \u2014 deep, three passes against the spec, its amendments and AC-1..AC-2",
+  "tests": {
+    "command": "bash -c 'bash tests/test-integration-gate.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-resolve-model.py --selftest >/dev/null && echo floor-ok'\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 238616,
+    "cache_read_input_tokens": 3457252,
+    "input_tokens": 66,
+    "measured": true,
+    "output_tokens": 9355,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a07c201e7510ffec8.jsonl",
+      "agent-a4a3e6ae9373200d7.jsonl",
+      "agent-aaae80582b309099a.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": ""
+}

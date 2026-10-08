@@ -1,0 +1,70 @@
+{
+  "baseline_commit": "99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116",
+  "diff_digest": "sha256:aadcf2a8d1bdb5ee5635773219dd5449b52f95eb6fda6486af2d915d27ad997e",
+  "exit_code": 0,
+  "job_id": "vault-optional",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-vault-optional-via-init/jobs/vault-optional.patch",
+  "patch_paths": [
+    ".claude-plugin/marketplace.json",
+    "README.md",
+    "commands/v-init.md",
+    "hooks/jev-t3.tsx",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ],
+  "patch_sha256": "sha256:aadcf2a8d1bdb5ee5635773219dd5449b52f95eb6fda6486af2d915d27ad997e",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116\",\n  \"changed\": [\n    \".claude-plugin/marketplace.json\",\n    \"README.md\",\n    \"commands/v-init.md\",\n    \"hooks/jev-t3.tsx\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \".claude-plugin/marketplace.json\",\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"README.md\",\n    \"hooks/jev-t3.tsx\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "99bbb4b3ee30bd3004a4bcc4aa531d367f1ea116",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      ".claude-plugin/marketplace.json",
+      "README.md",
+      "commands/v-init.md",
+      "hooks/jev-t3.tsx",
+      "plugins/compound-v-vault/README.md",
+      "tests/test-vault-mod.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'jq empty .claude-plugin/marketplace.json && bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mk-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 6 command(s) from 6 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_ad948416-5d3-2"
+}

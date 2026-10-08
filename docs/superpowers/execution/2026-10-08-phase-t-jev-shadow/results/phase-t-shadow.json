@@ -1,0 +1,48 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-triage.md",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-jev.py",
+    "tests/test-jev-core.sh",
+    "tests/test-native-points.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+    "diff_digest": "sha256:d223613e5d1997469868565b6d4e12d4460d388102401d32e46ccbf8a3175f9c",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9\",\n  \"changed\": [\n    \"commands/v-triage.md\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"scripts/compound-v-jev.py\",\n    \"tests/test-jev-core.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\",\n    \"hooks/triage-prompt-nudge.sh\",\n    \"commands/v-triage.md\",\n    \"tests/test-native-points.sh\",\n    \"tests/test-jev-core.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "c5e4003f3f4cac18541d4ea55a737bbc44dcdcc9",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 t3-request builder, hook switch, Phase T t3 block and Jev shadow step",
+  "tests": {
+    "command": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo floor-ok'\nbash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo cmd-ok'\nbash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'\nbash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo jev-ok'\nbash -c 'bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 5
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 318380,
+    "cache_read_input_tokens": 10981892,
+    "input_tokens": 128,
+    "measured": true,
+    "output_tokens": 27312,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a08150922142fad1f.jsonl",
+      "agent-a7d0ae7accdaafe24.jsonl",
+      "agent-a9b679aab892b83db.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_a9335b49-cad-2"
+}

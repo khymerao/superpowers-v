@@ -1,0 +1,13 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:1dccec4377a47b84ee896f2fb450d3ff340db73afad505b277b98daa483fd815",
+  "fan_out": 2,
+  "flags": [
+    "content:config_literal",
+    "content:legal_copy"
+  ],
+  "resolved_paths": [
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
+    "plugins/compound-v-vault/hooks/vault.tsx"
+  ]
+}

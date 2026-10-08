@@ -1,0 +1,54 @@
+{
+  "baseline_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+  "diff_digest": "sha256:db4b9d86ba4dab046fe1e222b9d1ae90bd1a673e37ddd6c8629df68491f615fe",
+  "exit_code": 0,
+  "job_id": "b2-fix",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-project-root-run-b2/jobs/b2-fix.patch",
+  "patch_paths": [
+    "scripts/compound-v-integration-gate.py",
+    "scripts/compound-v-update-memory.py",
+    "scripts/compound-v-validate-manifest.py",
+    "tests/test-project-root.sh"
+  ],
+  "patch_sha256": "sha256:db4b9d86ba4dab046fe1e222b9d1ae90bd1a673e37ddd6c8629df68491f615fe",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"2faee4a43c6b3f0f656adcddea588a1e2282444d\",\n  \"changed\": [\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-update-memory.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-update-memory.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "scripts/compound-v-integration-gate.py",
+      "scripts/compound-v-update-memory.py",
+      "scripts/compound-v-validate-manifest.py",
+      "tests/test-project-root.sh"
+    ],
+    "checks": [
+      {
+        "checker": "bash tests/test-project-root.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in integration-gate update-memory validate-manifest triage-outcomes project-config; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo py-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 4 command(s) from 4 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_0b5947eb-44d-2"
+}

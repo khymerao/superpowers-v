@@ -169,6 +169,13 @@
 # `hooks/hooks.json` raises UserPromptSubmit — and ONLY that event — to 25.
 # An ordinary prompt never reaches this path and keeps its ~1 s cost.
 #
+# THE JEV T3 SHADOW (spec 1). The re-entry now also passes `--t3-engine <backend>`,
+# so the record's `t3` block names which route answered; the tier is unchanged.
+# With `CV_JEV_T3=1` the hook additionally leaves a pending descriptor for the
+# `hooks/jev-t3.tsx` module after a decided T3 (see `_write_t3_descriptor`). The
+# descriptor never changes what this hook prints, and a failure to write it is
+# logged and otherwise ignored.
+#
 # OUTPUT. `hookSpecificOutput.additionalContext` — verified against the runtime:
 # UserPromptSubmit is one of the three events whose additionalContext is
 # injected into the model's context (with SessionStart and UserPromptExpansion).
@@ -192,6 +199,10 @@ trap 'exit 0' EXIT
 # No `set -e`: this hook must never fail closed.
 set -uo pipefail
 if [ "${CV_HEADLESS_CLASSIFY:-}" = "1" ]; then exit 0; fi  # finding 131: never fire inside the headless classifier
+# CV_DISABLED_HOOKS: comma-separated hook basenames (no .sh) to turn off. lane-guard is
+# excluded on purpose — see hooks/lane-guard.sh's own header comment.
+_cv_off=",$(printf '%s' "${CV_DISABLED_HOOKS:-}" | tr -d ' \t'),"
+case "$_cv_off" in *",triage-prompt-nudge,"*) exit 0 ;; esac
 
 _HOOK_TAG="compound-v/triage-prompt-nudge"
 
@@ -325,7 +336,7 @@ _has_active_run() {
 # second call differs from the first, which is why there is one function and not
 # two.
 _run_engine() {
-  local proj="$1" sid="$2" request="$3" t3cat="${4:-}" engine py base out
+  local proj="$1" sid="$2" request="$3" t3cat="${4:-}" t3eng="${5:-}" engine py base out
   engine="$(_locate_script compound-v-preeval.py)" || return 1
   py="$(_python)" || return 1
   # The engine never runs git, by design — so HEAD is an input, supplied here.
@@ -339,6 +350,9 @@ _run_engine() {
          --session-id "$sid" --json
   [ -n "$base" ] && set -- "$@" --base-commit "$base"
   [ -n "$t3cat" ] && set -- "$@" --t3-category "$t3cat"
+  # Which backend answered T3 goes on the record's `t3` block. It is evidence only:
+  # the engine never lets it change the tier.
+  [ -n "$t3cat" ] && [ -n "$t3eng" ] && set -- "$@" --t3-engine "$t3eng"
 
   out="$(CV_TRIAGE_REQUEST="$request" PYTHONDONTWRITEBYTECODE=1 \
          "$py" "$engine" "$@" 2>/dev/null)" || return 1
@@ -368,15 +382,22 @@ _classify_timeout() {
   fi
 }
 
-# Prints the resolved T3 enum on stdout, or returns non-zero having printed
-# nothing — which the caller reads as "nothing was classified" and degrades.
+# Prints `category<TAB>backend` on stdout (the resolved T3 enum and the route that
+# answered it, `claude` or `codex`), or returns non-zero having printed nothing —
+# which the caller reads as "nothing was classified" and degrades.
 #
 # The engine's OWN `t3_prompt` is what gets classified, passed through a temp
 # file rather than argv: it already carries the resolved paths and the taxonomy
 # hints, so rebuilding it here from the request text would be a second, slightly
 # different prompt for the same decision.
+#
+# THE MEASURE travels separately, never as a third tab field (a third field would
+# land inside `backend`, fail its `case` and silently stop every descriptor). The
+# function runs in a command substitution, so a variable set here never reaches the
+# caller: when a third argument names a file, the classify's `measure` object is
+# written there as compact JSON (numbers, null and a model id; no request text).
 _classify_headless() {
-  local proj="$1" prompt="$2" script py tmpf out rc backend timed cat
+  local proj="$1" prompt="$2" measuref="${3:-}" script py tmpf out rc backend timed cat
   script="$(_locate_script compound-v-classify-request.py)" || return 1
   py="$(_python)" || return 1
   tmpf="$(mktemp "${TMPDIR:-/tmp}/cv-t3-prompt.XXXXXX" 2>/dev/null)" || return 1
@@ -409,7 +430,11 @@ _classify_headless() {
   case "$cat" in
     plumbing | user-facing-minor | user-facing-major | unknown)
       _log "headless T3 classify: ${cat} (backend=${backend})"
-      printf '%s' "$cat"
+      if [ -n "$measuref" ]; then
+        printf '%s' "$out" | jq -c 'if (.measure | type) == "object" then .measure else empty end' \
+          >"$measuref" 2>/dev/null || : >"$measuref" 2>/dev/null || true
+      fi
+      printf '%s\t%s' "$cat" "$backend"
       ;;
     *)
       _log "the headless classify returned no usable category"
@@ -418,11 +443,76 @@ _classify_headless() {
   esac
 }
 
+# --- the T3 shadow descriptor (Jev, spec 1) ----------------------------------
+# Written ONLY when `CV_JEV_T3=1` (set by the vault-backed `hooks/jev-t3.tsx`
+# module) and only after the headless classify DECIDED and the re-entry wrote a
+# record. It is a hand-off, not a decision: the module reads it after this hook
+# has returned, asks Jev the same question, and stores the pair. Nothing here
+# reaches stdout, so the hook's output is byte-identical with the flag set or not.
+#
+#   <data_dir>/pending-<sha256(proj|sid)>.json =
+#     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid,
+#      claude_measure}
+#
+# `claude_measure` is a STRING holding the classify's measure as compact JSON, or
+# "" when none was read; the module validates it before it reaches `pair`.
+#
+# `<data_dir>` is `compound-v-jev.py`'s per-user directory, outside the repository.
+# The request file is built by `compound-v-jev.py t3-request --context hook`, the
+# same builder `/v:triage` Phase T calls: it bounds the state (the request, plus the
+# resolved paths and taxonomy hints read back out of the engine's own `t3_prompt`)
+# with the classify prompt's own caps, and it reads the committed `jev` config
+# itself. The request reaches it through the environment, never argv; the prompt
+# through a 0600 temp file that is removed on every exit path of this function.
+
+# Runs in a subshell so `umask 077` cannot leak into the rest of the hook.
+# Returns non-zero on any failure, having written no descriptor.
+_write_t3_descriptor() (
+  proj="$1" sid="$2" key="$3" pid="$4" request="$5" prompt="$6"
+  reason="$7" cat="$8" backend="$9" measure="${10:-}"
+  [ -n "$pid" ] && [ -n "$key" ] && [ -n "$sid" ] || exit 1
+  script="$(_locate_script compound-v-jev.py)" || exit 1
+  py="$(_python)" || exit 1
+  umask 077
+
+  promptf="$(mktemp "${TMPDIR:-/tmp}/cv-jev-prompt.XXXXXX" 2>/dev/null)" || exit 1
+  printf '%s' "$prompt" >"$promptf" 2>/dev/null || { rm -f "$promptf"; exit 1; }
+  out="$(CV_JEV_REQ="$request" PYTHONDONTWRITEBYTECODE=1 "$py" "$script" t3-request \
+         --repo "$proj" --request-env CV_JEV_REQ --prompt-file "$promptf" \
+         --context hook 2>/dev/null)"
+  # The prompt carries the request text: it goes before anything else can exit.
+  rm -f "$promptf" 2>/dev/null || true
+
+  rf="$(printf '%s' "$out" | jq -r 'if (type == "object") and (.status == "ok")
+          and ((.request_file | type) == "string") then .request_file else empty end' \
+        2>/dev/null)"
+  [ -n "$rf" ] && [ -f "$rf" ] || exit 1
+  rdir="$(dirname "$rf")"
+  [ "$(basename "$rdir")" = "req" ] || exit 1
+  dd="$(dirname "$rdir")"
+  [ -d "$dd" ] || exit 1
+
+  tmpd="$(mktemp "${dd}/.pending.XXXXXX" 2>/dev/null)" || exit 1
+  if jq -n --arg pid "$pid" --arg rf "$rf" --arg reason "$reason" --arg cat "$cat" \
+        --arg backend "$backend" --arg proj "$proj" --arg sid "$sid" \
+        --arg measure "$measure" \
+        '{pre_eval_id: $pid, request_file: $rf, t3_reason: $reason,
+          claude_category: $cat, backend: $backend, proj: $proj, sid: $sid,
+          claude_measure: $measure}' \
+        >"$tmpd" 2>/dev/null \
+     && chmod 600 "$tmpd" 2>/dev/null \
+     && mv -f "$tmpd" "${dd}/pending-${key}.json" 2>/dev/null; then
+    exit 0
+  fi
+  rm -f "$tmpd" 2>/dev/null || true
+  exit 1
+)
+
 # The line this hook used to print unconditionally. It is now the DEGRADED path:
 # the engine could not run, or could not band the request without a model call
 # that a hook cannot make. It asks for exactly the thing that failed.
 _reminder_text() {
-  printf '%s' "💉 Compound V — the triage engine could not size this prompt here, so \
+  printf '%s' "Compound V — the triage engine could not size this prompt here, so \
 this prompt has NO triage record. IF this prompt is a change request (not a question, a status \
 check, or work an existing record already covers), size it first: run /v:triage <what \
 the change is>. It classifies the change, writes and COMMITS the pre-eval record, and \
@@ -597,8 +687,10 @@ EOF
   # prompt, then re-invoke the SAME subcommand with the enum and carry on as if
   # T1 had banded. Only a classifier that never reported degrades to the
   # reminder; see the header.
+  # Set only when the headless classify decided; it gates the shadow descriptor.
+  local t3_backend="" t3_measure=""
   if [ "$needs_t3" = "true" ]; then
-    local t3_prompt t3_reason t3_cat
+    local t3_prompt t3_reason t3_cat t3_out t3_measuref
     t3_prompt="$(printf '%s' "$res" | jq -r '.t3_prompt // ""' 2>/dev/null)"
     # `t3_reason` (unbanded | demotion | sensitive) is for THIS LOG only. The
     # re-entry is identical whichever way the engine got here, so the hook must
@@ -612,13 +704,26 @@ EOF
     fi
 
     _log "the request needs T3 (reason=${t3_reason}) — running the headless classify"
-    t3_cat="$(_classify_headless "$proj" "$t3_prompt")" || {
+    # The measure's channel: a temp file this function owns and removes on every path.
+    t3_measuref="$(mktemp "${TMPDIR:-/tmp}/cv-t3-measure.XXXXXX" 2>/dev/null)" || t3_measuref=""
+    t3_out="$(_classify_headless "$proj" "$t3_prompt" "$t3_measuref")" || {
+      [ -z "$t3_measuref" ] || rm -f "$t3_measuref" 2>/dev/null || true
       _log "nothing classified this request — degrading to the reminder"
       _emit "$(_reminder_text)"
       return $?
     }
+    if [ -n "$t3_measuref" ]; then
+      t3_measure="$(cat "$t3_measuref" 2>/dev/null)" || t3_measure=""
+      rm -f "$t3_measuref" 2>/dev/null || true
+    fi
+    t3_cat="${t3_out%%$'\t'*}"
+    t3_backend="${t3_out#*$'\t'}"
+    case "$t3_backend" in
+      claude | codex) : ;;
+      *) t3_backend="" ;;
+    esac
 
-    res="$(_run_engine "$proj" "$sid" "$request" "$t3_cat")" || {
+    res="$(_run_engine "$proj" "$sid" "$request" "$t3_cat" "$t3_backend")" || {
       _log "the re-score with --t3-category ${t3_cat} did not run — degrading to the reminder"
       _emit "$(_reminder_text)"
       return $?
@@ -650,6 +755,14 @@ EOF
     return $?
   }
 
+  # THE T3 SHADOW HAND-OFF. After the decision, never before or instead of it, and
+  # with stdout discarded: whatever happens here, the hook's output is unchanged.
+  if [ -n "$t3_backend" ] && [ "${CV_JEV_T3:-}" = "1" ]; then
+    _write_t3_descriptor "$proj" "$sid" "$key" "$pid" "$request" "$t3_prompt" \
+      "$t3_reason" "$t3_cat" "$t3_backend" "$t3_measure" >/dev/null 2>&1 \
+      || _log "no T3 shadow descriptor was written (shadow only; the decision stands)"
+  fi
+
   local next
   case "$tier" in
     DIRECT)
@@ -679,7 +792,7 @@ Read ${record_ref} and route it by hand."
   esac
 
   local msg
-  msg="💉 Compound V sized this prompt before you read it. TIER: ${tier} (decision \
+  msg="Compound V sized this prompt before you read it. TIER: ${tier} (decision \
 ${decision}, pre_eval_id ${pid}). ${next} The record ${record_ref} is WRITTEN AND \
 UNCOMMITTED — this hook never runs git, so committing it is yours to do and it is not \
 optional. The Stop-time triage gate reads records off disk, so this one already covers \

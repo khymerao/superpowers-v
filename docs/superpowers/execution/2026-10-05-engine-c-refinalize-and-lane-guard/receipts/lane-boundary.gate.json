@@ -1,0 +1,58 @@
+{
+  "baseline_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+  "diff_digest": "sha256:99d9e6216a48d6a23865313b9137f0eba44854434b0f28969a6c97027cf69232",
+  "exit_code": 0,
+  "job_id": "lane-boundary",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-engine-c-refinalize-and-lane-guard/jobs/lane-boundary.patch",
+  "patch_paths": [
+    "TROUBLESHOOTING.md",
+    "hooks/lane-guard.sh",
+    "tests/test-lane-guard.sh"
+  ],
+  "patch_sha256": "sha256:99d9e6216a48d6a23865313b9137f0eba44854434b0f28969a6c97027cf69232",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"b1be7dd775eaaaea4bad2ce64de33f7dfb63749f\",\n  \"changed\": [\n    \"TROUBLESHOOTING.md\",\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/lane-guard.sh\",\n    \"tests/test-lane-guard.sh\",\n    \"TROUBLESHOOTING.md\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "b1be7dd775eaaaea4bad2ce64de33f7dfb63749f",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "TROUBLESHOOTING.md",
+      "hooks/lane-guard.sh",
+      "tests/test-lane-guard.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo guard-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-lane-guard.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 3 command(s) from 3 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_cc007a03-08e-3"
+}

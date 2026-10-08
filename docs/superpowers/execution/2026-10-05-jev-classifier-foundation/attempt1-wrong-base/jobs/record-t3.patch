@@ -1,0 +1,2665 @@
+diff --git a/schemas/pre-eval-record.schema.json b/schemas/pre-eval-record.schema.json
+index bcfce0f..8ea6c3c 100644
+--- a/schemas/pre-eval-record.schema.json
++++ b/schemas/pre-eval-record.schema.json
+@@ -2,7 +2,7 @@
+   "$schema": "http://json-schema.org/draft-07/schema#",
+   "$id": "https://github.com/procoders/superpowers-v/schemas/pre-eval-record.schema.json",
+   "title": "Compound V pre-eval record",
+-  "description": "Canonical, write-once control-plane record written by the pre-eval scoring engine (A3) to docs/superpowers/pre-eval/<pre_eval_id>.json BEFORE any run dir exists (AC-2). `status: PRE_EVAL_DONE` is a RECORD field, NOT a state.json phase (AC-7/CR2-8) — there is no state.json at prediction time. `decision` only ever OFFERS FASTPATH_ELIGIBLE; the request-level score never auto-routes (Iron-Invariant #4). Enforcement fields are deterministic (taxonomy/localization/override logic), never model magnitude (Iron-Invariant #1). C1's fast-path cross-artifact binding (AC-13) verifies pre_eval_id / decision / taxonomy_digest / localization-digest match across this record, the manifest, and the localization artifact.\n\nDIGEST CONVENTION (CR5-6/CR5-7, single-sourced in compound-v-taxonomy.py, documented in docs/superpowers/architecture/pre-eval-config.md): the record's own `digest` = 'sha256:' + sha256(canonical_json(record MINUS the `digest` field)), where canonical_json = json.dumps(obj, sort_keys=True, separators=(',',':'), ensure_ascii=False, allow_nan=False). `taxonomy_digest` is a DISTINCT convention: 'sha256:' + sha256(RAW taxonomy-snapshot bytes) — a content address of the immutable snapshot, not a re-serialization.",
++  "description": "Canonical, write-once control-plane record written by the pre-eval scoring engine (A3) to docs/superpowers/pre-eval/<pre_eval_id>.json BEFORE any run dir exists (AC-2). `status: PRE_EVAL_DONE` is a RECORD field, NOT a state.json phase (AC-7/CR2-8) — there is no state.json at prediction time. `decision` carries one of three tiers (FASTPATH_ELIGIBLE / SCOPED_PIPELINE / FULL_PIPELINE, v3.0 spec §A1). Iron-Invariant #4 AS AMENDED (spec §A4): the score OFFERS by default and auto-routes only inside the DIRECT auto-route class, whose membership is decided by mechanically checkable predicates and never by model judgement; every other tier still requires a human offer and acceptance. Enforcement fields are deterministic (taxonomy/localization/override logic), never model magnitude (Iron-Invariant #1). C1's fast-path cross-artifact binding (AC-13) verifies pre_eval_id / decision / taxonomy_digest / localization-digest match across this record, the manifest, and the localization artifact.\n\nDIGEST CONVENTION (CR5-6/CR5-7, single-sourced in compound-v-taxonomy.py, documented in docs/superpowers/architecture/pre-eval-config.md): the record's own `digest` = 'sha256:' + sha256(canonical_json(record MINUS the `digest` field)), where canonical_json = json.dumps(obj, sort_keys=True, separators=(',',':'), ensure_ascii=False, allow_nan=False). `taxonomy_digest` is a DISTINCT convention: 'sha256:' + sha256(RAW taxonomy-snapshot bytes) — a content address of the immutable snapshot, not a re-serialization.",
+   "type": "object",
+   "additionalProperties": false,
+   "required": [
+@@ -19,18 +19,71 @@
+     "decision",
+     "min_sample_status"
+   ],
+-  "if": {
+-    "properties": { "decision": { "const": "FASTPATH_ELIGIBLE" } },
+-    "required": ["decision"]
+-  },
+-  "then": {
+-    "description": "A FASTPATH_ELIGIBLE record MUST pin a real, non-null taxonomy snapshot + its content-address (a fast-path is impossible without the sensitive-path + content-pattern protections). taxonomy_ref/taxonomy_digest are required and strictly typed here.",
+-    "required": ["taxonomy_ref", "taxonomy_digest"],
+-    "properties": {
+-      "taxonomy_ref": { "type": "string", "minLength": 1 },
+-      "taxonomy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
++  "allOf": [
++    {
++      "if": {
++        "properties": { "decision": { "not": { "const": "FULL_PIPELINE" } } },
++        "required": ["decision"]
++      },
++      "then": {
++        "description": "ANY record that is not FULL_PIPELINE — FASTPATH_ELIGIBLE or SCOPED_PIPELINE — MUST pin a real, non-null taxonomy snapshot + its content-address. The condition is stated NEGATIVELY (`decision != FULL_PIPELINE`) on purpose: keyed on `const: FASTPATH_ELIGIBLE` it silently stopped applying the moment a third tier existed, and a SCOPED record with a null taxonomy would have validated — the exact fail-open this check exists to prevent. No proportionate tier is reachable without the sensitive-path + content-pattern protections: `_has_safety_coverage` in compound-v-preeval.py routes an absent, malformed or unreadable taxonomy to an unconditional FULL_PIPELINE, so this conditional is the machine-checked restatement of an engine invariant rather than a second policy. taxonomy_ref/taxonomy_digest are required and strictly typed here.",
++        "required": ["taxonomy_ref", "taxonomy_digest"],
++        "properties": {
++          "taxonomy_ref": { "type": "string", "minLength": 1 },
++          "taxonomy_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
++        }
++      }
++    },
++    {
++      "if": {
++        "properties": { "override_fired": { "type": "integer" } },
++        "required": ["override_fired"]
++      },
++      "then": {
++        "description": "ANY FIRED OVERRIDE FORCES FULL (see also the taxonomy conditional above, which is keyed the same negative way) (v3.0 spec §A1). A record whose override_fired is a real row id MUST carry decision=FULL_PIPELINE. Machine-checked here so a record that pairs a hard override with a proportionate tier cannot exist even if a future producer regresses.",
++        "properties": { "decision": { "const": "FULL_PIPELINE" } },
++        "required": ["decision"]
++      }
++    },
++    {
++      "if": {
++        "properties": { "decision": { "const": "FASTPATH_ELIGIBLE" } },
++        "required": ["decision", "tier"]
++      },
++      "then": {
++        "description": "Tier agreement: `tier` is a readability alias for `decision`, never an independent claim. The triage gate prefers `tier`, so a disagreement would let a record be exempted as a tier its own decision refuses.",
++        "properties": { "tier": { "const": "DIRECT" } }
++      }
++    },
++    {
++      "if": {
++        "properties": { "decision": { "const": "SCOPED_PIPELINE" } },
++        "required": ["decision", "tier"]
++      },
++      "then": {
++        "description": "Tier agreement - see the FASTPATH_ELIGIBLE case above.",
++        "properties": { "tier": { "const": "SCOPED" } }
++      }
++    },
++    {
++      "if": {
++        "properties": { "decision": { "const": "FULL_PIPELINE" } },
++        "required": ["decision", "tier"]
++      },
++      "then": {
++        "description": "Tier agreement - see the FASTPATH_ELIGIBLE case above. This is the case that matters most: a FULL record wearing `tier: DIRECT` would be exempted by the triage gate as if it were the auto-route class.",
++        "properties": { "tier": { "const": "FULL" } }
++      }
++    },
++    {
++      "if": { "required": ["flavor"] },
++      "then": {
++        "description": "SCOPED+ QUALIFIES SCOPED AND NOTHING ELSE (v3.4.1 §A3). `flavor: scoped_plus` obliges the run to carry a deep review job and a cross-model second opinion, which `--require-triage` then enforces on the manifest. On a FULL record that obligation is already exceeded and the flag is noise; on a FASTPATH_ELIGIBLE record it is a contradiction, since a DIRECT change has no manifest to put a review job in. Keyed on the PRESENCE of `flavor` rather than on its value, so a future flavor inherits the same pinning instead of quietly escaping it.",
++        "properties": { "decision": { "const": "SCOPED_PIPELINE" } },
++        "required": ["decision"]
++      }
+     }
+-  },
++  ],
+   "properties": {
+     "pre_eval_id": {
+       "type": "string",
+@@ -60,12 +113,12 @@
+     },
+     "taxonomy_ref": {
+       "type": ["string", "null"],
+-      "description": "Repo-relative, normalized, no-'..' path to the IMMUTABLE taxonomy snapshot the score was computed against (pre-run, under docs/superpowers/pre-eval/<pre_eval_id>.taxonomy-snapshot.yaml). A committed regular file (never an escaping symlink). Copied into the run preserving this digest when a fast-path materializes (CR2-6/CR4-2). NULLABLE for the absent-taxonomy case (see taxonomy_digest); the top-level `if decision==FASTPATH_ELIGIBLE` conditional makes it a required, non-null, non-empty string on any fast-path record."
++      "description": "Repo-relative, normalized, no-'..' path to the IMMUTABLE taxonomy snapshot the score was computed against (pre-run, under docs/superpowers/pre-eval/<pre_eval_id>.taxonomy-snapshot.yaml). A committed regular file (never an escaping symlink). Copied into the run preserving this digest when a fast-path materializes (CR2-6/CR4-2). NULLABLE for the absent-taxonomy case (see taxonomy_digest); the first `allOf` conditional (`if decision != FULL_PIPELINE`) makes it a required, non-null, non-empty string on any proportionate-tier record — FASTPATH_ELIGIBLE and SCOPED_PIPELINE alike."
+     },
+     "taxonomy_digest": {
+       "type": ["string", "null"],
+       "pattern": "^sha256:[0-9a-f]{64}$",
+-      "description": "'sha256:'+sha256(RAW snapshot bytes) of taxonomy_ref. On a FASTPATH_ELIGIBLE record it is required and MUST equal the manifest's taxonomy_digest (AC-13). ABSENT-TAXONOMY CASE (spec §2 missing-data table + Iron-Invariant #5): when the taxonomy file/snapshot is absent, malformed, or unavailable there is no snapshot to reference and no bytes to digest, so the engine STILL writes the record (and appends the `predicted` event) with decision=FULL_PIPELINE and `taxonomy_ref: null` / `taxonomy_digest: null` / `taxonomy_version: null`. Such a record validates precisely because these three fields are nullable when decision != FASTPATH_ELIGIBLE; the `if/then` conditional above forbids that null-taxonomy state from ever being FASTPATH_ELIGIBLE. A3/C1/M1 MUST treat the null-taxonomy record as an unconditional FULL_PIPELINE. (`pattern` applies only when the value is a string, so null passes.)"
++      "description": "'sha256:'+sha256(RAW snapshot bytes) of taxonomy_ref. On a FASTPATH_ELIGIBLE record it is required and MUST equal the manifest's taxonomy_digest (AC-13). ABSENT-TAXONOMY CASE (spec §2 missing-data table + Iron-Invariant #5): when the taxonomy file/snapshot is absent, malformed, or unavailable there is no snapshot to reference and no bytes to digest, so the engine STILL writes the record (and appends the `predicted` event) with decision=FULL_PIPELINE and `taxonomy_ref: null` / `taxonomy_digest: null` / `taxonomy_version: null`. Such a record validates precisely because these three fields are nullable when decision != FASTPATH_ELIGIBLE; the first `allOf` conditional forbids that null-taxonomy state from ever carrying a PROPORTIONATE decision — it is keyed `decision != FULL_PIPELINE`, so it binds SCOPED_PIPELINE exactly as it binds FASTPATH_ELIGIBLE. A3/C1/M1 MUST treat the null-taxonomy record as an unconditional FULL_PIPELINE. (`pattern` applies only when the value is a string, so null passes.)"
+     },
+     "difficulty": { "$ref": "#/$defs/axis" },
+     "impact": { "$ref": "#/$defs/axis" },
+@@ -77,12 +130,109 @@
+     "localization": { "$ref": "#/$defs/localization" },
+     "override_fired": {
+       "type": ["integer", "null"],
+-      "description": "The Layer-A hard-override row id (1-6, spec §2) that forced FULL_PIPELINE, or null if none fired. A non-null value REQUIRES decision=FULL_PIPELINE."
++      "description": "The Layer-A hard-override row id (1-7, spec §2 rows 1-6 plus the appended advisor-hot row 7) that forced FULL_PIPELINE, or null if none fired. A non-null value REQUIRES decision=FULL_PIPELINE, and the second `allOf` conditional above enforces it mechanically. This is not redundancy with the bands: override #4 (semantic-vs-path disagreement) records the GENUINE low/low bands beside override_fired=4, so a consumer that re-derived the tier from `difficulty`+`impact` would grant DIRECT — and with it the auto-route class — to a record whose own audit trail says a hard override fired. Read `decision`, never the bands."
+     },
+     "decision": {
+       "type": "string",
+-      "enum": ["FASTPATH_ELIGIBLE", "FULL_PIPELINE"],
+-      "description": "The triage outcome. FASTPATH_ELIGIBLE only OFFERS a proportionate fast-path (Iron-Invariant #4 — never an auto-route). Any override / unknown axis / missing-or-malformed taxonomy / token-cap overrun ⇒ FULL_PIPELINE (fail-closed)."
++      "enum": ["FASTPATH_ELIGIBLE", "SCOPED_PIPELINE", "FULL_PIPELINE"],
++      "description": "The triage outcome, one of THREE proportionate tiers (v3.0 spec §A1). FASTPATH_ELIGIBLE = tier DIRECT (implement in place, run the floor, commit on the branch — no manifest, no run dir); SCOPED_PIPELINE = tier SCOPED (manifest, run dir, scope gate, floor, one combined SPEC+QUALITY review; recon and the three pre-flights skipped); FULL_PIPELINE = tier FULL (the whole pipeline). The value is produced by the 3x3 difficulty×impact matrix INSIDE compound-v-preeval.py's `score`, and consumers MUST branch on all three values explicitly — a `== FASTPATH_ELIGIBLE ? A : B` reader is a two-value reader of a three-value enum. Iron-Invariant #4 AS AMENDED (spec §A4): the score OFFERS by default and auto-routes only inside the DIRECT auto-route class, whose membership is decided by mechanically checkable predicates and never by model judgement; every other tier still requires a human offer and acceptance. Any override / unknown axis / missing-or-malformed taxonomy / token-cap overrun ⇒ FULL_PIPELINE (fail-closed), and a non-null `override_fired` ALWAYS pairs with FULL_PIPELINE regardless of the recorded bands."
++    },
++    "tier": {
++      "type": "string",
++      "enum": ["DIRECT", "SCOPED", "FULL"],
++      "description": "OPTIONAL, and REDUNDANT BY CONSTRUCTION: the manifest-vocabulary token for `decision` (FASTPATH_ELIGIBLE=DIRECT, SCOPED_PIPELINE=SCOPED, FULL_PIPELINE=FULL - compound-v-preeval.py's DECISION_TO_TIER). The triage gate in `hooks/epic-goal-stop.sh` PREFERS this field over `decision` when it is present, so an unconstrained `tier` would be a second, higher-priority source of truth for a safety-relevant classification: a record could say `decision: FULL_PIPELINE` and `tier: DIRECT` and be exempted as DIRECT. The three tier-agreement conditionals in the top-level `allOf` therefore PIN it to `decision`, which makes the hook's preferred branch provably identical to its fallback rather than a way around it. Carry it for human readability; never as an independent claim. `decision` remains the authority.",
++      "$comment": "Pinned to `decision` by the tier-agreement conditionals in the top-level allOf."
++    },
++    "flavor": {
++      "type": "string",
++      "enum": ["scoped_plus"],
++      "description": "OPTIONAL (v3.4.1 §A3). The SCOPED+ qualifier: a small, exactly-localized edit on a SENSITIVE path that a light classify called `plumbing` or `user-facing-minor`. It is deliberately NOT a fourth tier token — `decision` still carries one of three values and DECISION_TO_TIER still has three entries — because a fourth token would have to be taught to every consumer that branches on the tier. What it adds is an OBLIGATION on the run: a `type: review` job at `tier: deep` on `backend: claude`, plus a cross-model second opinion, plus the human accept. `compound-v-validate-manifest.py --require-triage` refuses a `scoped_plus` manifest that carries no such review job, which is what stops the flavor from being a label instead of a promise. Absent means ordinary SCOPED (or any other tier); the conditional in the top-level `allOf` pins its presence to decision=SCOPED_PIPELINE, so it can never qualify a FULL or DIRECT record."
++    },
++    "t3_demotion": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["from", "category", "applied"],
++      "description": "OPTIONAL (v3.4.1 §A2/§A3). What the TAXONOMY said, kept beside the decision a light classify was allowed to reach instead. The engine records it whenever T3 was consulted about the SIZE of a change (rather than about a path it could not band at all): `from` is the band pair T1 produced, `category` is the enum T3 answered, and `applied` says whether the demotion actually happened. IT IS EVIDENCE, NEVER A GATE: a reader that wants the tier reads `decision`. Its purpose is to make a demotion auditable after the fact — a record saying `from: {high, high}` beside `decision: SCOPED_PIPELINE` is the whole argument for that tier in one field, and a record saying `applied: false` is a change that asked to be small and was refused.",
++      "properties": {
++        "from": {
++          "type": "object",
++          "additionalProperties": false,
++          "required": ["difficulty", "impact"],
++          "description": "The bands T1 produced BEFORE the demotion — on §A2's path the broad glob's own bands, on §A3's the sensitive path's.",
++          "properties": {
++            "difficulty": { "$ref": "#/$defs/band" },
++            "impact": { "$ref": "#/$defs/band" }
++          }
++        },
++        "category": {
++          "type": "string",
++          "enum": ["plumbing", "user-facing-minor", "user-facing-major", "unknown"],
++          "description": "The T3 enum that was answered. Only `plumbing` and `user-facing-minor` ever demote; the other two are recorded with `applied: false`."
++        },
++        "applied": {
++          "type": "boolean",
++          "description": "Whether the bands were actually changed. False means T3 was asked and refused — the record keeps the question as well as the answer."
++        },
++        "sensitive": {
++          "type": "boolean",
++          "description": "Present and true on the §A3 (SCOPED+) path only: the demoted path is on the taxonomy's sensitive list. Absent on the ordinary §A2 broad-glob demotion."
++        }
++      }
++    },
++    "t3_reason": {
++      "type": "string",
++      "enum": ["unbanded", "demotion", "sensitive"],
++      "description": "OPTIONAL (v3.4.1). WHY the light classify was consulted: `unbanded` (T1 could not band the path at all — the pre-3.4.1 case), `demotion` (T1 banded it, but only from a broad directory glob, §A2), or `sensitive` (a small edit on a sensitive path that may reach SCOPED+, §A3). The re-entry is identical in all three cases, so nothing branches on this — it exists so a log or an audit can tell a classify that RESCUED a change from a broad glob apart from one that merely filled a gap."
++    },
++    "t3": {
++      "type": "object",
++      "additionalProperties": false,
++      "required": ["engine", "category"],
++      "description": "OPTIONAL (jev classifier foundation, spec 1). Which engine answered the T3 question for this record, and what it said. Present only when the caller passed this metadata AND `tiers_signalled` contains `T3`; a record whose verdict never consulted T3 has no `t3` block. Written by compound-v-preeval.py `run_preeval(..., t3_meta=...)` before the digest is taken, so `digest` covers it. IT IS EVIDENCE, NEVER A GATE: the tier is read from `decision`, and `category` here is the same answer `t3_demotion.category` records when T3 was asked about the size of a change.",
++      "properties": {
++        "engine": {
++          "type": "string",
++          "enum": ["jev", "claude", "codex", "parent"],
++          "description": "The engine whose answer decided T3. In spec 1 the `triage` CLI accepts only `claude`, `codex` and `parent`; `jev` is reserved here for when Jev may decide, and is not written by spec 1."
++        },
++        "category": {
++          "type": "string",
++          "enum": ["plumbing", "user-facing-minor", "user-facing-major", "unknown"],
++          "description": "The T3 enum the engine answered."
++        },
++        "probs": {
++          "type": "object",
++          "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1 },
++          "description": "The engine's probability per label, when it reports them. Keyed by label; key order carries no meaning."
++        },
++        "model": {
++          "type": "string",
++          "maxLength": 80,
++          "description": "The model id the engine reported for this answer."
++        },
++        "catalogue_hash": {
++          "type": "string",
++          "maxLength": 80,
++          "description": "A hash of the option catalogue (labels and their descriptions) the question was asked with, so answers asked with different wording can be told apart."
++        }
++      }
++    },
++    "session_id": {
++      "type": ["string", "null"],
++      "minLength": 1,
++      "description": "The harness session this record was written in - the value on the `Stop` hook's stdin payload, compared EXACTLY by the triage gate in `hooks/epic-goal-stop.sh`. Written by `/v:triage`, the only component that knows it: the scoring engine never sees a session, so a record produced by `compound-v-preeval.py` alone omits this field. ABSENT OR NULL MEANS THE RECORD BINDS NO SESSION AND THEREFORE COVERS NOTHING - the gate's exact-match test cannot succeed against an empty value, which is the fail-closed direction. Never required: requiring it would invalidate every record the engine writes outside a triage command.",
++      "$comment": "minLength applies only to the string form; null passes. The empty string is rejected because it asserts a session binding that can never match."
++    },
++    "base_commit": {
++      "type": ["string", "null"],
++      "pattern": "^[0-9a-f]{7,40}$",
++      "description": "The commit HEAD pointed at when this record was written. RECORDED, NOT DECISIVE: `hooks/epic-goal-stop.sh` reads it and deliberately derives NO freshness rule from it, because HEAD legitimately advances mid-session - any commit moves it, including /v:triage's own commit of this very record - so a mismatch is not evidence that the record is stale. The field exists so a human or a later audit can say which tree the classification was made against. Do not add a staleness check keyed on it without evidence that a mismatch actually correlates with a bad decision. (`pattern` applies only when the value is a string, so null passes.)"
++    },
++    "declared_paths": {
++      "type": "array",
++      "uniqueItems": true,
++      "items": { "$ref": "#/$defs/declared_path" },
++      "description": "The repo-relative paths this record's classification actually covers - the field that turns the triage gate from an existence check into a COVERAGE check. `hooks/epic-goal-stop.sh` exempts a changed path only when the record is for the same session AND the path lies inside this set; without it, one triage of 'change the README' would exempt an unrelated later edit to that hook itself. COVERAGE IS THE THREE-WAY MATCH THAT HOOK IMPLEMENTS, and it is deliberately narrow: an exact string match, a DIRECTORY PREFIX only when the entry ends in `/`, or a glob only when the entry contains `*`. A bare `scripts` does NOT cover `scripts/app.py` - write `scripts/` or `scripts/**`. Widening a declared set by accident is the one direction this must not fail in, which is also why the item constraints reject what the hook would otherwise silently drop. Written by `/v:triage`; usually the localization's `resolved_paths`, but kept a separate field because a record may legitimately declare a broader set than triage resolved."
+     },
+     "min_sample_status": {
+       "type": "string",
+@@ -96,10 +246,17 @@
+     "digest": {
+       "type": "string",
+       "pattern": "^sha256:[0-9a-f]{64}$",
+-      "description": "Self-integrity digest of THIS record: 'sha256:'+sha256(canonical_json(record without `digest`)). Optional; when present, downstream verifies it with compound-v-taxonomy.record_digest(record, exclude_field='digest')."
++      "description": "Self-integrity digest of THIS record: 'sha256:'+sha256(canonical_json(record without `digest`)). Optional; when present, downstream verifies it with compound-v-taxonomy.record_digest(record, exclude_field='digest'). IT COVERS EVERY OTHER FIELD, the Feature-C binding (`session_id`, `base_commit`, `declared_paths`, `tier`) included. A producer that attaches the binding AFTER building the record ships one whose digest no longer verifies, and does so silently because this field is optional and only checked when present. Pass the binding to compound-v-preeval.py `build_record(..., binding={...})`, which folds it in before the digest is taken."
+     }
+   },
+   "$defs": {
++    "declared_path": {
++      "type": "string",
++      "minLength": 1,
++      "pattern": "^[^/\u0000-\u001f][^\u0000-\u001f]*$",
++      "not": { "pattern": "(^|/)\\.\\.(/|$)" },
++      "description": "One entry in `declared_paths`: a repo-relative path, a directory prefix (trailing `/`), or a glob (containing `*`). CONSTRAINED TO MATCH WHAT THE CONSUMER CAN ACTUALLY READ. `hooks/epic-goal-stop.sh` serializes candidates as `tierU+001Frun_idU+001Fpath` lines and DROPS any entry containing U+001F, LF or CR, because a re-escaped path would no longer equal the path git reports. Dropping narrows the declared set, which is the safe direction for the hook but silent for the producer - so this pattern rejects every C0 control character here, where the producer still learns. A leading `/` is rejected because paths are repo-relative and git never reports an absolute one, so such an entry could only ever match nothing while looking like coverage. `..` segments are rejected because an entry that escapes the repo cannot describe a changed path, and normalizing it here would create a second path semantics to keep in sync with the gate's."
++    },
+     "band": {
+       "type": "string",
+       "enum": ["low", "medium", "high", "unknown"],
+@@ -140,8 +297,8 @@
+         },
+         "confidence": {
+           "type": "string",
+-          "enum": ["exact", "ambiguous", "failed"],
+-          "description": "Localization confidence. `ambiguous`/`failed` ⇒ Layer-A override #1 ⇒ FULL_PIPELINE (Iron-Invariant #2: no `low` without exact localization)."
++          "enum": ["exact", "ambiguous", "failed", "new_file"],
++          "description": "Localization confidence. `ambiguous`/`failed` ⇒ Layer-A override #1 ⇒ FULL_PIPELINE (Iron-Invariant #2: no `low` without exact localization). `new_file` (v3.4.1 §A4) is the fourth value: the request named ONE path that does not exist yet and whose parent directory does, so `resolved_paths` is that single path, `fan_out` is 1 and `flags` contains `new_file`. It is a LOCALIZED answer — override #1 does not fire and T1 still bands it from the directory's glob — but it is never DIRECT: the engine's Layer-B predicate tests `confidence == \"exact\"` by name, because a file nobody has read must not be committed with no manifest, no run dir and no review."
+         }
+       }
+     }
+diff --git a/scripts/compound-v-preeval.py b/scripts/compound-v-preeval.py
+index 60d4904..4305645 100644
+--- a/scripts/compound-v-preeval.py
++++ b/scripts/compound-v-preeval.py
+@@ -4,10 +4,62 @@ Compound V — the CORE pre-evaluation scoring engine (v2.9 Task A3).
+ 
+ The pre-eval stage runs FIRST, before Trigger 0 recon (spec §1). It scores a change
+ request on two SEPARATE axes (difficulty, impact) from tiered deterministic evidence and
+-— only when a change is *provably* trivial + low-impact — writes a `FASTPATH_ELIGIBLE`
+-verdict the harness may OFFER as a proportionate fast-path. Everything else is
+-`FULL_PIPELINE`. The request-level score never auto-routes (Iron-Invariant #4); it only
+-ever OFFERS.
++routes it into one of THREE proportionate tiers (v3.0 spec §A1).
++
++THE DECISION VOCABULARY — a stable INTERFACE for every downstream consumer
++--------------------------------------------------------------------------
++This module is the sole producer of the `decision` value. Consumers (the outcomes
++stream, the fast-path materializer/runner, the post-diff reclassifier, `/v:triage`,
++`/v:orchestrate`) read it and MUST branch on all three values explicitly. A consumer
++that tests `== FASTPATH` and puts everything else in one `else` arm is a two-value
++reader of a three-value enum, which is how a tier silently lands in a cohort or a
++pipeline that means something else.
++
++    DECISION_FASTPATH = "FASTPATH_ELIGIBLE"   # tier DIRECT — implement in place, floor,
++                                              #   commit on the branch. No manifest/run dir.
++    DECISION_SCOPED   = "SCOPED_PIPELINE"     # tier SCOPED — manifest, run dir, scope gate,
++                                              #   floor, ONE combined SPEC+QUALITY review.
++                                              #   Recon + the three pre-flights are skipped.
++    DECISION_FULL     = "FULL_PIPELINE"       # tier FULL  — the whole pipeline, unchanged.
++
++`DECISION_TO_TIER` maps each value to the manifest `triage.tier` token
++(`DIRECT` / `SCOPED` / `FULL`) that `compound-v-validate-manifest.py` compares verbatim.
++
++THE 3x3 BAND MATRIX (spec §A1) — computed INSIDE this engine, never post-hoc
++---------------------------------------------------------------------------
++                impact low   impact medium   impact high
++    diff low      DIRECT        SCOPED          FULL
++    diff medium   SCOPED        SCOPED          FULL
++    diff high     FULL          FULL            FULL
++
++Two rules make the matrix safe, and BOTH must live here rather than in a reader of the
++verdict dict:
++
++  * **Any fired override forces FULL.** Enforced structurally in `_verdict()`, the single
++    construction point of every verdict. This is not belt-and-suspenders: override #4
++    (semantic-vs-path disagreement) returns the GENUINE `low`/`low` bands beside
++    `override_fired=4`, so a consumer that re-derived the tier from the record's two band
++    fields would hand DIRECT — and with it the auto-route class — to a record whose own
++    audit trail says a hard override fired.
++  * **Unknown / unmapped bands fail closed to FULL.** Override #6 catches `unknown` first;
++    the matrix lookup itself then defaults any pair it does not recognise to FULL.
++
++DIRECT additionally keeps every Layer-B predicate (`fan_out <= threshold`, exactly one
++literal normalized path). A `low`/`low` request that fails a Layer-B predicate is NOT
++promoted to DIRECT and NOT dropped to FULL — it demotes ONE tier, to SCOPED, which is
++where the matrix already puts its `low`/`medium` and `medium`/`low` neighbours.
++
++IRON-INVARIANT #4, as amended by spec §A4
++-----------------------------------------
++    The score OFFERS by default. It auto-routes only inside the DIRECT auto-route class,
++    whose membership is decided by mechanically checkable predicates and never by model
++    judgement. Every other tier still requires a human offer and acceptance.
++
++This engine emits the tier and the mechanical evidence for it. It never auto-routes by
++itself: the auto-route class has nine predicates (spec §A4), of which this engine can only
++establish the first six — the floor having run and passed, the full post-diff
++re-validation against the PRE-EDIT taxonomy snapshot, and the miscalibration circuit
++breaker are all post-decision and belong to `/v:triage` and the outcomes stream.
+ 
+     score(localization, taxonomy, t3_category=None, ...) -> deterministic verdict dict
+ 
+@@ -58,6 +110,12 @@ Python 3.9-safe, stdlib only; soft-PyYAML via the shared taxonomy loader (never
+ `import yaml`); no external CLI is launched from here (localize owns the supervisor boundary).
+ 
+ Usage:
++    compound-v-preeval.py triage --request-env VAR --repo DIR [--session-id S]
++        [--base-commit SHA] [--t3-category C] [--json]
++        # Phase T: score + BIND + write the record, and report the tier with spec §A4
++        # predicates 1-6. Its two callers are `hooks/triage-prompt-nudge.sh` (the
++        # UserPromptSubmit producer) and `commands/v-triage.md` step T2 — see
++        # `triage_request`, which both of them are one line on top of.
+     compound-v-preeval.py --request "<text>" --repo DIR [--taxonomy PATH]
+         [--t3-category plumbing|user-facing-minor|user-facing-major|unknown]
+         [--pre-eval-id ID]                       # end-to-end Phase-P run (writes artifacts)
+@@ -70,6 +128,7 @@ import argparse
+ import datetime
+ import hashlib
+ import importlib.util
++import io
+ import json
+ import os
+ import re
+@@ -83,8 +142,91 @@ PRE_EVAL_DIR_REL = os.path.join("docs", "superpowers", "pre-eval")
+ DEFAULT_TAXONOMY_REL = os.path.join(".claude", "compound-v-impact-taxonomy.yaml")
+ STATUS_PRE_EVAL_DONE = "PRE_EVAL_DONE"
+ DECISION_FASTPATH = "FASTPATH_ELIGIBLE"
++DECISION_SCOPED = "SCOPED_PIPELINE"
+ DECISION_FULL = "FULL_PIPELINE"
+ 
++# The manifest `triage.tier` token each decision materializes as. `compound-v-validate-
++# manifest.py` compares that token VERBATIM (case matters), so the mapping is single-sourced
++# here rather than re-spelled by every producer.
++DECISION_TO_TIER = {
++    DECISION_FASTPATH: "DIRECT",
++    DECISION_SCOPED: "SCOPED",
++    DECISION_FULL: "FULL",
++}
++
++# --------------------------------------------------------------------------- #
++# v3.1.0 — the cross-model review gate, derived from the SAME tier.
++#
++# The maintainer's rule, 2026-09-02: a cross-model second opinion follows the same
++# entry criterion as brainstorming. "Если брейншторма не было, то смысл и кодекс
++# запускать" — a change too small to brainstorm is too small to hand to a second
++# model family, and a massive or business-logic-heavy ticket is exactly what a
++# second family should read.
++#
++# This is DERIVED, never stored: the pre-eval record is digest-sealed, and adding a
++# field to it would change the bytes of every future record while old ones keep
++# theirs — a reused pre_eval_id would then be refused as a conflict for a field that
++# carries no new information. The tier is already in the record; the gate is a
++# function of it, so it is computed at read time and has exactly one source of truth.
++#
++# The stakes list in skills/compound-v/cross-model-review.md still applies WITHIN
++# FULL — this decides whether the question is even asked.
++CROSS_MODEL_REVIEW_BY_DECISION = {
++    DECISION_FASTPATH: (False, "tier DIRECT — no brainstorm, no plan and no manifest "
++                               "exist, so there is nothing for a second model to review"),
++    DECISION_SCOPED: (False, "tier SCOPED — a bounded, localized change; the Opus "
++                             "partition-reviewer and the deterministic manifest "
++                             "validator already cover it. Ask for one explicitly if the "
++                             "slice turns out to be coupled"),
++    DECISION_FULL: (True, "tier FULL — the pipeline ran brainstorm and planning, which "
++                          "is the same threshold a second opinion is worth paying for; "
++                          "apply the stakes list in cross-model-review.md to choose the "
++                          "depth, not whether to ask"),
++}
++
++
++def cross_model_review_for(decision_or_tier, flavor=None):
++    """(required, why). Accepts either a decision constant or a manifest triage tier,
++    plus the record's / manifest's `flavor` (v3.4.1): `scoped_plus` is the one SCOPED
++    shape whose second opinion is mandatory, not a judgment call (spec §A3).
++
++    Unknown input falls to True: not knowing the size of a change is itself a reason
++    to have a second family read it, and this gate only ever spends tokens — it can
++    never let a worse plan through.
++    """
++    if str(flavor or "").strip().lower() == "scoped_plus":
++        return (True, "SCOPED+ (flavor scoped_plus) — a small edit on a SENSITIVE path: the "
++                      "deep review and the cross-model second opinion are the obligation "
++                      "that makes the flavor a promise instead of a label (v3.4.1 §A3); "
++                      "run it on the sealed diff, never skip it")
++    key = str(decision_or_tier or "").strip()
++    if key in CROSS_MODEL_REVIEW_BY_DECISION:
++        return CROSS_MODEL_REVIEW_BY_DECISION[key]
++    for dec, tier in DECISION_TO_TIER.items():
++        if key.upper() == tier:
++            return CROSS_MODEL_REVIEW_BY_DECISION[dec]
++    return (True, "tier %r is not one of %s — an unrecognised size falls to 'review', "
++                  "because not knowing how big a change is, is itself a reason to have "
++                  "a second family read it"
++                  % (decision_or_tier, ", ".join(sorted(DECISION_TO_TIER.values()))))
++
++
++# spec §A1 — the 3x3 difficulty x impact matrix. Keyed (difficulty, impact); ANY pair absent
++# from this table (including every `unknown`/None combination) falls closed to FULL via
++# `_matrix_decision`'s default. The `low`/`low` cell is a DIRECT *candidate* only: Layer B
++# still has to prove the fan-out and single-literal-path predicates before it is granted.
++_TIER_MATRIX = {
++    ("low", "low"): DECISION_FASTPATH,
++    ("low", "medium"): DECISION_SCOPED,
++    ("low", "high"): DECISION_FULL,
++    ("medium", "low"): DECISION_SCOPED,
++    ("medium", "medium"): DECISION_SCOPED,
++    ("medium", "high"): DECISION_FULL,
++    ("high", "low"): DECISION_FULL,
++    ("high", "medium"): DECISION_FULL,
++    ("high", "high"): DECISION_FULL,
++}
++
+ # spec §2 — T3 total truth table (deterministic; every enum → BOTH axes, no low/med
+ # ambiguity, round-3 fix). The T3 `light`-tier classify emits exactly one of these.
+ T3_TABLE = {
+@@ -95,6 +237,35 @@ T3_TABLE = {
+ }
+ T3_CATEGORIES = tuple(T3_TABLE.keys())
+ 
++# v3.4.1 — the two T3 answers that mean "this really is a small change". Both the §A2
++# demotion and the §A3 SCOPED+ branch key on the SAME set, because they are the same
++# judgement asked in two places; `user-facing-major` and `unknown` never demote anything.
++DEMOTABLE_T3_CATEGORIES = ("plumbing", "user-facing-minor")
++
++# v3.4.1 §A3 — SCOPED+ is not a fourth tier token. `DECISION_TO_TIER` still has exactly
++# three values; a SCOPED+ verdict is `SCOPED_PIPELINE` wearing this flavor, which the
++# manifest carries as `triage.flavor` and which obliges a deep review plus a cross-model
++# second opinion. `_verdict` is the only place it can be attached, and it refuses to attach
++# it to anything but SCOPED_PIPELINE.
++FLAVOR_SCOPED_PLUS = "scoped_plus"
++VALID_FLAVORS = (FLAVOR_SCOPED_PLUS,)
++
++# v3.4.1 §A3 — the hard list no light classify can talk its way past. Secrets and CI are
++# not "small edits": a one-line change to a private key or to a workflow file is exactly
++# the shape of change that is catastrophic and looks trivial. A path matching any of these
++# takes override #2 (FULL) whatever T3 says, and the check is a CODE floor rather than a
++# taxonomy row so that editing the taxonomy cannot remove it.
++NEVER_DEMOTE_GLOBS = ("**/*.pem", "**/*.key", "**/*.env", ".github/**")
++
++# The fan-out ceiling for both proportionate paths (spec decisions 1 and 3: "fan_out ≤ 2").
++# It is deliberately NOT `fan_out_threshold`: that config knob gates the DIRECT cell, which
++# is a stricter question (exactly one literal path) than "still a small change".
++DEMOTION_MAX_FAN_OUT = 2
++
++# The reason a needs_t3 handoff was issued — for the caller's LOG only. The re-entry is
++# identical in all three cases (`--t3-category <enum>`); nothing branches on this.
++T3_REASONS = ("unbanded", "demotion", "sensitive")
++
+ # Derived 1-10 DISPLAY (spec §2 — post-decision label, NEVER the gate). Band-midpoint.
+ _BAND_DISPLAY = {"low": 2, "medium": 5, "high": 8}  # unknown/None → null
+ 
+@@ -103,7 +274,13 @@ _OVERRIDE3_FLAGS = frozenset(("shared_token", "is_a11y_state", "is_generated"))
+ # Any of these means the change semantically IS a high-blast surface → raises impact and
+ # so blocks Layer B (AC-8: impact is what a change IS, not only where it lives). regex_timeout
+ # is a FAIL-CLOSED content signal (a content pattern could not be evaluated → treat as a hit).
+-_IMPACT_RAISING_FLAGS = frozenset(("shared_token", "is_a11y_state", "regex_timeout"))
++# `content_scan_incomplete` (v3.4.1 §WS-B) joins them: a literal path whose file was too
++# large to read is still EXACT by name — the localizer no longer degrades the whole
++# localization to `ambiguous` over it — but the content patterns that would have decided
++# its impact never ran, so the unknown falls on the impact axis. Fail-closed on impact,
++# not on localization.
++_IMPACT_RAISING_FLAGS = frozenset(("shared_token", "is_a11y_state", "regex_timeout",
++                                   "content_scan_incomplete"))
+ 
+ # F2 (post-diff reclassifier) owns MAX_TOTAL_LINES=50 as its size threshold; the pre-eval
+ # scorer's only size lever is `fan_out_threshold` (from config, default 1 — single-site).
+@@ -258,6 +435,14 @@ def _content_raises_impact(flags):
+     return False
+ 
+ 
++def _matrix_decision(difficulty_band, impact_band):
++    """spec §A1 — the 3x3 band matrix, as a pure lookup. FAIL-CLOSED BY CONSTRUCTION: any
++    pair the table does not contain (`unknown`, `None`, a band a future taxonomy invents)
++    returns FULL. Callers must still apply the Layer-B predicates before honouring a
++    DIRECT (`DECISION_FASTPATH`) result — see `score`."""
++    return _TIER_MATRIX.get((difficulty_band, impact_band), DECISION_FULL)
++
++
+ def _has_safety_coverage(taxonomy):
+     """A loaded taxonomy provides *safety coverage* only if it carries a non-empty
+     sensitive-path list — the core protection a fast-path relies on. Without it there is no
+@@ -300,9 +485,22 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+       token_cap:    whole-stage token budget; overrun at the T3 boundary → abort → FULL.
+ 
+     Returns one of:
+-      {"needs_t3": True, "t3_prompt": str}                              # parent runs the Task
++      {"needs_t3": True, "t3_prompt": str, "t3_reason": str}            # parent runs the Task
+       {"decision", "override_fired", "difficulty", "impact",            # a completed verdict
+-       "tiers_signalled", "min_sample_status"}
++       "tiers_signalled", "min_sample_status", "flavor"}                # + t3_demotion/t3_reason
++
++    `t3_reason` (v3.4.1) says WHY the classify was asked for — `unbanded` (T1 could not band
++    the path at all, the pre-3.4.1 case), `demotion` (T1 banded it, but only from a broad
++    directory glob — §A2), or `sensitive` (a small edit on a sensitive path that may reach
++    SCOPED+ — §A3). The re-entry is identical in all three: `--t3-category <enum>`. It is
++    for the caller's LOG; nothing branches on it.
++
++    A verdict's `flavor` is `scoped_plus` or None, and `t3_demotion` records what the
++    taxonomy said before a light classify was allowed to answer back.
++
++    `decision` is one of DECISION_FASTPATH / DECISION_SCOPED / DECISION_FULL (spec §A1's
++    3x3 matrix, applied at Layer B). A non-null `override_fired` ALWAYS pairs with
++    DECISION_FULL — `_verdict` enforces that, so no caller has to re-check it.
+     """
+     loc = localization or {}
+     resolved = loc.get("resolved_paths", []) or []
+@@ -320,7 +518,11 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+         return _verdict(DECISION_FULL, override=None, diff="unknown", imp="unknown",
+                         tiers=[], min_sample=min_sample_status)
+ 
+-    tiers = ["localization"] if confidence == "exact" else []
++    # v3.4.1 §A4: `new_file` is a LOCALIZED answer — the localizer named one path that does
++    # not exist yet and whose parent directory does. T1 can still band it (match_path is
++    # glob-based and needs no file on disk), so the tier is decidable. Layer B's DIRECT
++    # predicate separately refuses it by name: a file nobody has read cannot be a fast-path.
++    tiers = ["localization"] if confidence in ("exact", "new_file") else []
+     tax = _tax()
+ 
+     # ============================ Layer A — hard overrides ======================= #
+@@ -340,9 +542,54 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+     # Belt-and-suspenders: trust A1's `sensitive_path` flag AND independently re-match the
+     # taxonomy's sensitive_path_list here (path-only, cheap) so a missed flag still fails
+     # closed — the scorer never trusts a single upstream signal for a hard-safety override.
+-    sensitive = ("sensitive_path" in flags) or any(
+-        tax.match_path(taxonomy, p)["sensitive"] for p in resolved)
++    #
++    # THE ROWS ARE RETAINED, not recomputed and thrown away. Two generator expressions
++    # below used to call `match_path` a second and third time and keep only the bands;
++    # §A2's demotion needs to know WHICH globs produced those bands (broad or specific),
++    # so the rows are computed once, here, and read three times.
++    path_matches = [tax.match_path(taxonomy, p) for p in resolved]
++    sensitive = ("sensitive_path" in flags) or any(m["sensitive"] for m in path_matches)
+     if sensitive:
++        # v3.4.1 §A3 — SCOPED+. Override #2 becomes conditional: a genuinely small,
++        # exactly-localized edit that a light classify calls plumbing is routed to SCOPED
++        # with a `scoped_plus` flavor (a mandatory deep review + a cross-model second
++        # opinion + the human accept) instead of the whole pipeline. Everything else on a
++        # sensitive path is override #2 exactly as before, and four classes can never take
++        # this route at all: a NEVER_DEMOTE path (secrets, CI), an inexact localization, a
++        # fan-out above two, and any change a content pattern already calls high-impact.
++        never_demote = any(_is_never_demote_path(p) for p in resolved)
++        scoped_plus_open = (
++            not never_demote
++            and confidence == "exact"
++            and fan_out <= DEMOTION_MAX_FAN_OUT
++            and not _content_raises_impact(flags)
++        )
++        if scoped_plus_open:
++            _from = {"difficulty": tax.max_band(
++                         m["difficulty_band"] for m in path_matches) or "high",
++                     "impact": tax.max_band(
++                         m["impact_band"] for m in path_matches) or "high"}
++            if t3_category is None:
++                # Same budget guard as every other T3 boundary: an over-budget request
++                # never buys a model call, it takes the override it would have taken.
++                if token_cap is not None \
++                        and estimate_t3_tokens(request_text, resolved) > token_cap:
++                    return _verdict(DECISION_FULL, override=2, diff="high", imp="high",
++                                    tiers=tiers + ["T1"], min_sample=min_sample_status)
++                prompt = build_t3_prompt() if build_t3_prompt else _default_t3_prompt(
++                    request_text, resolved, taxonomy)
++                return {"needs_t3": True, "t3_prompt": prompt, "t3_reason": "sensitive",
++                        "tiers_signalled": tiers + ["T1"],
++                        "min_sample_status": min_sample_status}
++            if t3_category in DEMOTABLE_T3_CATEGORIES:
++                return _verdict(_matrix_decision("medium", "medium"), override=None,
++                                diff="medium", imp="medium",
++                                tiers=tiers + ["T1", "T3"],
++                                min_sample=min_sample_status,
++                                flavor=FLAVOR_SCOPED_PLUS,
++                                t3_reason="sensitive",
++                                t3_demotion={"from": _from, "category": t3_category,
++                                             "applied": True, "sensitive": True})
+         return _verdict(DECISION_FULL, override=2, diff="high", imp="high",
+                         tiers=tiers + ["T1"], min_sample=min_sample_status)
+ 
+@@ -370,10 +617,8 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+                         tiers=tiers, min_sample=min_sample_status)
+ 
+     # -- Compute the two axes (conservative-max; may require the T3 fallback). ---------- #
+-    t1_diff = tax.max_band(
+-        tax.match_path(taxonomy, p)["difficulty_band"] for p in resolved)
+-    t1_impact = tax.max_band(
+-        tax.match_path(taxonomy, p)["impact_band"] for p in resolved)
++    t1_diff = tax.max_band(m["difficulty_band"] for m in path_matches)
++    t1_impact = tax.max_band(m["impact_band"] for m in path_matches)
+     if t1_diff is not None or t1_impact is not None:
+         if "T1" not in tiers:
+             tiers.append("T1")
+@@ -384,6 +629,23 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+         [t1_impact] + (["high"] if content_impact_high else []))
+     difficulty_band = t1_diff
+ 
++    # v3.4.1 §A2 — BREADTH. `t1_from_broad_glob` is true when every row that produced these
++    # bands is a "everything under here" pattern (`**`, or a trailing `/*`), the change is
++    # not on a sensitive path, and no content pattern has already called it high-impact.
++    # It is the difference between "the taxonomy says THIS FILE is high" and "the taxonomy
++    # says this DIRECTORY is high" — and only the second is a claim a light classify is
++    # allowed to answer back to. `all()` over an empty list is True, so an unbanded path is
++    # excluded explicitly: it takes the pre-existing unbanded T3 handoff, not this one.
++    _t1_rows = [row for m in path_matches for row in m["matched"]]
++    t1_from_broad_glob = (
++        bool(_t1_rows)
++        and all(row.get("broad") for row in _t1_rows)
++        and not sensitive
++        and not content_impact_high
++    )
++    t3_demotion = None
++    t3_reason = None
++
+     # T2 corroborates `low` but never independently CREATES it pre-calibration; `unhealthy`
+     # RAISES difficulty (Iron-Invariant #3 counterfactual guard).
+     if isinstance(tier2, dict) and tier2.get("health"):
+@@ -403,7 +665,7 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+                                 tiers=tiers, min_sample=min_sample_status)
+             prompt = build_t3_prompt() if build_t3_prompt else _default_t3_prompt(
+                 request_text, resolved, taxonomy)
+-            return {"needs_t3": True, "t3_prompt": prompt,
++            return {"needs_t3": True, "t3_prompt": prompt, "t3_reason": "unbanded",
+                     "tiers_signalled": tiers, "min_sample_status": min_sample_status}
+         # A category was supplied — but re-check the budget (an over-budget request that
+         # somehow arrived with a category still aborts, honoring the whole-stage cap).
+@@ -416,6 +678,51 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+         # T3 impact may only RAISE, never lower below T1 (weaker text proxy — spec §2).
+         impact_band = tax.max_band([impact_band, t3_impact]) or t3_impact
+ 
++    # v3.4.1 §A2 — THE T3 DEMOTION (maintainer decision 1). T1 banded this change, but only
++    # because a broad glob claimed the whole directory. Ask the light classify once, and let
++    # `plumbing` / `user-facing-minor` bring the tier down to SCOPED.
++    #
++    # THE MATRIX GUARD IS PART OF THE BRANCH, not an optimisation on top of it. This is a
++    # DEMOTION: if the bands already route the change to DIRECT or SCOPED there is nothing
++    # to demote, and asking anyway would turn today's zero-cost README typo into a model
++    # round trip that cannot improve its tier. So the branch is entered only where the
++    # bands would otherwise force FULL.
++    #
++    # Override #4 (semantic-vs-path disagreement) is deliberately NOT evaluated on this
++    # path — it lives in the `elif` below and this branch shadows it. Firing it here would
++    # be incoherent: the whole premise is that T1 said `high` from a broad glob and T3 says
++    # `plumbing`, which is exactly the disagreement #4 exists to punish. #4 keeps firing
++    # wherever T1's bands came from a row that named the file.
++    elif (t1_from_broad_glob and fan_out <= DEMOTION_MAX_FAN_OUT
++            and _matrix_decision(difficulty_band, impact_band) == DECISION_FULL):
++        if t3_category is None:
++            if token_cap is not None \
++                    and estimate_t3_tokens(request_text, resolved) > token_cap:
++                return _verdict(DECISION_FULL, override=None, diff=difficulty_band,
++                                imp=impact_band or "unknown", tiers=tiers,
++                                min_sample=min_sample_status)
++            prompt = build_t3_prompt() if build_t3_prompt else _default_t3_prompt(
++                request_text, resolved, taxonomy)
++            return {"needs_t3": True, "t3_prompt": prompt, "t3_reason": "demotion",
++                    "tiers_signalled": tiers, "min_sample_status": min_sample_status}
++        tiers.append("T3")
++        # `t3_reason` records why T3 was CONSULTED, not what it answered — so it is set on
++        # the refusal too. A record that says `applied: false` beside the category that
++        # refused it is the audit trail for a change that asked to be small and was told no.
++        t3_reason = "demotion"
++        t3_demotion = {"from": {"difficulty": difficulty_band, "impact": impact_band},
++                       "category": t3_category,
++                       "applied": t3_category in DEMOTABLE_T3_CATEGORIES}
++        if t3_demotion["applied"]:
++            # Difficulty comes from the T3 table but is FLOORED AT MEDIUM: "DIRECT for code
++            # stays unreachable" — a light classify calling a change plumbing is evidence
++            # that it is small, never evidence that it may be committed unreviewed. Impact
++            # is CAPPED at medium: the broad glob's `high` was a statement about the
++            # directory, and T3 has now said this change is not that.
++            difficulty_band = tax.max_band([T3_TABLE[t3_category][0], "medium"])
++            if tax.band_rank(impact_band) > tax.band_rank("medium"):
++                impact_band = "medium"
++
+     # #4 semantic-vs-path disagreement: T1 classified AND a T3 category was supplied and
+     # they conflict by ≥2 band ranks (T1 `low` vs T3 `user-facing-major`, or the converse).
+     elif t3_category is not None and t3_category in T3_TABLE:
+@@ -433,21 +740,40 @@ def score(localization, taxonomy, t3_category=None, *, tier2=None, churn_hot=Fal
+             or difficulty_band is None or impact_band is None:
+         return _verdict(DECISION_FULL, override=6, diff=difficulty_band or "unknown",
+                         imp=impact_band or "unknown", tiers=tiers,
+-                        min_sample=min_sample_status)
+-
+-    # ============================ Layer B — positive gate ======================== #
+-    # FASTPATH_ELIGIBLE ⟺ difficulty==low ∧ impact==low ∧ fan_out≤threshold ∧ exactly one
+-    # literal normalized path (not shared/generated/config/migration — all already caught
+-    # by overrides #2/#3 and content-flag impact, so at Layer B `flags` is clean).
+-    eligible = (
+-        difficulty_band == "low"
+-        and impact_band == "low"
+-        and fan_out <= int(fan_out_threshold)
+-        and _is_single_literal_path(resolved)
+-    )
+-    decision = DECISION_FASTPATH if eligible else DECISION_FULL
++                        min_sample=min_sample_status, t3_demotion=t3_demotion,
++                        t3_reason=t3_reason)
++
++    # ==================== Layer B — the 3x3 matrix + the DIRECT predicates ============ #
++    # spec §A1. The matrix is applied HERE, inside the engine, on the bands as computed —
++    # never re-derived downstream from the record's two band fields, because a fired
++    # override can leave genuine `low`/`low` bands on a record that must never be DIRECT
++    # (override #4; see the module docstring). `_verdict` is the structural backstop.
++    decision = _matrix_decision(difficulty_band, impact_band)
++
++    # DIRECT (`FASTPATH_ELIGIBLE`) additionally keeps every pre-existing Layer-B predicate:
++    # fan_out ≤ threshold ∧ exactly one literal normalized path (not shared/generated/
++    # config/migration — all already caught by overrides #2/#3 and content-flag impact, so
++    # at Layer B `flags` is clean). Failing one does NOT fall to FULL: the bands are still
++    # low/low, so the change demotes exactly ONE tier, to SCOPED — the tier the matrix
++    # already assigns to this cell's low/medium and medium/low neighbours, and one that
++    # still buys a manifest, a run directory, the scope gate, the floor and a review.
++    if decision == DECISION_FASTPATH:
++        direct_predicates_hold = (
++            # v3.4.1 §A4 / pre-flight amendment 6 — `exact` BY NAME, never "not failed".
++            # `new_file` is a localized answer (Layer A treats it as one) with low/low bands
++            # from a directory glob and exactly one literal path, so every other predicate
++            # here holds for it. Without this test it would reach DIRECT: a file nobody has
++            # read, committed with no manifest, no run dir and no review.
++            confidence == "exact"
++            and fan_out <= int(fan_out_threshold)
++            and _is_single_literal_path(resolved)
++        )
++        if not direct_predicates_hold:
++            decision = DECISION_SCOPED
++
+     return _verdict(decision, override=None, diff=difficulty_band, imp=impact_band,
+-                    tiers=tiers, min_sample=min_sample_status)
++                    tiers=tiers, min_sample=min_sample_status,
++                    t3_demotion=t3_demotion, t3_reason=t3_reason)
+ 
+ 
+ def _bands_conflict(a, b):
+@@ -457,7 +783,38 @@ def _bands_conflict(a, b):
+     return ra > 0 and rb > 0 and abs(ra - rb) >= 2
+ 
+ 
+-def _verdict(decision, override, diff, imp, tiers, min_sample):
++def _is_never_demote_path(path):
++    """v3.4.1 §A3 — True iff `path` is on the hard NEVER_DEMOTE list (secrets, CI). A CODE
++    floor, not a taxonomy row: a change that could edit the taxonomy must not be able to
++    edit its way out of this."""
++    tax = _tax()
++    return any(tax.glob_match(path, g) for g in NEVER_DEMOTE_GLOBS)
++
++
++def _verdict(decision, override, diff, imp, tiers, min_sample, flavor=None,
++             t3_demotion=None, t3_reason=None):
++    # THE INVARIANT, enforced at the single construction point of every verdict (spec §A1):
++    # ANY FIRED OVERRIDE FORCES FULL. Every Layer-A row already passes DECISION_FULL, so
++    # this normally changes nothing — it exists so that no future edit can introduce a
++    # verdict carrying both a non-null `override_fired` and a proportionate decision. That
++    # pairing is precisely what override #4 makes reachable: it returns the GENUINE
++    # `low`/`low` bands beside `override_fired=4`, and a record on which the two disagreed
++    # would let a post-hoc reader grant DIRECT — and the auto-route class with it — to a
++    # change whose own audit trail says a hard override fired.
++    if override is not None:
++        decision = DECISION_FULL
++
++    # THE FLAVOR INVARIANT, enforced at the same single point (v3.4.1 §A3). `scoped_plus`
++    # is a PROMISE that a deep review and a cross-model second opinion will run, and the
++    # manifest validator refuses a `scoped_plus` manifest without them. A flavor riding on
++    # a FULL verdict would demand that ceremony of a pipeline that already exceeds it; one
++    # riding on DIRECT would demand it of a change that has no manifest at all. Both are
++    # nonsense, so the flavor survives on exactly one decision — and an unrecognised value
++    # is dropped rather than forwarded, because the validator's enum would reject it
++    # downstream, where the error is far from the line that invented it.
++    if decision != DECISION_SCOPED or flavor not in VALID_FLAVORS:
++        flavor = None
++
+     # De-dup tiers preserving order; keep only the schema enum.
+     allowed = ("T1", "T2", "T3", "churn", "localization")
+     seen, ordered = set(), []
+@@ -465,7 +822,7 @@ def _verdict(decision, override, diff, imp, tiers, min_sample):
+         if t in allowed and t not in seen:
+             seen.add(t)
+             ordered.append(t)
+-    return {
++    out = {
+         "needs_t3": False,
+         "decision": decision,
+         "override_fired": override,
+@@ -473,7 +830,16 @@ def _verdict(decision, override, diff, imp, tiers, min_sample):
+         "impact": _axis(imp),
+         "tiers_signalled": ordered,
+         "min_sample_status": min_sample,
++        "flavor": flavor,
+     }
++    # Present only when there is something to say — `build_record` copies them straight
++    # through, and an always-present null would change the bytes (and so the digest) of
++    # every record the engine has ever written for no new information.
++    if t3_demotion is not None:
++        out["t3_demotion"] = t3_demotion
++    if t3_reason in T3_REASONS:
++        out["t3_reason"] = t3_reason
++    return out
+ 
+ 
+ def _default_t3_prompt(request_text, resolved_paths, taxonomy):
+@@ -589,9 +955,29 @@ def write_taxonomy_snapshot(repo, pre_eval_id, taxonomy_bytes):
+ 
+ 
+ def build_record(pre_eval_id, request, verdict, localization, taxonomy_version,
+-                 taxonomy_ref, taxonomy_digest, ts=None):
++                 taxonomy_ref, taxonomy_digest, ts=None, binding=None):
+     """Assemble the write-once pre-eval RECORD (conforms to pre-eval-record.schema.json).
+-    `status: PRE_EVAL_DONE` is a RECORD field, not a state.json phase (AC-7/CR2-8)."""
++    `status: PRE_EVAL_DONE` is a RECORD field, not a state.json phase (AC-7/CR2-8).
++
++    binding: the OPTIONAL Feature-C coverage binding (spec §C) — a dict with any of
++        `session_id`, `base_commit`, `declared_paths`. It is what lets the triage gate in
++        `hooks/epic-goal-stop.sh` decide whether this record COVERS the current diff, and
++        only `/v:triage` can supply it: this engine never sees a session. Absent (the
++        default, and every call this module makes) the record is byte-for-byte what it was
++        before v3.0 — no binding keys, and an identical `digest`.
++
++        THE KWARG EXISTS TO REMOVE A FOOTGUN, not merely as a convenience. `digest` is
++        computed over the whole record, so a producer that called `build_record` and THEN
++        attached the binding fields would ship a record whose self-integrity digest no
++        longer verifies — silently, because `digest` is optional and only checked when
++        present. Passing the binding through here keeps the digest correct by construction.
++
++        `tier` is NOT accepted from the caller. It is DERIVED from the decision via
++        DECISION_TO_TIER whenever a binding is supplied, because the triage gate prefers
++        `tier` over `decision`: accepting it as an argument would let a producer hand the
++        gate a tier the record's own decision refuses. The schema pins the two together as
++        well, so the disagreement is unrepresentable on both sides of the boundary.
++    """
+     tax = _tax()
+     rec = {
+         "pre_eval_id": pre_eval_id,
+@@ -611,6 +997,28 @@ def build_record(pre_eval_id, request, verdict, localization, taxonomy_version,
+         "min_sample_status": verdict["min_sample_status"],
+         "confidence": _evidence_confidence(verdict, localization),
+     }
++
++    # v3.4.1 — the proportionate-tier evidence, written ONLY when there is any. A verdict
++    # that took none of the new paths produces byte-for-byte the record it produced before
++    # this release, which matters because `write_record` is write-once and re-running
++    # triage on the same request must not collide with its own earlier answer.
++    # `t3` (jev classifier foundation) rides the same loop, so it is inside the digest and
++    # absent whenever `run_preeval` did not attach it.
++    for _k in ("flavor", "t3_demotion", "t3_reason", "t3"):
++        if verdict.get(_k) is not None:
++            rec[_k] = verdict[_k]
++
++    # Feature C coverage binding — added BEFORE the digest, never after (see the docstring).
++    # Each key is emitted only when the caller supplied it, so an unbound record keeps its
++    # pre-3.0 bytes exactly. `tier` rides along derived, never supplied.
++    if binding:
++        for _k in ("session_id", "base_commit", "declared_paths"):
++            if binding.get(_k) is not None:
++                rec[_k] = binding[_k]
++        _tier = DECISION_TO_TIER.get(verdict["decision"])
++        if _tier is not None:
++            rec["tier"] = _tier
++
+     rec["digest"] = tax.record_digest(rec, exclude_field="digest")
+     return rec
+ 
+@@ -623,11 +1031,50 @@ def _evidence_confidence(verdict, localization):
+ 
+ 
+ def write_record(repo, pre_eval_id, record):
+-    """Write the write-once RECORD (O_EXCL — reject overwrite, CR1-9). Returns rel path."""
++    """Write the write-once RECORD (O_EXCL — reject overwrite, CR1-9). Returns rel path.
++
++    Re-running triage on the SAME request is a supported operation: `run_preeval`
++    deliberately rediscovers an existing `pre_eval_id` via
++    `find_pre_eval_id_by_request` rather than minting a second one. Until this was
++    dogfooded (2026-09-01) that path then hit `O_EXCL` and died with a raw
++    `FileExistsError` traceback — the discovery half and the write half
++    contradicted each other.
++
++    Resolution keeps write-once intact where it matters. Byte-identical content is
++    an idempotent no-op, because rewriting a file with what it already holds
++    changes nothing and refusing it only punishes a legitimate re-run. Content that
++    DIFFERS is still refused, and now with the reason and the offending keys named
++    instead of a stack trace: a record whose decision or bindings moved under a
++    reused id is a real conflict, and silently overwriting it would destroy the
++    audit trail this whole layer exists to produce.
++    """
+     full = record_path(repo, pre_eval_id)
+-    _write_once_text(full, json.dumps(record, indent=2, sort_keys=True,
+-                                      ensure_ascii=False) + "\n")
+-    return _rel(repo, full)
++    payload = json.dumps(record, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
++    if os.path.exists(full):
++        try:
++            existing = io.open(full, encoding="utf-8").read()
++        except OSError as exc:
++            raise ValueError("pre-eval record %s exists but is unreadable: %s"
++                               % (pre_eval_id, exc))
++        if existing == payload:
++            # Byte-identical: an idempotent re-run. Signalled to the caller so it can
++            # skip the PREDICTED append — this write is what stops the flow before
++            # `append_predicted`, so returning "fine" without that signal would put a
++            # SECOND predicted event on the stream the circuit breaker reads.
++            return _rel(repo, full), True
++        try:
++            old_rec = json.loads(existing)
++            moved = sorted(k for k in set(old_rec) | set(record)
++                           if old_rec.get(k) != record.get(k))
++        except ValueError:
++            moved = ["<existing record is not valid JSON>"]
++        raise ValueError(
++            "pre-eval record %s already exists with DIFFERENT content; refusing to "
++            "overwrite an audit artifact. Fields that differ: %s. Re-running the same "
++            "request is fine — this means the same id now scores differently, which is "
++            "a conflict a human should look at." % (pre_eval_id, ", ".join(moved) or "(none)"))
++    _write_once_text(full, payload)
++    return _rel(repo, full), False
+ 
+ 
+ # --------------------------------------------------------------------------- #
+@@ -682,10 +1129,12 @@ def _churn_hot_for(repo, resolved_paths):
+     return any(cm.read_path(cache, p).get("hot") for p in resolved_paths)
+ 
+ 
+-# Repeated advisor consults signal the job was harder than its tier: a fast-path/standard
+-# worker that had to stop and consult a cross-brand advisor MORE than a couple of times is
+-# evidence the work outran its classification. STRICTLY-greater-than gate (escalation-only —
+-# it can only push the tier UP on reclassification, never down).
++# VESTIGIAL as of 3.4.16: the cross-brand advisor mode that produced `usage.advisor_calls`
++# was removed, and the field is gone from schemas/job_result.schema.json — so no conformant
++# result can carry it and this sensor now reads permanently cold (fail-open False). The
++# STRICTLY-greater-than, escalation-only gate is kept intact so that any future
++# consult-style counter can re-arm it by writing the same field; it can only push the tier
++# UP on reclassification, never down.
+ ADVISOR_HOT_THRESHOLD = 2
+ 
+ 
+@@ -753,10 +1202,30 @@ def _run_dir_contained(repo, run_dir):
+ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+                 pre_eval_id=None, ts=None, config_values=None, tier2=None,
+                 churn_hot=None, advisor_hot=None, run_dir=None, _localize=None,
+-                write_localization=True, stream_path=None, append_predicted=True):
++                write_localization=True, stream_path=None, append_predicted=True,
++                binding=None, t3_meta=None):
+     """End-to-end Phase-P run. Writes intent → (localization) → taxonomy snapshot → record,
+     then appends the `predicted` triage event. NEVER runs git (the orchestrator commits).
+ 
++    `t3_meta` is the OPTIONAL note of which engine answered the T3 question:
++    `{"engine", "category", "probs"?, "model"?, "catalogue_hash"?}`. It becomes the record's
++    `t3` block (its `None` fields dropped) only when the verdict's `tiers_signalled` holds
++    `T3`; otherwise it is ignored. It goes in through the verdict, so `build_record` puts it
++    inside the digest. It never changes the score, the decision or the `predicted` event, and
++    `t3_meta=None` writes exactly the record a call without it writes.
++
++    `binding` is the OPTIONAL Feature-C coverage binding (`session_id` / `base_commit`) that
++    `triage_request` supplies. When given, `declared_paths` is derived HERE from the
++    localization this run actually produced and the pair is threaded into `build_record`'s
++    own `binding=` kwarg, so the record's `digest` covers the binding by construction. Paths
++    `declare_paths` refuses come back on the result as `refused_paths`.
++
++    This is a REAL parameter rather than a `globals()["build_record"]` patch (pre-flight
++    amendment 2). The patch form captured the module global at call time, so two overlapping
++    `triage_request` calls in one interpreter would leave the global pointing at the first
++    call's closure — every later record bound to a stale `session_id`, which is a record
++    claiming Stop-gate coverage it does not have. A parameter cannot do that.
++
+     `_localize` is injectable for tests (a callable `(request, repo, taxonomy) -> loc dict`);
+     defaults to A1's real `localize()`. On `needs_t3`, returns the payload WITHOUT writing
+     the record or appending `predicted` — the parent runs the light Task and re-invokes with
+@@ -765,7 +1234,8 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+ 
+     Config honored (fail-closed, HIGH-4): `pre_eval.enabled==false` → the whole stage is a
+     no-op (no artifacts) → FULL_PIPELINE; `pre_eval.fast_path=="off"` → hard kill-switch, the
+-    score is still computed but the decision is forced FULL_PIPELINE (never FASTPATH_ELIGIBLE);
++    score is still computed but the decision is forced FULL_PIPELINE (never
++    FASTPATH_ELIGIBLE and never SCOPED_PIPELINE — both are proportionate tiers);
+     `pre_eval.min_sample_count` floors the Tier-2 cohort lookup applied per the spec's cohort
+     rule (healthy corroborates low, unhealthy raises, insufficient = no signal).
+     """
+@@ -846,17 +1316,27 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+                     fan_out_threshold=fan_out_threshold,
+                     token_cap=token_cap, request_text=request)
+ 
+-    # HIGH-4(b): fast_path == "off" is a HARD kill-switch — no fast-path offer is EVER made.
+-    # The bands stay computed (for the record + learning), but the DECISION is forced
+-    # FULL_PIPELINE. When the score would need a T3 model call, we skip it entirely: a
+-    # fast-path that can never be offered is not worth a model spend (spec §3, near-free).
++    # HIGH-4(b): fast_path == "off" is a HARD kill-switch on PROPORTIONATE routing — no
++    # reduced-ceremony tier is EVER offered. The bands stay computed (for the record +
++    # learning), but the DECISION is forced FULL_PIPELINE. When the score would need a T3
++    # model call, we skip it entirely: a fast-path that can never be offered is not worth a
++    # model spend (spec §3, near-free).
++    #
++    # v3.0: this branch names DECISION_SCOPED EXPLICITLY rather than letting it fall through
++    # the `== DECISION_FASTPATH` test into the untouched arm. An operator who set
++    # `fast_path: "off"` asked for the full pipeline; silently handing them a tier that also
++    # skips recon and the three pre-flights would be the kill-switch failing open on a value
++    # that did not exist when the switch was written.
+     if fast_path_off:
+         if verdict.get("needs_t3"):
+             verdict = _verdict(DECISION_FULL, override=None, diff="unknown", imp="unknown",
+                                tiers=verdict.get("tiers_signalled", []),
+                                min_sample=verdict.get("min_sample_status", "insufficient"))
+-        elif verdict.get("decision") == DECISION_FASTPATH:
+-            verdict = dict(verdict, decision=DECISION_FULL)
++        elif verdict.get("decision") in (DECISION_FASTPATH, DECISION_SCOPED):
++            # `flavor` goes with the decision it qualified: a SCOPED+ verdict forced to FULL
++            # is a FULL verdict, and leaving `scoped_plus` on it would ask the manifest
++            # validator for a SCOPED+ manifest the operator explicitly switched off.
++            verdict = dict(verdict, decision=DECISION_FULL, flavor=None)
+ 
+     if verdict.get("needs_t3"):
+         # Pause: parent runs the light Task and re-invokes. Artifacts already durable.
+@@ -864,18 +1344,33 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+             "needs_t3": True,
+             "pre_eval_id": pre_eval_id,
+             "t3_prompt": verdict["t3_prompt"],
++            "t3_reason": verdict.get("t3_reason"),
+             "intent_ref": intent_rel,
+             "localization_ref": localization_ref,
+             "taxonomy_ref": taxonomy_ref,
+         }
+ 
+     # Phase-P step 4 (write) + 5 (append): write-once record, then predicted event.
++    # `declared_paths` is derived from THIS run's localization and rides in on the same
++    # kwarg as the rest of the binding, so the digest covers all of it (build_record's
++    # docstring: attaching binding fields after the fact silently breaks the digest).
++    # Which engine answered T3 — evidence only, attached before `build_record` takes the
++    # digest, and only when T3 was actually consulted for this verdict.
++    if t3_meta is not None and "T3" in (verdict.get("tiers_signalled") or []):
++        verdict = dict(verdict, t3={k: v for k, v in t3_meta.items() if v is not None})
++
++    record_binding = None
++    refused_paths = []
++    if binding:
++        declared, refused_paths = declare_paths(localization.get("resolved_paths"))
++        record_binding = dict(binding, declared_paths=declared)
+     record = build_record(pre_eval_id, request, verdict, localization,
+-                          taxonomy_version, taxonomy_ref, taxonomy_digest, ts=ts)
+-    record_rel = write_record(repo, pre_eval_id, record)
++                          taxonomy_version, taxonomy_ref, taxonomy_digest, ts=ts,
++                          binding=record_binding)
++    record_rel, record_already_existed = write_record(repo, pre_eval_id, record)
+ 
+     predicted_event = None
+-    if append_predicted:
++    if append_predicted and not record_already_existed:
+         tm = _triage_mod()
+         predicted_event = tm.append_predicted(
+             pre_eval_id,
+@@ -892,6 +1387,7 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+         "needs_t3": False,
+         "pre_eval_id": pre_eval_id,
+         "decision": verdict["decision"],
++        "flavor": verdict.get("flavor"),
+         "override_fired": verdict["override_fired"],
+         "record": record,
+         "record_ref": record_rel,
+@@ -900,8 +1396,364 @@ def run_preeval(request, repo=".", taxonomy_path=None, t3_category=None,
+         "taxonomy_ref": taxonomy_ref,
+         "taxonomy_digest": taxonomy_digest,
+         "predicted_event": predicted_event,
++        "refused_paths": refused_paths,
++    }
++
++
++# --------------------------------------------------------------------------- #
++# Phase T — the ONE implementation of "score this request and bind it", shared by
++# BOTH of its callers.
++#
++# THE TWO CALLERS, NAMED (this is the point of the function existing):
++#
++#   1. `hooks/triage-prompt-nudge.sh` — the UserPromptSubmit hook. It is the
++#      MECHANICAL producer: a change request arriving is the native event, and the
++#      hook runs this subcommand on it, so a record exists before any work starts
++#      without anyone remembering to ask for one.
++#   2. `commands/v-triage.md`, step T2 — the human/agent entry point, for a request
++#      the hook did not see (a second request in the same session, a slash-command
++#      invocation, a re-score after `--t3-category`).
++#
++# BOTH used to carry their own copy of this logic — the hook carried none at all and
++# the command carried ~120 lines of it inside a markdown heredoc, where nothing could
++# test it and a second caller could only be written by copying it. A prose-hosted
++# scorer with two producers is the drift this release exists to stop, so the logic
++# lives here, in the module that already owns the vocabulary, and both callers are
++# one line.
++#
++# WHAT THIS DOES NOT DO: git. The engine's standing invariant is that it never runs
++# git (the orchestrator commits; v2.6.4 discipline), and Phase T is inside the engine,
++# so `base_commit` is an INPUT. A caller that wants the binding runs `git rev-parse
++# HEAD` itself and passes it; a caller that cannot gets a record with `base_commit`
++# null, which is honest rather than invented.
++# --------------------------------------------------------------------------- #
++
++# Predicate 6's test-path set. The taxonomy has no test-file key, so this is a
++# deliberately BROAD heuristic: every extra shape it catches removes a change from the
++# auto-route class, which is the safe direction. Widen it freely; narrowing it is a
++# policy change.
++_TEST_PATH_SEGMENTS = ("test", "tests", "spec", "specs", "__tests__", "testing")
++
++# Control characters in a declared path. `hooks/epic-goal-stop.sh` silently DROPS a
++# path it cannot read, so this producer refuses it loudly instead.
++_CTRL_RE = re.compile(r"[\x00-\x1f]")
++
++
++def is_test_path(path):
++    """True when `path` looks like a test file (auto-route predicate 6)."""
++    segs = str(path or "").split("/")
++    if any(s.lower() in _TEST_PATH_SEGMENTS for s in segs[:-1]):
++        return True
++    base = segs[-1]
++    if base in ("conftest.py",):
++        return True
++    stem = base.split(".")[0].lower()
++    if stem.startswith(("test_", "test-")) or stem.endswith(("_test", "-test")):
++        return True
++    return any((".%s." % k) in base.lower() for k in ("test", "spec"))
++
++
++def declare_paths(paths):
++    """(declared, refused) in the exact vocabulary `hooks/epic-goal-stop.sh` reads back —
++    an exact path, a `dir/` prefix, or a `*` glob. A bare `scripts` deliberately does NOT
++    cover `scripts/app.py`.
++
++    Entries that gate would silently DROP (a control character, a leading `/`, a `..`
++    segment) are refused HERE instead, where the producer still learns about it: a
++    declared path the reader discards is coverage the record claims and does not have.
++    """
++    declared, refused = [], []
++    for p in paths or []:
++        if not isinstance(p, str) or not p:
++            continue
++        if p.startswith("/") or _CTRL_RE.search(p) or ".." in p.split("/"):
++            refused.append(p)
++            continue
++        if p not in declared:
++            declared.append(p)
++    return declared, refused
++
++
++def auto_route_predicates(record, repo, pre_eval_id):
++    """Spec §A4 predicates 1-6 for a written record — the six this side of the edit can
++    establish. Returns a list of `{"n", "name", "pass", "why"}` in spec order.
++
++    There are six: the pre-edit predicates are the whole set. A DIRECT change is an
++    ordinary commit made by the human, so nothing post-edit is evaluated here.
++
++    Predicate 3 is a real digest match, not a restatement: the taxonomy is read back from
++    the snapshot THIS RECORD PINNED and re-content-addressed, so a taxonomy edited between
++    the record and this call is caught.
++    """
++    tax = _tax()
++    decision = record.get("decision")
++    paths = (record.get("localization") or {}).get("resolved_paths") or []
++
++    snap = snapshot_path(repo, pre_eval_id)
++    taxonomy = snap_digest = None
++    if os.path.isfile(snap):
++        try:
++            with open(snap, "rb") as fh:
++                snap_bytes = fh.read()
++            snap_digest = tax.taxonomy_digest_bytes(snap_bytes)
++            taxonomy = tax.load_taxonomy(text=snap_bytes.decode("utf-8", "replace"))
++        except (OSError, ValueError, RuntimeError):
++            taxonomy = snap_digest = None
++
++    single = _is_single_literal_path(paths)
++    one = paths[0] if single else None
++    ar = tax.match_auto_route(taxonomy, one) if (taxonomy and one) else None
++    bands_known = ((record.get("difficulty") or {}).get("band") in ("low", "medium", "high")
++                   and (record.get("impact") or {}).get("band")
++                   in ("low", "medium", "high"))
++
++    out = [
++        (1, "tier is DIRECT and no override fired",
++         decision == DECISION_FASTPATH and record.get("override_fired") is None,
++         "decision=%s override_fired=%s" % (decision, record.get("override_fired"))),
++        (2, "exactly one resolved path, and it is a literal", bool(single),
++         "resolved_paths=%s" % (paths,)),
++        (3, "taxonomy present, digest-matched, bands not unknown",
++         bool(taxonomy) and snap_digest == record.get("taxonomy_digest") and bands_known,
++         "snapshot=%s record=%s bands=%s/%s"
++         % (snap_digest, record.get("taxonomy_digest"),
++            (record.get("difficulty") or {}).get("band"),
++            (record.get("impact") or {}).get("band"))),
++        (4, "path matches auto_route_allow", bool(ar and ar["allowed"]),
++         "; ".join(ar["reasons"]) if ar else "not evaluated (no single literal path)"),
++        (5, "path matches NO entry in the sensitive set", bool(ar and not ar["sensitive"]),
++         "sensitive=%s" % (ar["sensitive"] if ar else "not evaluated")),
++        (6, "no test file touched", bool(one) and not is_test_path(one),
++         "path=%s" % one),
++    ]
++    return [{"n": n, "name": name, "pass": bool(ok), "why": why}
++            for n, name, ok, why in out]
++
++
++def triage_request(request, repo=".", session_id=None, base_commit=None,
++                   t3_category=None, ts=None, t3_meta=None, **kwargs):
++    """Score ONE change request, bind it, write its record, and report the tier.
++
++    `t3_meta` is passed to `run_preeval` unchanged (see there). When the written record
++    carries a `t3` block the result echoes it as `t3`; otherwise the key is absent, so a
++    call without `t3_meta` returns exactly what it returned before the key existed.
++
++    Called by `hooks/triage-prompt-nudge.sh` (the UserPromptSubmit hook, which is the
++    mechanical producer) and by `commands/v-triage.md` step T2 (the human/agent entry
++    point). Both go through here; neither re-derives any of it.
++
++    Returns a dict with, always:
++        pre_eval_id, tier, decision, flavor, needs_t3, record_ref, predicates,
++        declared_paths
++    plus `disabled` (the `pre_eval.enabled: false` no-op), `t3_prompt` + `t3_reason`
++    when `needs_t3`,
++    `member` (all six predicates hold), `override_fired`, `refused_paths`, and the
++    binding echoed back.
++
++    THE BINDING GOES THROUGH `build_record`'s kwarg, never onto the record afterwards.
++    `digest` covers the whole record, so attaching the binding after the fact would ship
++    a record whose own integrity digest no longer verifies — silently, because `digest`
++    is optional and only checked when present. `run_preeval(binding=…)` is how the binding
++    reaches the ONE place that keeps the digest correct by construction, while
++    `run_preeval` keeps owning the config kill-switch, the taxonomy snapshot, the Tier-2
++    lookup and the `predicted` event. It is a plain parameter, never a monkey-patch of the
++    module's `build_record` global: a patch is not re-entrant, and two overlapping calls in
++    one interpreter would leave later records bound to an earlier call's session.
++
++    `session_id` is bound EXACTLY as given, and an empty one binds null. The Stop-time
++    triage gate compares it verbatim, so an invented value would claim coverage that does
++    not exist — the fail-closed direction is a record that covers nothing.
++    """
++    request = (request or "").strip()
++    if not request:
++        raise ValueError("triage needs a request")
++
++    sid = (session_id or "").strip() or None
++    base = (base_commit or "").strip() or None
++
++    # THE OUTCOME STREAM BELONGS TO THE REPO THE RECORD BELONGS TO, and it has to be
++    # said out loud here: `compound-v-triage-outcomes.default_stream_path()` derives its
++    # path from the MODULE's location (the parent of `scripts/`), not from `repo`. In a
++    # dogfooding checkout those are the same directory and the difference is invisible;
++    # for `hooks/triage-prompt-nudge.sh`, which runs an installed plugin's engine against
++    # a different project, they are not, and the `predicted` event would land in the
++    # plugin checkout while the record it keys landed in the project. Pinning it from
++    # `repo` keeps the pair together. A caller that knows better still wins.
++    kwargs.setdefault("stream_path",
++                      os.path.join(repo or ".", "docs", "superpowers", "memory",
++                                   "triage-outcomes.jsonl"))
++
++    binding = {"session_id": sid, "base_commit": base}
++
++    res = run_preeval(request, repo=repo, t3_category=t3_category, ts=ts,
++                      binding=binding, t3_meta=t3_meta, **kwargs)
++
++    base_out = {
++        "pre_eval_id": res.get("pre_eval_id"),
++        "needs_t3": bool(res.get("needs_t3")),
++        "record_ref": res.get("record_ref"),
++        "predicates": [],
++        "declared_paths": [],
++        "refused_paths": list(res.get("refused_paths") or []),
++        "session_id": sid,
++        "base_commit": base,
++        "disabled": bool(res.get("pre_eval_disabled")),
++        "member": False,
++        "override_fired": res.get("override_fired"),
++        # v3.4.1 §A3 — ALWAYS present, null when there is no flavor. The hook and
++        # `/v:orchestrate` both read it; an absent key would make "no flavor" and "an older
++        # engine that cannot produce one" look identical to a caller.
++        "flavor": None,
+     }
+ 
++    # `pre_eval.enabled: false` — the whole stage is a no-op. NOTHING was written, so
++    # there is no record to report and no predicate to evaluate; the change is FULL by
++    # the operator's own configuration.
++    if res.get("pre_eval_disabled"):
++        base_out.update(decision=DECISION_FULL,
++                        tier=DECISION_TO_TIER[DECISION_FULL])
++        return base_out
++
++    # The deterministic layers could not band this request. No record was written and no
++    # `predicted` event appended; the caller runs the light classify Task and re-invokes
++    # with `t3_category`. A hook cannot run a Task, which is why the hook treats this as
++    # "hand it to /v:triage" rather than as a result.
++    if res.get("needs_t3"):
++        base_out.update(decision=None, tier=None, t3_prompt=res.get("t3_prompt"),
++                        t3_reason=res.get("t3_reason"),
++                        t3_categories=list(T3_CATEGORIES))
++        return base_out
++
++    rec = res["record"]
++    predicates = auto_route_predicates(rec, repo, res["pre_eval_id"])
++    base_out.update(
++        decision=rec["decision"],
++        tier=DECISION_TO_TIER.get(rec["decision"]),
++        predicates=predicates,
++        declared_paths=list(rec.get("declared_paths") or []),
++        member=all(p["pass"] for p in predicates),
++        override_fired=rec.get("override_fired"),
++        flavor=rec.get("flavor"),
++    )
++    if rec.get("t3") is not None:
++        base_out["t3"] = rec["t3"]
++    return base_out
++
++
++# The engines `--t3-engine` accepts. The schema also allows `jev`, which spec 1 never writes.
++T3_META_ENGINES = ("claude", "codex", "parent")
++T3_META_STR_MAX = 80  # the schema's maxLength for t3.model and t3.catalogue_hash
++
++
++def _read_request_file_text(text):
++    """Strip exactly ONE trailing newline: the one an editor or `printf '%s\\n'` adds. Any
++    further newline is the request's own and is kept."""
++    return text[:-1] if text.endswith("\n") else text
++
++
++def _parse_t3_probs(raw):
++    """`--t3-probs-json` → a dict of label → probability, or None when it is not a JSON
++    object whose every value is a number in [0, 1] (bools are not numbers here)."""
++    try:
++        obj = json.loads(raw)
++    except ValueError:
++        return None
++    if not isinstance(obj, dict):
++        return None
++    for v in obj.values():
++        if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0 <= v <= 1:
++            return None
++    return obj
++
++
++def _triage_cli(argv):
++    """`compound-v-preeval.py triage …` — the subcommand both callers invoke."""
++    ap = argparse.ArgumentParser(prog="compound-v-preeval.py triage")
++    src = ap.add_mutually_exclusive_group(required=True)
++    src.add_argument("--request", help="the change request as text")
++    src.add_argument("--request-env", dest="request_env", metavar="NAME",
++                     help="read the request from environment variable NAME. This is the "
++                          "form both shipped callers use: a prompt is arbitrary user text "
++                          "and does not belong on argv, where it is visible to every "
++                          "process on the machine and has to survive shell quoting.")
++    src.add_argument("--request-file", dest="request_file", metavar="PATH",
++                     help="read the request from a UTF-8 file; one trailing newline is "
++                          "stripped. Like --request-env, it keeps the text off argv.")
++    ap.add_argument("--t3-engine", dest="t3_engine", choices=list(T3_META_ENGINES),
++                    help="which engine answered the T3 question. Recorded as the record's "
++                         "`t3` block (with --t3-category as its category) when T3 decided "
++                         "this verdict; evidence only, it changes no decision.")
++    ap.add_argument("--t3-probs-json", dest="t3_probs_json", metavar="JSON",
++                    help="the answering engine's probabilities: a JSON object of label to "
++                         "a number in [0, 1]")
++    ap.add_argument("--t3-model", dest="t3_model", metavar="STR",
++                    help="the model id the answering engine reported (at most %d chars)"
++                         % T3_META_STR_MAX)
++    ap.add_argument("--t3-catalogue-hash", dest="t3_catalogue_hash", metavar="STR",
++                    help="hash of the option catalogue the question used (at most %d "
++                         "chars)" % T3_META_STR_MAX)
++    ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
++    ap.add_argument("--session-id", dest="session_id", default=None,
++                    help="the harness session id to BIND this record to. Bound verbatim; "
++                         "absent binds null, which covers nothing at the Stop gate.")
++    ap.add_argument("--base-commit", dest="base_commit", default=None,
++                    help="HEAD as the caller sees it. Supplied rather than read: this "
++                         "module never runs git.")
++    ap.add_argument("--t3-category", dest="t3_category", choices=list(T3_CATEGORIES),
++                    help="pre-resolved T3 enum for a needs_t3 re-invocation")
++    ap.add_argument("--taxonomy", help="taxonomy YAML path (default: .claude/…yaml)")
++    ap.add_argument("--json", action="store_true",
++                    help="emit the result as JSON (the only supported output today; the "
++                         "flag is accepted so both callers can be explicit)")
++    args = ap.parse_args(argv)
++
++    if args.request_env:
++        request = os.environ.get(args.request_env) or ""
++    elif args.request_file:
++        # Never echo the file's content: it is the request text this flag keeps off argv.
++        try:
++            with io.open(args.request_file, "r", encoding="utf-8") as fh:
++                request = _read_request_file_text(fh.read())
++        except (OSError, UnicodeDecodeError):
++            sys.stderr.write("REFUSED: --request-file is unreadable or not UTF-8\n")
++            return 2
++    else:
++        request = args.request or ""
++    if not request.strip():
++        sys.stderr.write("REFUSED: triage needs a non-empty request\n")
++        return 2
++
++    probs = None
++    if args.t3_probs_json is not None:
++        probs = _parse_t3_probs(args.t3_probs_json)
++        if probs is None:
++            sys.stderr.write("REFUSED: --t3-probs-json must be a JSON object of numbers "
++                             "in [0, 1]\n")
++            return 2
++    for _flag, _val in (("--t3-model", args.t3_model),
++                        ("--t3-catalogue-hash", args.t3_catalogue_hash)):
++        if _val is not None and len(_val) > T3_META_STR_MAX:
++            sys.stderr.write("REFUSED: %s is longer than %d characters\n"
++                             % (_flag, T3_META_STR_MAX))
++            return 2
++
++    t3_meta = None
++    if args.t3_engine:
++        t3_meta = {"engine": args.t3_engine, "category": args.t3_category,
++                   "probs": probs, "model": args.t3_model,
++                   "catalogue_hash": args.t3_catalogue_hash}
++
++    try:
++        out = triage_request(request, repo=args.repo, session_id=args.session_id,
++                             base_commit=args.base_commit,
++                             t3_category=args.t3_category,
++                             taxonomy_path=args.taxonomy, t3_meta=t3_meta)
++    except (OSError, ValueError, RuntimeError) as exc:
++        sys.stderr.write("triage failed: %s\n" % exc)
++        return 1
++    print(json.dumps(out, indent=2, sort_keys=True, default=str))
++    return 0
++
+ 
+ # --------------------------------------------------------------------------- #
+ # CLI.
+@@ -910,6 +1762,12 @@ def main(argv):
+     if "--selftest" in argv[1:]:
+         return _selftest()
+ 
++    # A subcommand, not a flag: `triage` is a different verb from "score this
++    # localization", and argparse cannot express both in one flag namespace without
++    # making every existing flag optional-but-meaningless on the new path.
++    if len(argv) > 1 and argv[1] == "triage":
++        return _triage_cli(argv[2:])
++
+     ap = argparse.ArgumentParser(prog="compound-v-preeval.py")
+     ap.add_argument("--request", help="the free-text change request")
+     ap.add_argument("--repo", default=".", help="repo root (default: cwd)")
+@@ -922,6 +1780,14 @@ def main(argv):
+                          "the POST-RUN advisor-hot reclassification sensor. Absent => the "
+                          "sensor is off (advisor_hot stays False; unchanged pre-dispatch "
+                          "behavior). Must resolve inside the repo root.")
++    ap.add_argument("--cross-model-review", metavar="TIER_OR_DECISION",
++                    help="print the cross-model (second-family) review gate for a "
++                         "triage tier or decision constant, as JSON, and exit. "
++                         "Derived from the tier — the same entry criterion as "
++                         "brainstorming: no brainstorm, no second opinion.")
++    ap.add_argument("--flavor", default=None,
++                    help="with --cross-model-review: the record's/manifest's triage "
++                         "flavor (scoped_plus makes the second opinion mandatory)")
+     ap.add_argument("--score-only", action="store_true",
+                     help="pure scoring from --localization-json, no writes")
+     ap.add_argument("--localization-json", dest="localization_json",
+@@ -929,6 +1795,13 @@ def main(argv):
+     ap.add_argument("--fan-out-threshold", type=int, default=1)
+     ap.add_argument("--selftest", action="store_true")
+     args = ap.parse_args(argv[1:])
++    if getattr(args, "cross_model_review", None):
++        required, why = cross_model_review_for(args.cross_model_review,
++                                               flavor=getattr(args, "flavor", None))
++        print(json.dumps({"input": args.cross_model_review,
++                          "cross_model_review": required,
++                          "why": why}, indent=2, sort_keys=True))
++        return 0
+ 
+     if args.score_only:
+         if not args.localization_json:
+@@ -938,7 +1811,24 @@ def main(argv):
+         except ValueError as e:
+             ap.error("invalid --localization-json: %s" % e)
+         taxonomy, _bytes, _v = _load_taxonomy(args.repo, args.taxonomy)
++        # --score-only used to pass NEITHER churn_hot NOR tier2 NOR advisor_hot, while
++        # run_preeval passes all three. The probe therefore reported a systematically
++        # CHEAPER tier than the engine actually produces — always in the optimistic
++        # direction, which is the worst direction for a surface people use to ask
++        # "would this be DIRECT?". Observed 2026-09-01: README.md read low/low here and
++        # low/high through run_preeval, from an identical localization.
++        # These are computed the same way run_preeval computes them; each degrades to
++        # its inert value rather than failing, exactly as it does there.
++        try:
++            churn_hot = _churn_hot_for(args.repo, localization.get("resolved_paths", []))
++        except Exception:  # noqa: BLE001 — advisory signal, never break the probe
++            churn_hot = False
++        try:
++            tier2 = _triage_mod().tier2_lookup(repo=args.repo)
++        except Exception:  # noqa: BLE001
++            tier2 = None
+         verdict = score(localization, taxonomy, t3_category=args.t3_category,
++                        tier2=tier2, churn_hot=churn_hot,
+                         fan_out_threshold=args.fan_out_threshold,
+                         request_text=args.request or "")
+         print(json.dumps(verdict, indent=2, sort_keys=True))
+@@ -996,6 +1886,118 @@ churn:
+ """
+ 
+ 
++# One glob per matrix cell, so a fixture selects a (difficulty, impact) pair by PATH alone
++# and every cell test differs from its neighbours in nothing but the bands. `sensitive_path_list`
++# is non-empty (and disjoint from `m/**`) because `_has_safety_coverage` fails closed without it.
++#
++# v3.4.1: every glob NAMES THE FILE rather than saying `m/<cell>/**`. The rows are the same
++# rows and the bands are the same bands, but a broad glob would now hand the FULL cells to
++# §A2's demotion branch, which is a different mechanism and has its own cells below. What is
++# under test here is the band→tier mapping and nothing else, so the fixture says "the taxonomy
++# means THIS file" as plainly as it can.
++_MATRIX_TAXONOMY_TEXT = """
++version: 1
++path_patterns:
++  - glob: "m/dlow-ilow/f.txt"
++    difficulty_band: low
++    impact_band: low
++  - glob: "m/dlow-imedium/f.txt"
++    difficulty_band: low
++    impact_band: medium
++  - glob: "m/dlow-ihigh/f.txt"
++    difficulty_band: low
++    impact_band: high
++  - glob: "m/dmedium-ilow/f.txt"
++    difficulty_band: medium
++    impact_band: low
++  - glob: "m/dmedium-imedium/f.txt"
++    difficulty_band: medium
++    impact_band: medium
++  - glob: "m/dmedium-ihigh/f.txt"
++    difficulty_band: medium
++    impact_band: high
++  - glob: "m/dhigh-ilow/f.txt"
++    difficulty_band: high
++    impact_band: low
++  - glob: "m/dhigh-imedium/f.txt"
++    difficulty_band: high
++    impact_band: medium
++  - glob: "m/dhigh-ihigh/f.txt"
++    difficulty_band: high
++    impact_band: high
++content_patterns:
++  - match: "--color-"
++    pattern_type: literal
++    case: insensitive
++    scan: content
++    kind: shared_token
++    impact_band: high
++sensitive_path_list:
++  - "src/auth/**"
++churn:
++  exclude_paths: []
++  format_commit_patterns: []
++"""
++
++# spec §A1's table, transcribed ONCE as data so the selftest asserts against the spec rather
++# than against `_TIER_MATRIX` (asserting a table against itself proves nothing).
++_SPEC_A1_MATRIX = {
++    ("low", "low"): DECISION_FASTPATH,
++    ("low", "medium"): DECISION_SCOPED,
++    ("low", "high"): DECISION_FULL,
++    ("medium", "low"): DECISION_SCOPED,
++    ("medium", "medium"): DECISION_SCOPED,
++    ("medium", "high"): DECISION_FULL,
++    ("high", "low"): DECISION_FULL,
++    ("high", "medium"): DECISION_FULL,
++    ("high", "high"): DECISION_FULL,
++}
++
++
++# v3.4.1 §A2/§A3/§A5 — the breadth taxonomy. `scripts/**` and `hooks/**` are BROAD rows
++# banded high/high (this repository's own shape); `src/specific/one.py` is a NAMED row so a
++# path it matches can never be demoted; `**/*.md` is broad but already low/low, which is the
++# fixture that proves the demotion never fires on a change the matrix already routes
++# proportionately. `content_scan_exclude` suppresses the legal-copy scan on markdown.
++_BREADTH_TAXONOMY_TEXT = """
++version: 1
++path_patterns:
++  - glob: "scripts/**"
++    difficulty_band: high
++    impact_band: high
++  - glob: "hooks/**"
++    difficulty_band: high
++    impact_band: high
++  - glob: "docs/**"
++    difficulty_band: low
++    impact_band: low
++  - glob: "**/*.md"
++    difficulty_band: low
++    impact_band: low
++  - glob: "src/specific/one.py"
++    difficulty_band: high
++    impact_band: high
++content_patterns:
++  - match: "privacy policy"
++    pattern_type: literal
++    case: insensitive
++    scan: content
++    kind: legal_copy
++    impact_band: high
++sensitive_path_list:
++  - "hooks/**"
++  - "**/*.pem"
++  - "**/*.key"
++  - "**/*.env"
++  - ".github/**"
++content_scan_exclude:
++  - "**/*.md"
++churn:
++  exclude_paths: []
++  format_commit_patterns: []
++"""
++
++
+ def _loc(paths, flags=None, fan_out=None, confidence="exact"):
+     return {"resolved_paths": list(paths), "fan_out": fan_out if fan_out is not None
+             else len(paths), "flags": list(flags or []), "confidence": confidence}
+@@ -1028,6 +2030,34 @@ def _selftest():
+     # AC-1 (MANDATORY) — "make button X red" → shared design token → override #3 → FULL.
+     v = score(_loc(["src/ui/button.css", "src/ui/card.css"], flags=["shared_token"],
+                    fan_out=2), taxonomy, request_text="make button X red")
++    # --- v3.1.0: the cross-model review gate rides the SAME tier ----------------
++    expect("DIRECT asks for no second opinion — nothing was brainstormed",
++           cross_model_review_for(DECISION_FASTPATH)[0] is False)
++    expect("SCOPED asks for no second opinion by default",
++           cross_model_review_for(DECISION_SCOPED)[0] is False)
++    expect("FULL asks for one",
++           cross_model_review_for(DECISION_FULL)[0] is True)
++    expect("the manifest's tier token answers identically to the decision constant",
++           all(cross_model_review_for(t)[0] == cross_model_review_for(d)[0]
++               for d, t in DECISION_TO_TIER.items()))
++    # v3.4.1 (archaeology constraint 11): SCOPED+ is the one SCOPED shape whose
++    # second opinion is mandatory — the helper must say so, or /v:dispatch would
++    # read "no by default" for the very run the flavor exists to review harder.
++    expect("SCOPED+ (flavor scoped_plus) asks for a second opinion, mandatory",
++           cross_model_review_for(DECISION_SCOPED, flavor="scoped_plus")[0] is True
++           and cross_model_review_for("SCOPED", flavor="scoped_plus")[0] is True)
++    expect("a plain SCOPED with no flavor still asks for none",
++           cross_model_review_for("SCOPED", flavor=None)[0] is False
++           and cross_model_review_for("SCOPED", flavor="")[0] is False)
++    expect("an unrecognised size falls to 'review', never to 'skip'",
++           cross_model_review_for("something-else")[0] is True
++           and cross_model_review_for(None)[0] is True)
++    expect("every branch explains itself",
++           all(len(cross_model_review_for(k)[1]) > 30
++               for k in (DECISION_FASTPATH, DECISION_SCOPED, DECISION_FULL, "x")))
++    expect("the gate covers every decision the engine can emit",
++           set(CROSS_MODEL_REVIEW_BY_DECISION) == set(DECISION_TO_TIER))
++
+     expect("AC-1: shared-token 'make button red' -> FULL_PIPELINE", v["decision"] == DECISION_FULL)
+     expect("AC-1: override #3 (shared_token/a11y) fired", v["override_fired"] == 3)
+     expect("AC-1: no model call needed (needs_t3 False)", v["needs_t3"] is False)
+@@ -1040,9 +2070,18 @@ def _selftest():
+     expect("override #1: localization ambiguous -> FULL",
+            v1b["override_fired"] == 1 and v1b["decision"] == DECISION_FULL)
+ 
+-    # #2 sensitive path.
+-    v2 = score(_loc(["src/auth/login.py"], flags=["sensitive_path"]), taxonomy)
+-    expect("override #2: sensitive path -> FULL", v2["override_fired"] == 2)
++    # #2 sensitive path. REWRITTEN for v3.4.1 §A3: override #2 is now CONDITIONAL. A
++    # sensitive path with a fan-out above two is still the unconditional override this cell
++    # has always asserted; the small-edit case it used to cover is the SCOPED+ branch, and
++    # its cells live in the §A3 block below.
++    v2 = score(_loc(["src/auth/login.py", "src/auth/session.py", "src/auth/token.py"],
++                    flags=["sensitive_path"], fan_out=3), taxonomy)
++    expect("override #2: sensitive path (fan_out above the small-edit ceiling) -> FULL",
++           v2["override_fired"] == 2 and v2["decision"] == DECISION_FULL)
++    v2b = score(_loc(["src/auth/login.py"], flags=["sensitive_path"]), taxonomy)
++    expect("override #2: a SMALL sensitive edit asks T3 first (§A3), it does not "
++           "unconditionally override",
++           v2b.get("needs_t3") is True and v2b.get("t3_reason") == "sensitive")
+ 
+     # #3 also fires for a11y state + generated artifact.
+     v3a = score(_loc(["x.css"], flags=["is_a11y_state"]), taxonomy)
+@@ -1055,9 +2094,12 @@ def _selftest():
+     expect("override #4: T1 low vs T3 major -> FULL", v4["override_fired"] == 4)
+     # ...and the converse: T1 high (auth) — but that path is sensitive so #2 wins first;
+     # use a migrations .css-free high path via **/migrations/** vs T3 plumbing instead.
+-    v4b = score(_loc(["db/migrations/003.ts"], flags=[]), taxonomy,
+-                t3_category="plumbing")
+     # migrations is sensitive too → override #2 precedes #4 (cheap override wins). Assert #2.
++    # v3.4.1: with fan_out above the small-edit ceiling the sensitive path takes the
++    # unconditional override, which is the ordering this cell is about.
++    v4b = score(_loc(["db/migrations/003.ts", "db/migrations/004.ts",
++                      "db/migrations/005.ts"], flags=[], fan_out=3), taxonomy,
++                t3_category="plumbing")
+     expect("cheap override precedes #4 (migrations sensitive -> #2)",
+            v4b["override_fired"] == 2)
+ 
+@@ -1104,14 +2146,16 @@ def _selftest():
+     expect("Layer-B eligible: display labels derived post-decision",
+            ve["difficulty"]["display"] == 2 and ve["impact"]["display"] == 2)
+ 
+-    # fan_out over threshold blocks Layer B (no override — just not eligible).
++    # fan_out over threshold blocks the DIRECT predicates. v3.0: the bands are still low/low,
++    # so this demotes ONE tier to SCOPED, not all the way to FULL (spec §A1 — the matrix owns
++    # the tier; the Layer-B predicates only gate the DIRECT cell). Pre-3.0 this asserted FULL.
+     vfan = score(_loc(["src/ui/button.css"], flags=[], fan_out=3), taxonomy)
+-    expect("Layer-B: fan_out>threshold -> FULL (no override)",
+-           vfan["decision"] == DECISION_FULL and vfan["override_fired"] is None)
++    expect("Layer-B: fan_out>threshold -> SCOPED (low/low bands, no override)",
++           vfan["decision"] == DECISION_SCOPED and vfan["override_fired"] is None)
+ 
+-    # Two literal paths → not a single-path partition → FULL.
++    # Two literal paths → not a single-path partition → not DIRECT, but still low/low → SCOPED.
+     vtwo = score(_loc(["a.css", "b.css"], flags=[], fan_out=2), taxonomy)
+-    expect("Layer-B: two paths -> FULL", vtwo["decision"] == DECISION_FULL)
++    expect("Layer-B: two paths -> SCOPED", vtwo["decision"] == DECISION_SCOPED)
+ 
+     # A content:feature_flag hit raises impact → not low → FULL (AC-8, no override).
+     vff = score(_loc(["src/config.css"], flags=["content:feature_flag"], fan_out=1),
+@@ -1123,11 +2167,72 @@ def _selftest():
+     vrt = score(_loc(["src/ui/button.css"], flags=["regex_timeout"], fan_out=1), taxonomy)
+     expect("fail-closed regex_timeout -> FULL", vrt["decision"] == DECISION_FULL)
+ 
+-    # medium-band path (.tsx) → impact medium → FULL.
++    # medium-band path (.tsx) → medium/medium. v3.0: that is the matrix's centre cell, SCOPED.
++    # Pre-3.0 this collapsed to FULL — one of the 8 of 9 cells spec §A1 exists to un-collapse.
+     vmed = score(_loc(["src/ui/Widget.tsx"], flags=[], fan_out=1), taxonomy)
+-    expect("Layer-B: medium path -> FULL", vmed["decision"] == DECISION_FULL
++    expect("Layer-B: medium/medium path -> SCOPED", vmed["decision"] == DECISION_SCOPED
+            and vmed["impact"]["band"] == "medium")
+ 
++    # ============ v3.0 spec §A1 — the 3x3 matrix, ALL NINE CELLS, inside the engine ==== #
++    # Every fixture is identical but for the path, and every path differs only in the band
++    # pair its taxonomy row declares — so a failing cell can only mean the matrix is wrong.
++    # Each carries a single literal path and fan_out=1, i.e. the DIRECT predicates HOLD, so
++    # the only thing under test in each cell is the band→tier mapping itself.
++    mtx = tax.load_taxonomy(text=_MATRIX_TAXONOMY_TEXT)
++    _cell_names = {DECISION_FASTPATH: "DIRECT", DECISION_SCOPED: "SCOPED",
++                   DECISION_FULL: "FULL"}
++    for (_d, _i), _want in sorted(_SPEC_A1_MATRIX.items()):
++        _path = "m/d%s-i%s/f.txt" % (_d, _i)
++        _v = score(_loc([_path], flags=[], fan_out=1), mtx,
++                   request_text="matrix cell %s/%s" % (_d, _i))
++        expect("matrix cell difficulty=%s impact=%s -> %s" % (_d, _i, _cell_names[_want]),
++               _v["decision"] == _want and _v["override_fired"] is None
++               and _v["difficulty"]["band"] == _d and _v["impact"]["band"] == _i)
++
++    # The matrix is FAIL-CLOSED BY CONSTRUCTION, not only by override #6 arriving first:
++    # ask the pure lookup directly for every pair the table does not contain.
++    for _bad in (("unknown", "low"), ("low", "unknown"), ("unknown", "unknown"),
++                 (None, "low"), ("low", None), (None, None), ("critical", "low")):
++        expect("matrix fail-closed: %r -> FULL" % (_bad,),
++               _matrix_decision(*_bad) == DECISION_FULL)
++    expect("matrix covers exactly the 9 spec §A1 cells and nothing else",
++           set(_TIER_MATRIX) == set(_SPEC_A1_MATRIX)
++           and all(_TIER_MATRIX[k] == v for k, v in _SPEC_A1_MATRIX.items()))
++
++    # ===== ANY FIRED OVERRIDE FORCES FULL — the single most load-bearing line in A1 ===== #
++    # Override #4 is the one that makes the hazard real: it records the GENUINE low/low
++    # bands beside override_fired=4. Assert BOTH halves — that the bands really are low/low
++    # (so this is not a vacuous test), and that a post-hoc reader of exactly those bands
++    # WOULD have said DIRECT — while the engine says FULL.
++    vov = score(_loc(["x.css"], flags=[]), taxonomy, t3_category="user-facing-major")
++    expect("override #4 records genuine low/low bands",
++           vov["difficulty"]["band"] == "low" and vov["impact"]["band"] == "low")
++    expect("override #4: a post-hoc read of those bands WOULD have granted DIRECT",
++           _matrix_decision(vov["difficulty"]["band"], vov["impact"]["band"])
++           == DECISION_FASTPATH)
++    expect("override #4: the ENGINE says FULL_PIPELINE despite low/low",
++           vov["decision"] == DECISION_FULL and vov["override_fired"] == 4)
++
++    # And the structural backstop itself: `_verdict` is the single construction point, so a
++    # proportionate decision handed in beside ANY override id comes back out as FULL.
++    for _row in (1, 2, 3, 4, 5, 6, 7):
++        for _proportionate in (DECISION_FASTPATH, DECISION_SCOPED):
++            _forced = _verdict(_proportionate, override=_row, diff="low", imp="low",
++                               tiers=["T1"], min_sample="insufficient")
++            expect("_verdict forces FULL: override #%d beside %s" % (_row, _proportionate),
++                   _forced["decision"] == DECISION_FULL
++                   and _forced["override_fired"] == _row)
++    # ...and that it does NOT touch a clean verdict (the backstop must not be a blanket).
++    _clean = _verdict(DECISION_SCOPED, override=None, diff="medium", imp="medium",
++                      tiers=["T1"], min_sample="insufficient")
++    expect("_verdict leaves an override-free SCOPED verdict alone",
++           _clean["decision"] == DECISION_SCOPED)
++
++    # The tier vocabulary downstream reads (tasks 2/3/4 consume this as an interface).
++    expect("DECISION_TO_TIER maps all three decisions to the manifest triage tokens",
++           DECISION_TO_TIER == {DECISION_FASTPATH: "DIRECT", DECISION_SCOPED: "SCOPED",
++                                DECISION_FULL: "FULL"})
++
+     # ================= T3 total truth table (enum → both axes) ====================== #
+     # An unclassified path (no path_pattern) + T2 insufficient → T3 fallback.
+     # plumbing → low/low + single literal + fan1 → ELIGIBLE (taxonomy loaded = safety cover).
+@@ -1137,8 +2242,8 @@ def _selftest():
+            vt_plumb["decision"] == DECISION_FASTPATH and "T3" in vt_plumb["tiers_signalled"])
+     vt_minor = score(_loc(["tools/gen.py"], flags=[], fan_out=1), taxonomy,
+                      t3_category="user-facing-minor")
+-    expect("T3 user-facing-minor -> medium/medium -> FULL",
+-           vt_minor["decision"] == DECISION_FULL and vt_minor["impact"]["band"] == "medium")
++    expect("T3 user-facing-minor -> medium/medium -> SCOPED",
++           vt_minor["decision"] == DECISION_SCOPED and vt_minor["impact"]["band"] == "medium")
+     vt_major = score(_loc(["tools/gen.py"], flags=[], fan_out=1), taxonomy,
+                      t3_category="user-facing-major")
+     expect("T3 user-facing-major -> high/high -> FULL",
+@@ -1162,6 +2267,181 @@ def _selftest():
+     expect("token-cap overrun -> abort -> FULL (no needs_t3)",
+            vcap.get("needs_t3") is False and vcap["decision"] == DECISION_FULL)
+ 
++    # ===== v3.4.1 §A2/§A3/§A4/§A5 — the size of a code change reaches the tier ======= #
++    # The 3.4 probe's finding: any change under `scripts/**` was FULL by taxonomy glob
++    # regardless of size, because a BROAD glob's bands were treated as if a specific row
++    # had named the file. These cells pin the four decisions that fix it.
++    btax = tax.load_taxonomy(text=_BREADTH_TAXONOMY_TEXT)
++
++    # --- §A2 the T3 demotion: broad glob + plumbing -> SCOPED, no flavor, no override -- #
++    d_plumb = score(_loc(["scripts/x.py"], flags=[], fan_out=1), btax,
++                    t3_category="plumbing", request_text="fix a typo in a log line")
++    expect("demotion: broad high/high glob + plumbing -> SCOPED",
++           d_plumb["decision"] == DECISION_SCOPED and d_plumb["override_fired"] is None)
++    expect("demotion: a plain SCOPED carries NO flavor", d_plumb.get("flavor") is None)
++    expect("demotion: the record keeps the taxonomy's bands as t3_demotion.from",
++           d_plumb["t3_demotion"]["from"] == {"difficulty": "high", "impact": "high"}
++           and d_plumb["t3_demotion"]["category"] == "plumbing"
++           and d_plumb["t3_demotion"]["applied"] is True)
++    expect("demotion: bands become medium/medium (DIRECT for code stays unreachable)",
++           d_plumb["difficulty"]["band"] == "medium"
++           and d_plumb["impact"]["band"] == "medium")
++    expect("demotion: T3 is recorded in tiers_signalled",
++           "T3" in d_plumb["tiers_signalled"] and "T1" in d_plumb["tiers_signalled"])
++
++    # user-facing-major on the same broad path: unchanged bands -> FULL, and the record
++    # still says a demotion was CONSIDERED and refused. Override #4 is NOT evaluated here
++    # (the whole point is that T1 said high from a broad glob and T3 disagreed).
++    d_major = score(_loc(["scripts/x.py"], flags=[], fan_out=1), btax,
++                    t3_category="user-facing-major")
++    expect("demotion: user-facing-major -> FULL with t3_demotion.applied false",
++           d_major["decision"] == DECISION_FULL
++           and d_major["t3_demotion"]["applied"] is False
++           and d_major["override_fired"] is None)
++    d_unknown = score(_loc(["scripts/x.py"], flags=[], fan_out=1), btax,
++                      t3_category="unknown")
++    expect("demotion: unknown -> FULL, bands unchanged, applied false",
++           d_unknown["decision"] == DECISION_FULL
++           and d_unknown["t3_demotion"]["applied"] is False)
++
++    # needs_t3 on the demotion path, with the reason that tells the caller's log apart
++    # from the pre-existing unbanded handoff.
++    d_need = score(_loc(["scripts/x.py"], flags=[], fan_out=1), btax,
++                   request_text="fix a typo in a log line")
++    expect("demotion: no category -> needs_t3 with t3_reason 'demotion'",
++           d_need.get("needs_t3") is True and d_need.get("t3_reason") == "demotion")
++    d_unbanded = score(_loc(["tools/gen.py"], flags=[], fan_out=1), btax,
++                       request_text="do the thing")
++    expect("the pre-existing unbanded handoff reports t3_reason 'unbanded'",
++           d_unbanded.get("needs_t3") is True
++           and d_unbanded.get("t3_reason") == "unbanded")
++
++    # fan_out 3 is out of the demotion's reach: no T3 is asked for at all and the broad
++    # glob's own high/high bands stand.
++    d_fan = score(_loc(["scripts/a.py", "scripts/b.py", "scripts/c.py"], flags=[],
++                       fan_out=3), btax, request_text="rework three scripts")
++    expect("demotion: fan_out 3 -> FULL and NO needs_t3 (never a model call)",
++           d_fan.get("needs_t3") is False and d_fan["decision"] == DECISION_FULL
++           and "t3_demotion" not in d_fan)
++
++    # A path a SPECIFIC row names is never demoted, even beside a broad row.
++    d_named = score(_loc(["src/specific/one.py"], flags=[], fan_out=1), btax,
++                    request_text="one line in a named file")
++    expect("demotion: a specifically-named row is not broad -> FULL, no needs_t3",
++           d_named.get("needs_t3") is False and d_named["decision"] == DECISION_FULL)
++
++    # A content flag blocks the demotion outright (fail-closed on impact).
++    d_content = score(_loc(["scripts/x.py"], flags=["content:legal_copy"], fan_out=1),
++                      btax, request_text="edit the notice")
++    expect("demotion: a content flag blocks it -> FULL, no needs_t3",
++           d_content.get("needs_t3") is False
++           and d_content["decision"] == DECISION_FULL)
++
++    # §WS-B amendment: an incomplete content scan raises impact rather than degrading
++    # localization — an exact-by-name literal path whose file was too large to read.
++    d_incomplete = score(_loc(["docs/notes.md"], flags=["content_scan_incomplete"],
++                              fan_out=1), btax, request_text="edit a large doc")
++    expect("content_scan_incomplete raises impact -> never DIRECT",
++           d_incomplete["decision"] != DECISION_FASTPATH
++           and d_incomplete["impact"]["band"] == "high")
++    expect("content_scan_incomplete is an impact-raising flag",
++           _content_raises_impact(["content_scan_incomplete"]) is True)
++
++    # --- §A3 SCOPED+ : a small edit on a sensitive path ------------------------------ #
++    sp = score(_loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1), btax,
++               t3_category="plumbing", request_text="fix a log line in the guard")
++    expect("scoped_plus: sensitive + exact + fan_out 1 + plumbing -> SCOPED",
++           sp["decision"] == DECISION_SCOPED)
++    expect("scoped_plus: the verdict carries flavor 'scoped_plus'",
++           sp["flavor"] == FLAVOR_SCOPED_PLUS)
++    expect("scoped_plus: no override fired (it is override-free evidence)",
++           sp["override_fired"] is None)
++    expect("scoped_plus: t3_demotion records sensitive true",
++           sp["t3_demotion"]["sensitive"] is True
++           and sp["t3_demotion"]["applied"] is True)
++    expect("scoped_plus: bands medium/medium — never DIRECT",
++           sp["difficulty"]["band"] == "medium" and sp["impact"]["band"] == "medium")
++    sp_need = score(_loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1),
++                    btax, request_text="fix a log line in the guard")
++    expect("scoped_plus: no category -> needs_t3 with t3_reason 'sensitive'",
++           sp_need.get("needs_t3") is True
++           and sp_need.get("t3_reason") == "sensitive")
++    sp_unknown = score(_loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1),
++                       btax, t3_category="unknown")
++    expect("scoped_plus: T3 unknown on a sensitive path -> override #2 -> FULL",
++           sp_unknown["decision"] == DECISION_FULL
++           and sp_unknown["override_fired"] == 2)
++    sp_major = score(_loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1),
++                     btax, t3_category="user-facing-major")
++    expect("scoped_plus: T3 user-facing-major on a sensitive path -> override #2",
++           sp_major["override_fired"] == 2)
++    sp_fan = score(_loc(["hooks/a.sh", "hooks/b.sh", "hooks/c.sh"],
++                        flags=["sensitive_path"], fan_out=3), btax,
++                   t3_category="plumbing")
++    expect("scoped_plus: fan_out 3 on a sensitive path -> override #2",
++           sp_fan["override_fired"] == 2)
++    sp_amb = score(_loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1,
++                        confidence="ambiguous"), btax, t3_category="plumbing")
++    expect("scoped_plus: needs EXACT localization (ambiguous -> override #1)",
++           sp_amb["override_fired"] == 1)
++
++    # NEVER_DEMOTE_GLOBS — secrets and CI are not "small edits", whatever T3 says.
++    for _nd in ("config/app.env", "deploy/server.pem", "deploy/id.key",
++                ".github/workflows/ci.yml"):
++        _v_nd = score(_loc([_nd], flags=["sensitive_path"], fan_out=1), btax,
++                      t3_category="plumbing")
++        expect("NEVER_DEMOTE: %s stays override #2 -> FULL" % _nd,
++               _v_nd["decision"] == DECISION_FULL and _v_nd["override_fired"] == 2)
++    expect("NEVER_DEMOTE_GLOBS names secrets and CI, and nothing else",
++           NEVER_DEMOTE_GLOBS == ("**/*.pem", "**/*.key", "**/*.env", ".github/**"))
++
++    # --- §A4 `new_file` is localized, but never DIRECT ------------------------------- #
++    nf = score(_loc(["docs/new-note.md"], flags=[], fan_out=1, confidence="new_file"),
++               btax, request_text="add a new note")
++    expect("new_file: counted as localized",
++           "localization" in nf["tiers_signalled"] and nf["override_fired"] is None)
++    expect("new_file: low/low + one literal path is SCOPED, never DIRECT "
++           "(the DIRECT predicate tests confidence == 'exact' by name)",
++           nf["decision"] == DECISION_SCOPED
++           and _matrix_decision(nf["difficulty"]["band"], nf["impact"]["band"])
++           == DECISION_FASTPATH)
++    nf_exact = score(_loc(["docs/new-note.md"], flags=[], fan_out=1), btax)
++    expect("...while the SAME bands with confidence 'exact' still reach DIRECT",
++           nf_exact["decision"] == DECISION_FASTPATH)
++
++    # --- §A5 the README finding, end to end ------------------------------------------ #
++    # The taxonomy's legal-copy pattern would match this prose; `content_scan_exclude`
++    # stops the scan, so the flag never reaches the scorer and the typo stays DIRECT.
++    md_flags = tax.classify(btax, path="README.md",
++                            content="you consent to the privacy policy")["flags"]
++    expect("content_scan_exclude: markdown produces no content flag", md_flags == [])
++    md = score(_loc(["README.md"], flags=md_flags, fan_out=1), btax,
++               request_text="fix a typo in the README")
++    expect("a README typo is DIRECT (low/low, exact, one literal path)",
++           md["decision"] == DECISION_FASTPATH and md["override_fired"] is None)
++    md_scanned = score(_loc(["README.md"], flags=["content:legal_copy"], fan_out=1), btax)
++    expect("...and WOULD have been FULL had the scan not been excluded",
++           md_scanned["decision"] == DECISION_FULL)
++    expect("an already-proportionate broad glob is never sent to T3 for a demotion",
++           md.get("needs_t3") is False and "t3_demotion" not in md)
++
++    # --- the flavor invariant lives at the single construction point ------------------ #
++    for _row in (1, 2, 4, 6):
++        _f = _verdict(DECISION_SCOPED, override=_row, diff="medium", imp="medium",
++                      tiers=["T1"], min_sample="insufficient",
++                      flavor=FLAVOR_SCOPED_PLUS)
++        expect("_verdict drops flavor when override #%d forces FULL" % _row,
++               _f["decision"] == DECISION_FULL and _f["flavor"] is None)
++    _ff = _verdict(DECISION_FASTPATH, override=None, diff="low", imp="low",
++                   tiers=["T1"], min_sample="insufficient", flavor=FLAVOR_SCOPED_PLUS)
++    expect("_verdict refuses a flavor on any decision but SCOPED_PIPELINE",
++           _ff["flavor"] is None)
++    _fb = _verdict(DECISION_SCOPED, override=None, diff="medium", imp="medium",
++                   tiers=["T1"], min_sample="insufficient", flavor="made-up")
++    expect("_verdict refuses an unknown flavor", _fb["flavor"] is None)
++    expect("every verdict reports flavor, null when there is none",
++           "flavor" in d_plumb and "flavor" in md and md["flavor"] is None)
++
+     # ================= Missing-data + safety-coverage table ========================= #
+     # Absent taxonomy (None) → unconditional FULL, both axes unknown, no override id.
+     vabs = score(_loc(["src/ui/button.css"], flags=[], fan_out=1), None,
+@@ -1189,8 +2469,12 @@ def _selftest():
+            and "T2" in vt2_healthy["tiers_signalled"])
+     vt2_unhealthy = score(_loc(["src/ui/button.css"], flags=[], fan_out=1), taxonomy,
+                           tier2={"health": "unhealthy", "n": 9})
+-    expect("T2 unhealthy RAISES difficulty -> FULL",
+-           vt2_unhealthy["decision"] == DECISION_FULL
++    # T2 `unhealthy` raises difficulty low→medium. v3.0: with impact still low that is the
++    # matrix's (medium, low) cell, SCOPED — the RAISE is what is under test here, and it
++    # still holds: the change has definitively left the DIRECT auto-route class.
++    expect("T2 unhealthy RAISES difficulty -> out of DIRECT, into SCOPED",
++           vt2_unhealthy["decision"] == DECISION_SCOPED
++           and vt2_unhealthy["decision"] != DECISION_FASTPATH
+            and vt2_unhealthy["difficulty"]["band"] != "low")
+     vt2_insuff = score(_loc(["src/ui/button.css"], flags=[], fan_out=1), taxonomy,
+                        tier2={"status": "insufficient", "n": 0})
+@@ -1232,10 +2516,24 @@ def _selftest():
+                and res["predicted_event"]["event"] == "predicted")
+         # write-once: a second run with the SAME request reuses the pre_eval_id and rejects
+         # the record overwrite (write-once record).
+-        rejected = _rejects(lambda: run_preeval(
+-            "make button X red", repo=repo, _localize=fk, ts="2026-07-12T10:15:00Z",
+-            pre_eval_id=res["pre_eval_id"], stream_path=stream), FileExistsError)
+-        expect("E2E: write-once record rejects overwrite", rejected)
++        # Re-running the SAME request is supported (run_preeval rediscovers the id),
++        # so a byte-identical second run is an idempotent no-op — and must NOT append
++        # a second predicted event to the stream the breaker reads. A run whose
++        # content DIFFERS under a reused id is still refused: that is a real conflict.
++        before = io.open(stream, encoding="utf-8").read().count('"event": "predicted"') \
++            if os.path.isfile(stream) else 0
++        again = run_preeval("make button X red", repo=repo, _localize=fk,
++                            ts="2026-07-12T10:15:00Z", pre_eval_id=res["pre_eval_id"],
++                            stream_path=stream)
++        after = io.open(stream, encoding="utf-8").read().count('"event": "predicted"') \
++            if os.path.isfile(stream) else 0
++        expect("E2E: an identical re-run is an idempotent no-op", again["pre_eval_id"] == res["pre_eval_id"])
++        expect("E2E: an identical re-run appends NO second predicted event", after == before)
++        rec_path = os.path.join(repo, record_path(repo, res["pre_eval_id"]))
++        rec = json.loads(io.open(rec_path, encoding="utf-8").read())
++        rec["decision"] = "SCOPED_PIPELINE"
++        conflicted = _rejects(lambda: write_record(repo, res["pre_eval_id"], rec), ValueError)
++        expect("E2E: a DIFFERING record under a reused id is refused", conflicted)
+ 
+         # (b) The record validates against pre-eval-record.schema.json (if jsonschema present).
+         _schema_check(expect, res["record"], must_validate=True)
+@@ -1260,6 +2558,214 @@ def _selftest():
+                rese["record"]["taxonomy_ref"] and rese["record"]["taxonomy_digest"])
+         _schema_check(expect, rese["record"], must_validate=True)
+ 
++        # (c2) SCOPED end-to-end (v3.0). A medium/medium path is the matrix's centre cell.
++        # The record must be WRITABLE and must VALIDATE: the schema's `decision` enum held
++        # only two values before this change, so every SCOPED record would have failed here
++        # — which is why the enum and the engine had to move in the same commit.
++        fk_scoped = fake_localize_factory(_loc(["src/ui/Widget.tsx"], flags=[], fan_out=1))
++        ress = run_preeval("adjust the widget label spacing", repo=repo, _localize=fk_scoped,
++                           ts="2026-07-12T10:16:30Z", stream_path=stream)
++        expect("E2E scoped: decision SCOPED_PIPELINE",
++               ress["decision"] == DECISION_SCOPED and ress["override_fired"] is None)
++        expect("E2E scoped: bands recorded medium/medium",
++               ress["record"]["difficulty"]["band"] == "medium"
++               and ress["record"]["impact"]["band"] == "medium")
++        expect("E2E scoped: predicted event carries the new decision verbatim",
++               ress["predicted_event"]["decision"] == DECISION_SCOPED)
++        _schema_check(expect, ress["record"], must_validate=True,
++                      label="SCOPED record validates against pre-eval-record.schema.json")
++
++        # (c3) The schema itself must REFUSE the pairing the engine refuses to produce:
++        # a fired override beside a proportionate decision. Hand-forge that record (the
++        # engine cannot emit one) and assert the schema rejects it — so the invariant
++        # survives even a future producer that regresses.
++        _forged = dict(ress["record"], override_fired=4)
++        _schema_check(expect, _forged, must_validate=False,
++                      label="schema REJECTS override_fired beside SCOPED_PIPELINE")
++        _forged_fp = dict(rese["record"], override_fired=4)
++        _schema_check(expect, _forged_fp, must_validate=False,
++                      label="schema REJECTS override_fired beside FASTPATH_ELIGIBLE")
++        _schema_check(expect, dict(ress["record"], override_fired=None), must_validate=True,
++                      label="schema ACCEPTS override_fired null beside SCOPED_PIPELINE")
++
++        # (c4) The taxonomy conditional is keyed `decision != FULL_PIPELINE`, NOT
++        # `== FASTPATH_ELIGIBLE`. Keyed the old way it stopped applying the moment a third
++        # tier existed and a SCOPED record with a null taxonomy validated — the fail-open
++        # the check exists to prevent. The engine cannot produce that record (an absent
++        # taxonomy is an unconditional FULL), so forge it and prove the SCHEMA refuses it.
++        _null_tax_scoped = dict(ress["record"], taxonomy_ref=None, taxonomy_digest=None,
++                                taxonomy_version=None)
++        _schema_check(expect, _null_tax_scoped, must_validate=False,
++                      label="schema REJECTS a null-taxonomy SCOPED_PIPELINE record")
++        _null_tax_fp = dict(rese["record"], taxonomy_ref=None, taxonomy_digest=None,
++                            taxonomy_version=None)
++        _schema_check(expect, _null_tax_fp, must_validate=False,
++                      label="schema REJECTS a null-taxonomy FASTPATH_ELIGIBLE record")
++        # ...while a null-taxonomy FULL_PIPELINE record stays valid: that is the real
++        # absent-taxonomy case the engine emits, and the negative keying must not break it.
++        _null_tax_full = dict(ress["record"], decision=DECISION_FULL, taxonomy_ref=None,
++                              taxonomy_digest=None, taxonomy_version=None)
++        _schema_check(expect, _null_tax_full, must_validate=True,
++                      label="schema ACCEPTS a null-taxonomy FULL_PIPELINE record")
++
++        # ===== (c4b) v3.4.1 §A7 — flavor / t3_demotion / t3_reason / new_file ======== #
++        # `flavor` is a PROMISE the manifest validator enforces (a deep review job + a
++        # cross-model second opinion). Pinning it to SCOPED_PIPELINE in the schema is what
++        # stops a record from making that promise where it cannot be kept.
++        _sp_rec = dict(ress["record"], flavor=FLAVOR_SCOPED_PLUS,
++                       t3_reason="sensitive",
++                       t3_demotion={"from": {"difficulty": "high", "impact": "high"},
++                                    "category": "plumbing", "applied": True,
++                                    "sensitive": True})
++        _schema_check(expect, _sp_rec, must_validate=True,
++                      label="schema ACCEPTS a SCOPED+ record (flavor + t3_demotion + reason)")
++        _schema_check(expect, dict(_sp_rec, decision=DECISION_FULL, flavor="scoped_plus"),
++                      must_validate=False,
++                      label="schema REJECTS flavor scoped_plus on a FULL_PIPELINE record")
++        _schema_check(expect, dict(rese["record"], flavor=FLAVOR_SCOPED_PLUS),
++                      must_validate=False,
++                      label="schema REJECTS flavor scoped_plus on a FASTPATH record")
++        _schema_check(expect, dict(_sp_rec, flavor="deluxe"), must_validate=False,
++                      label="schema REJECTS an unknown flavor")
++        _schema_check(expect, dict(ress["record"], t3_reason="because"),
++                      must_validate=False,
++                      label="schema REJECTS a t3_reason outside the three-value enum")
++        _schema_check(expect, dict(ress["record"],
++                                   t3_demotion={"from": {"difficulty": "high"},
++                                                "category": "plumbing", "applied": True}),
++                      must_validate=False,
++                      label="schema REJECTS a t3_demotion missing an axis")
++        # A demotion that was REFUSED is as representable as one that was applied — the
++        # record keeps the question, not only the answer.
++        _schema_check(expect, dict(ress["record"], decision=DECISION_FULL, t3_reason="demotion",
++                                   t3_demotion={"from": {"difficulty": "high",
++                                                         "impact": "high"},
++                                                "category": "user-facing-major",
++                                                "applied": False}),
++                      must_validate=True,
++                      label="schema ACCEPTS a refused demotion (applied false) on FULL")
++        # §A4 — `new_file` is a fourth localization confidence, and a record carrying it is
++        # never FASTPATH_ELIGIBLE (the engine's Layer-B predicate, restated as evidence).
++        _nf_rec = dict(ress["record"],
++                       localization=dict(ress["record"]["localization"],
++                                         confidence="new_file",
++                                         flags=["new_file"]))
++        _schema_check(expect, _nf_rec, must_validate=True,
++                      label="schema ACCEPTS localization confidence new_file on SCOPED")
++        _schema_check(expect, dict(ress["record"],
++                                   localization=dict(ress["record"]["localization"],
++                                                     confidence="invented")),
++                      must_validate=False,
++                      label="schema REJECTS an unknown localization confidence")
++
++        # ===== (c5) The three fields Feature C's triage gate reads (spec §C) ========= #
++        # `hooks/epic-goal-stop.sh` decides whether a record COVERS the current diff by
++        # reading session_id, declared_paths and (for display) base_commit. The schema is
++        # additionalProperties:false, so until these exist NO record can carry them and NO
++        # record can ever cover a diff — the gate would ship inert. The engine does not
++        # produce them (it never sees a session); /v:triage does. What is tested here is
++        # that they are EXPRESSIBLE and CONSTRAINED, not that this module emits them.
++        _bound = dict(ress["record"],
++                      session_id="sess-abc123",
++                      base_commit="a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
++                      declared_paths=["scripts/app.py", "scripts/", "docs/**"],
++                      tier="SCOPED")
++        _schema_check(expect, _bound, must_validate=True,
++                      label="schema ACCEPTS session_id + base_commit + declared_paths + tier")
++
++        # `tier` is what the gate PREFERS over `decision`, so a disagreement would exempt a
++        # record as a tier its own decision refuses. Pinned for all three decisions.
++        for _dec, _good, _bad in ((DECISION_FASTPATH, "DIRECT", "FULL"),
++                                  (DECISION_SCOPED, "SCOPED", "DIRECT"),
++                                  (DECISION_FULL, "FULL", "DIRECT")):
++            _rec = dict(_bound, decision=_dec, tier=_good)
++            _schema_check(expect, _rec, must_validate=True,
++                          label="schema ACCEPTS tier %s beside %s" % (_good, _dec))
++            _schema_check(expect, dict(_rec, tier=_bad), must_validate=False,
++                          label="schema REJECTS tier %s beside %s" % (_bad, _dec))
++        # ...and `tier` stays optional: the gate falls back to mapping `decision`.
++        _no_tier = dict(_bound)
++        _no_tier.pop("tier")
++        _schema_check(expect, _no_tier, must_validate=True,
++                      label="schema ACCEPTS a record with no tier (gate maps decision)")
++
++        # session_id: null and absent both mean "binds no session", which the gate can only
++        # read as covering nothing. The EMPTY STRING is rejected — it looks like a binding
++        # and can never match, which is the one shape that misleads a reader.
++        _schema_check(expect, dict(_bound, session_id=None), must_validate=True,
++                      label="schema ACCEPTS session_id null (binds no session)")
++        _schema_check(expect, dict(_bound, session_id=""), must_validate=False,
++                      label="schema REJECTS an empty session_id")
++
++        # base_commit is recorded, not decisive — but it still has to be a commit.
++        _schema_check(expect, dict(_bound, base_commit=None), must_validate=True,
++                      label="schema ACCEPTS base_commit null")
++        _schema_check(expect, dict(_bound, base_commit="a1b2c3d"), must_validate=True,
++                      label="schema ACCEPTS a short base_commit sha")
++        for _badsha in ("HEAD", "A1B2C3D", "a1b2c3", "z" * 40, "a1b2c3d4 "):
++            _schema_check(expect, dict(_bound, base_commit=_badsha), must_validate=False,
++                          label="schema REJECTS base_commit %r" % (_badsha,))
++
++        # declared_paths: exactly the three forms the gate's `_path_covered` understands.
++        _schema_check(expect, dict(_bound, declared_paths=[]), must_validate=True,
++                      label="schema ACCEPTS an empty declared_paths (covers nothing)")
++        for _good_path in ("a.py", "scripts/app.py", "scripts/", "docs/**", "src/*.css"):
++            _schema_check(expect, dict(_bound, declared_paths=[_good_path]),
++                          must_validate=True,
++                          label="schema ACCEPTS declared path %r" % (_good_path,))
++        # The gate DROPS an entry carrying its own separator or a line break, which silently
++        # narrows the set. Rejecting here is where the producer still finds out.
++        for _bad_path in (chr(31) + "x", "a" + chr(31) + "b", "a\nb", "a\rb", chr(0) + "a",
++                          "", "/abs/path", "../escape", "a/../b", "..",
++                          "/", "\ttab"):
++            _schema_check(expect, dict(_bound, declared_paths=[_bad_path]),
++                          must_validate=False,
++                          label="schema REJECTS declared path %r" % (_bad_path,))
++        _schema_check(expect, dict(_bound, declared_paths=["a.py", "a.py"]),
++                      must_validate=False,
++                      label="schema REJECTS duplicate declared paths")
++        _schema_check(expect, dict(_bound, declared_paths="scripts/"), must_validate=False,
++                      label="schema REJECTS a bare-string declared_paths")
++
++        # ===== (c6) build_record's optional binding — the digest stays correct ======== #
++        # The producer is /v:triage, not this engine, but the PRIMITIVE lives here because
++        # `digest` covers the whole record: a producer that attached the binding AFTER
++        # calling build_record would ship a record whose self-integrity digest silently no
++        # longer verifies. Passing it through keeps that impossible.
++        _tax_mod = _tax()
++        _bv = score(_loc(["src/ui/Widget.tsx"], flags=[], fan_out=1), taxonomy)
++        _unbound = build_record("2026-07-12T101600Z-b-a1b2", "bind me", _bv,
++                                _loc(["src/ui/Widget.tsx"], flags=[], fan_out=1),
++                                1, "tax.yaml", "sha256:" + "0" * 64,
++                                ts="2026-07-12T10:16:00Z")
++        expect("build_record without a binding is unchanged (no binding keys)",
++               not any(k in _unbound for k in
++                       ("session_id", "base_commit", "declared_paths", "tier")))
++        _boundrec = build_record("2026-07-12T101600Z-b-a1b2", "bind me", _bv,
++                                 _loc(["src/ui/Widget.tsx"], flags=[], fan_out=1),
++                                 1, "tax.yaml", "sha256:" + "0" * 64,
++                                 ts="2026-07-12T10:16:00Z",
++                                 binding={"session_id": "sess-abc123",
++                                          "base_commit": "a1b2c3d4e5f6",
++                                          "declared_paths": ["src/ui/Widget.tsx"]})
++        expect("build_record carries the binding through",
++               _boundrec["session_id"] == "sess-abc123"
++               and _boundrec["base_commit"] == "a1b2c3d4e5f6"
++               and _boundrec["declared_paths"] == ["src/ui/Widget.tsx"])
++        expect("build_record DERIVES tier from the decision (never taken from the caller)",
++               _boundrec["tier"] == DECISION_TO_TIER[_bv["decision"]])
++        expect("the bound record's digest covers the binding and still verifies",
++               _boundrec["digest"] == _tax_mod.record_digest(_boundrec,
++                                                             exclude_field="digest")
++               and _boundrec["digest"] != _unbound["digest"])
++        _schema_check(expect, _boundrec, must_validate=True,
++                      label="a build_record-produced bound record validates")
++        # The footgun this prevents, demonstrated: bolt the fields on afterwards and the
++        # digest no longer verifies.
++        _bolted = dict(_unbound, session_id="sess-abc123")
++        expect("bolting a binding on AFTER build_record breaks the digest (why the kwarg)",
++               _bolted["digest"] != _tax_mod.record_digest(_bolted, exclude_field="digest"))
++
+         # (d) needs_t3 end-to-end: NO record + NO predicted are written; artifacts durable.
+         fk_need = fake_localize_factory(_loc(["tools/gen.py"], flags=[], fan_out=1))
+         resn = run_preeval("do the mysterious thing", repo=repo, _localize=fk_need,
+@@ -1422,8 +2928,11 @@ def _selftest():
+         resu = run_preeval("tweak local button padding once more", repo=repo, _localize=fk,
+                            config_values=_cfg(min_sample_count=1), ts="2026-07-12T10:24:00Z",
+                            stream_path=stream)
+-        expect("HIGH-4(c): unhealthy Tier-2 cohort resolved by run_preeval RAISES -> FULL",
+-               resu["decision"] == DECISION_FULL
++        # (medium, low) after the raise → SCOPED under the v3.0 matrix; the property being
++        # asserted is unchanged — the cohort signal took the change OUT of the DIRECT class.
++        expect("HIGH-4(c): unhealthy Tier-2 cohort resolved by run_preeval RAISES out of DIRECT",
++               resu["decision"] == DECISION_SCOPED
++               and resu["decision"] != DECISION_FASTPATH
+                and resu["record"]["difficulty"]["band"] != "low"
+                and "T2" in resu["record"]["tiers_signalled"])
+ 
+@@ -1532,6 +3041,134 @@ def _selftest():
+         expect("FIX8: outside-repo absolute run_dir is rejected",
+                _run_dir_contained(repo, _outside) is False)
+ 
++    # ----------------------------------------------------------------------- #
++    # Phase T — `triage_request`, the ONE implementation both callers sit on.
++    #
++    # It used to live inside a markdown heredoc in commands/v-triage.md, where
++    # nothing could reach it: the binding, the declared-path vocabulary and the six
++    # predicates were all untested, and the only way to add the hook as a second
++    # caller was to copy them. These cases are what makes the move real.
++    # ----------------------------------------------------------------------- #
++    with tempfile.TemporaryDirectory() as repo:
++        os.makedirs(os.path.join(repo, ".claude"))
++        with open(os.path.join(repo, ".claude", "compound-v-impact-taxonomy.yaml"),
++                  "w", encoding="utf-8") as fh:
++            fh.write(_EXAMPLE_TAXONOMY_TEXT
++                     + "\nauto_route_allow:\n  - \"src/ui/**/*.css\"\n"
++                     + "auto_route_max_lines: 20\n")
++        stream = os.path.join(repo, "docs", "superpowers", "memory",
++                              "triage-outcomes.jsonl")
++
++        fk_t = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
++        t = triage_request("tweak local button padding", repo=repo,
++                           session_id="sess-1", base_commit="cafe1234",
++                           ts="2026-09-02T10:00:00Z",
++                           _localize=fk_t, stream_path=stream)
++        expect("TRIAGE: reports every key both callers read",
++               all(k in t for k in ("pre_eval_id", "tier", "decision", "needs_t3",
++                                    "record_ref", "predicates", "declared_paths")))
++        expect("TRIAGE: tier is DERIVED from the decision, never re-spelled",
++               t["tier"] == DECISION_TO_TIER[t["decision"]] == "DIRECT")
++        expect("TRIAGE: reports the six pre-edit predicates and no more",
++               [p["n"] for p in t["predicates"]] == [1, 2, 3, 4, 5, 6])
++        expect("TRIAGE: an eligible CSS path is a member of the auto-route class",
++               t["member"] is True)
++        expect("TRIAGE: declared_paths carries the resolved path",
++               t["declared_paths"] == ["src/ui/button.css"])
++
++        # THE BINDING IS INSIDE THE DIGEST. A producer that attached session_id after
++        # build_record would ship a record whose own integrity digest silently no
++        # longer verifies, so assert the digest over the WRITTEN record.
++        with open(os.path.join(repo, t["record_ref"]), "r", encoding="utf-8") as fh:
++            written = json.load(fh)
++        expect("TRIAGE: the record is bound to the session id it was given",
++               written.get("session_id") == "sess-1"
++               and written.get("base_commit") == "cafe1234"
++               and written.get("tier") == "DIRECT")
++        expect("TRIAGE: the bound record's own digest still verifies",
++               _tax().record_digest(written, exclude_field="digest")
++               == written["digest"])
++        # A DIFFERENT request text on purpose: the same one would resume the intent
++        # record above and hit write-once with different bindings, which is a real
++        # conflict rather than the thing under test.
++        expect("TRIAGE: an empty session id binds NULL, never an invented value",
++               triage_request("nudge the button padding again", repo=repo,
++                              session_id="  ", ts="2026-09-02T10:00:30Z",
++                              _localize=fk_t, stream_path=stream)["session_id"] is None)
++
++        # A sensitive path is refused by predicate 5 even though it bands FULL anyway —
++        # the predicates are reported independently of the tier, which is what lets a
++        # caller explain WHY something is not in the class.
++        fk_auth = fake_localize_factory(_loc(
++            ["src/auth/login.py", "src/auth/session.py", "src/auth/token.py"],
++            flags=[], fan_out=3))
++        ta = triage_request("rework the login handler", repo=repo, session_id="sess-2",
++                            ts="2026-09-02T10:01:00Z", _localize=fk_auth,
++                            stream_path=stream)
++        expect("TRIAGE: a sensitive path is FULL and not a member",
++               ta["tier"] == "FULL" and ta["member"] is False)
++        expect("TRIAGE: every decided result reports a flavor, null when there is none",
++               "flavor" in ta and ta["flavor"] is None)
++
++        # v3.4.1 §A3: the SMALL sensitive edit is the SCOPED+ candidate, so triage hands
++        # the caller a T3 question instead of a tier — and says which question it is.
++        fk_auth1 = fake_localize_factory(_loc(["src/auth/login.py"], flags=[], fan_out=1))
++        ta1 = triage_request("touch one line in the login handler", repo=repo,
++                             session_id="sess-2b", ts="2026-09-02T10:01:15Z",
++                             _localize=fk_auth1, stream_path=stream)
++        expect("TRIAGE: a small sensitive edit asks T3, reporting reason 'sensitive'",
++               ta1["needs_t3"] is True and ta1["tier"] is None
++               and ta1.get("t3_reason") == "sensitive")
++        ta1p = triage_request("touch one line in the login handler", repo=repo,
++                              session_id="sess-2b", ts="2026-09-02T10:01:30Z",
++                              t3_category="plumbing", _localize=fk_auth1,
++                              stream_path=stream)
++        expect("TRIAGE: re-entering with `plumbing` yields SCOPED+ end to end",
++               ta1p["tier"] == "SCOPED" and ta1p["flavor"] == FLAVOR_SCOPED_PLUS
++               and ta1p["override_fired"] is None)
++
++        # AMENDMENT 2: the binding is a REAL parameter on `run_preeval`, threaded to
++        # `build_record` — never a `globals()["build_record"]` patch. It is asserted two
++        # ways because the patch form passed every behavioural case above: the parameter
++        # must be DECLARED, and driving `run_preeval` directly with it must actually bind.
++        _argnames = run_preeval.__code__.co_varnames[:run_preeval.__code__.co_argcount]
++        expect("TRIAGE: run_preeval declares `binding` as a real parameter",
++               "binding" in _argnames)
++        fk_b = fake_localize_factory(_loc(["src/ui/panel.css"], flags=[], fan_out=1))
++        rp = run_preeval("restyle the side panel", repo=repo,
++                         ts="2026-09-02T10:02:00Z", _localize=fk_b, stream_path=stream,
++                         binding={"session_id": "sess-4", "base_commit": "beef5678"})
++        expect("TRIAGE: run_preeval(binding=…) binds the record and leaves the "
++               "module global alone",
++               rp["record"].get("session_id") == "sess-4"
++               and rp["record"].get("base_commit") == "beef5678"
++               and rp["record"].get("declared_paths") == ["src/ui/panel.css"]
++               and build_record.__name__ == "build_record")
++
++    # `pre_eval.enabled: false` — the stage is a no-op, so there is NO record, no
++    # predicate, and the change is FULL by the operator's own configuration. The hook
++    # reads exactly this to decide to stay silent.
++    with tempfile.TemporaryDirectory() as repo:
++        os.makedirs(os.path.join(repo, ".claude"))
++        with open(os.path.join(repo, ".claude", "compound-v.json"), "w",
++                  encoding="utf-8") as fh:
++            fh.write('{"pre_eval": {"enabled": false}}\n')
++        td = triage_request("anything at all", repo=repo, session_id="sess-3")
++        expect("TRIAGE: pre_eval.enabled=false is a no-op that writes NO record",
++               td["disabled"] is True and td["record_ref"] is None
++               and td["tier"] == "FULL"
++               and not os.path.isdir(os.path.join(repo, PRE_EVAL_DIR_REL)))
++
++    expect("TRIAGE: declare_paths refuses what the Stop gate would silently drop",
++           declare_paths(["ok/a.md", "/abs.md", "../up.md", "ok/a.md"])
++           == (["ok/a.md"], ["/abs.md", "../up.md"]))
++    expect("TRIAGE: is_test_path catches the shapes predicate 6 removes",
++           all(is_test_path(p) for p in ("tests/x.py", "a/test_x.py", "a/x_test.go",
++                                         "a/x.spec.ts", "a/conftest.py"))
++           and not is_test_path("src/ui/button.css"))
++
++    _selftest_t3_meta(expect, fake_localize_factory)
++
+     if failures:
+         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
+         return 1
+@@ -1539,6 +3176,271 @@ def _selftest():
+     return 0
+ 
+ 
++def _mini_schema_ok(value, sub):
++    """A stdlib reading of the small JSON-Schema subset the record's `t3` block uses (type,
++    enum, required, properties, additionalProperties, minimum, maximum, maxLength). The
++    selftest runs where `jsonschema` is absent too, and a schema row that is skipped there
++    proves nothing, so the `t3` rows read the SHIPPED schema through this instead."""
++    if not isinstance(sub, dict):
++        return False
++    typ = sub.get("type")
++    if typ == "object":
++        if not isinstance(value, dict):
++            return False
++        if any(k not in value for k in sub.get("required", [])):
++            return False
++        props = sub.get("properties", {})
++        extra = sub.get("additionalProperties", True)
++        for k, v in value.items():
++            if k in props:
++                if not _mini_schema_ok(v, props[k]):
++                    return False
++            elif extra is False:
++                return False
++            elif isinstance(extra, dict) and not _mini_schema_ok(v, extra):
++                return False
++    elif typ == "string":
++        if not isinstance(value, str):
++            return False
++        if "maxLength" in sub and len(value) > sub["maxLength"]:
++            return False
++    elif typ == "number":
++        if isinstance(value, bool) or not isinstance(value, (int, float)):
++            return False
++        if "minimum" in sub and value < sub["minimum"]:
++            return False
++        if "maximum" in sub and value > sub["maximum"]:
++            return False
++    elif typ is not None:
++        return False
++    if "enum" in sub and value not in sub["enum"]:
++        return False
++    return True
++
++
++def _t3_schema_ok(t3):
++    """True when `t3` validates against `properties.t3` of the shipped record schema; False
++    when it does not, or when the schema declares no `t3` block at all."""
++    schema_path = os.path.join(os.path.dirname(_here()), "schemas",
++                               "pre-eval-record.schema.json")
++    with open(schema_path, "r", encoding="utf-8") as fh:
++        schema = json.load(fh)
++    sub = schema.get("properties", {}).get("t3")
++    return sub is not None and _mini_schema_ok(t3, sub)
++
++
++def _selftest_t3_meta(expect, fake_localize_factory):
++    """Rows (a)-(g) of the record `t3` block and `--request-file` (jev classifier foundation,
++    Task A). Each label names the planted failure that turns it red."""
++    import contextlib
++    import tempfile
++
++    tax = _tax()
++    fixed_ts = "2026-10-05T09:00:00Z"
++    fixed_id = "2026-10-05T090000Z-t3-meta-a1b2"
++
++    def _repo_with(root, taxonomy_text):
++        os.makedirs(os.path.join(root, ".claude"))
++        with open(os.path.join(root, ".claude", "compound-v-impact-taxonomy.yaml"), "w",
++                  encoding="utf-8") as fh:
++            fh.write(taxonomy_text)
++        return os.path.join(root, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
++
++    def _run(loc, category, taxonomy_text=_BREADTH_TAXONOMY_TEXT, **extra):
++        """One fresh repo per call, fixed id + ts, so two runs differ only by `extra`.
++        Returns (result, written record bytes, predicted-event count)."""
++        with tempfile.TemporaryDirectory() as root:
++            stream = _repo_with(root, taxonomy_text)
++            res = run_preeval("fix a typo in a log line", repo=root, t3_category=category,
++                              pre_eval_id=fixed_id, ts=fixed_ts, stream_path=stream,
++                              _localize=fake_localize_factory(loc), **extra)
++            raw = b""
++            if res.get("record_ref"):
++                with open(os.path.join(root, res["record_ref"]), "rb") as fh:
++                    raw = fh.read()
++            n_pred = 0
++            if os.path.isfile(stream):
++                with io.open(stream, encoding="utf-8") as fh:
++                    n_pred = fh.read().count('"event": "predicted"')
++            return res, raw, n_pred
++
++    demote_loc = _loc(["scripts/x.py"], flags=[], fan_out=1)
++    claude_meta = {"engine": "claude", "category": "plumbing"}
++
++    # (a) the demotion fixture records which engine answered T3, and the block validates.
++    ra, _raw_a, _ = _run(demote_loc, "plumbing", t3_meta=dict(claude_meta))
++    rec_a = ra.get("record") or {}
++    expect("T3META (a): a demotion with t3_meta records t3 == {engine, category} and the "
++           "block validates [planted: drop 't3' from build_record's optional-key loop]",
++           "T3" in rec_a.get("tiers_signalled", [])
++           and rec_a.get("t3") == {"engine": "claude", "category": "plumbing"}
++           and _t3_schema_ok(rec_a.get("t3")))
++    _schema_check(expect, rec_a, must_validate=True,
++                  label="T3META (a): the whole t3-bearing record validates (jsonschema)")
++    ra_full, _, _ = _run(demote_loc, "plumbing",
++                         t3_meta={"engine": "parent", "category": "plumbing",
++                                  "probs": {"plumbing": 1.0, "unknown": 0},
++                                  "model": None, "catalogue_hash": "sha256:abc"})
++    expect("T3META (a): None fields are dropped, the rest kept as given "
++           "[planted: copy t3_meta verbatim, None values included]",
++           (ra_full.get("record") or {}).get("t3")
++           == {"engine": "parent", "category": "plumbing",
++               "probs": {"plumbing": 1.0, "unknown": 0}, "catalogue_hash": "sha256:abc"})
++
++    # (b) the digest covers the block: change only the engine and the digest moves.
++    rb, _, _ = _run(demote_loc, "plumbing", t3_meta={"engine": "codex", "category": "plumbing"})
++    rec_b = rb.get("record") or {}
++    expect("T3META (b): the digest changes when t3.engine changes and both verify "
++           "[planted: attach t3 after the digest is taken]",
++           rec_a.get("digest") is not None and rec_b.get("digest") is not None
++           and rec_a["digest"] != rec_b["digest"]
++           and rec_a["digest"] == tax.record_digest(rec_a, exclude_field="digest")
++           and rec_b["digest"] == tax.record_digest(rec_b, exclude_field="digest"))
++
++    # (c) T3 never consulted: a T1-banded CSS path under the example taxonomy.
++    rc, _, _ = _run(_loc(["src/ui/button.css"], flags=[], fan_out=1), None,
++                    taxonomy_text=_EXAMPLE_TAXONOMY_TEXT, t3_meta=dict(claude_meta))
++    rec_c = rc.get("record") or {}
++    expect("T3META (c): t3_meta given but T3 not consulted -> no t3 key "
++           "[planted: attach t3 without checking tiers_signalled]",
++           bool(rec_c) and "T3" not in rec_c.get("tiers_signalled", [])
++           and "t3" not in rec_c)
++
++    # (d) t3_meta=None is today's record, byte for byte, on every existing T3 fixture shape.
++    d_fixtures = (
++        ("demotion plumbing", demote_loc, "plumbing", _BREADTH_TAXONOMY_TEXT),
++        ("demotion user-facing-major", demote_loc, "user-facing-major",
++         _BREADTH_TAXONOMY_TEXT),
++        ("demotion unknown", demote_loc, "unknown", _BREADTH_TAXONOMY_TEXT),
++        ("sensitive plumbing (SCOPED+)",
++         _loc(["hooks/lane-guard.sh"], flags=["sensitive_path"], fan_out=1), "plumbing",
++         _BREADTH_TAXONOMY_TEXT),
++        ("unbanded plumbing", _loc(["tools/gen.py"], flags=[], fan_out=1), "plumbing",
++         _EXAMPLE_TAXONOMY_TEXT),
++        ("unbanded user-facing-minor", _loc(["tools/gen.py"], flags=[], fan_out=1),
++         "user-facing-minor", _EXAMPLE_TAXONOMY_TEXT),
++    )
++    for _label, _dloc, _cat, _ttext in d_fixtures:
++        r0, raw0, _ = _run(_dloc, _cat, taxonomy_text=_ttext)
++        r1, raw1, _ = _run(_dloc, _cat, taxonomy_text=_ttext, t3_meta=None)
++        expect("T3META (d): %s — t3_meta=None writes the bytes a call without the "
++               "parameter writes, with no t3 key [planted: t3_meta=None leaks an empty t3 "
++               "block]" % _label,
++               bool(raw0) and raw0 == raw1
++               and "t3" not in (r0.get("record") or {})
++               and "t3" not in (r1.get("record") or {}))
++
++    # (g) t3_meta never adds or removes a `predicted` event.
++    _, _, n_without = _run(demote_loc, "plumbing")
++    _, _, n_with = _run(demote_loc, "plumbing", t3_meta=dict(claude_meta))
++    expect("T3META (g): the predicted event count is unchanged by t3_meta (1 and 1) "
++           "[planted: append a second event when t3_meta is given]",
++           n_without == 1 and n_with == 1)
++
++    # (f) the shipped schema refuses what the block must never hold.
++    expect("T3META (f): the schema declares a t3 block that accepts a full answer "
++           "[planted: t3 missing from schema properties]",
++           _t3_schema_ok({"engine": "jev", "category": "unknown",
++                          "probs": {"unknown": 0.5, "plumbing": 0.5},
++                          "model": "typesafe/jev-1.13-20260917",
++                          "catalogue_hash": "sha256:0123"}))
++    expect("T3META (f): the schema rejects t3.engine 'jev2' [planted: no enum on engine]",
++           not _t3_schema_ok({"engine": "jev2", "category": "plumbing"}))
++    expect("T3META (f): the schema rejects a probability outside [0,1] "
++           "[planted: no minimum/maximum on probs values]",
++           not _t3_schema_ok({"engine": "claude", "category": "plumbing",
++                              "probs": {"plumbing": 1.5}})
++           and not _t3_schema_ok({"engine": "claude", "category": "plumbing",
++                                  "probs": {"plumbing": -0.1}}))
++    expect("T3META (f): the schema rejects a t3 without category "
++           "[planted: category not required]",
++           not _t3_schema_ok({"engine": "claude"}))
++    expect("T3META (f): the schema rejects an unknown key in t3 "
++           "[planted: additionalProperties left open]",
++           not _t3_schema_ok({"engine": "claude", "category": "plumbing",
++                              "provisional": True}))
++    if rec_a:
++        _schema_check(expect, dict(rec_a, t3={"engine": "jev2", "category": "plumbing"}),
++                      must_validate=False,
++                      label="T3META (f): a record with t3.engine 'jev2' is schema-REJECTED")
++
++    # (e) `--request-file`: the request comes from a file, never from argv.
++    def _cli(argv):
++        out, err = io.StringIO(), io.StringIO()
++        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
++            rc_ = _triage_cli(argv)
++        return rc_, out.getvalue(), err.getvalue()
++
++    with tempfile.TemporaryDirectory() as root:
++        _repo_with(root, _BREADTH_TAXONOMY_TEXT)
++        os.makedirs(os.path.join(root, "scripts"))
++        with open(os.path.join(root, "scripts", "x.py"), "w", encoding="utf-8") as fh:
++            fh.write("print('hi')\n")
++        req = os.path.join(root, "request.txt")
++        with open(req, "w", encoding="utf-8") as fh:
++            fh.write("fix a typo in scripts/x.py\n")
++        rc_e, out_e, _ = _cli(["--request-file", req, "--repo", root, "--json"])
++        try:
++            out_obj = json.loads(out_e)
++        except ValueError:
++            out_obj = {}
++        expect("T3META (e): --request-file reads the request and triages it "
++               "[planted: --request-file not wired into the request source]",
++               rc_e == 0 and bool(out_obj.get("pre_eval_id"))
++               and "fix-a-typo" in out_obj.get("pre_eval_id", ""))
++        empty = os.path.join(root, "empty.txt")
++        with open(empty, "w", encoding="utf-8") as fh:
++            fh.write("\n")
++        rc_x, out_x, err_x = _cli(["--request-file", empty, "--repo", root])
++        expect("T3META (e): an empty --request-file is REFUSED with exit 2 "
++               "[planted: an empty file triaged as a request]",
++               rc_x == 2 and "REFUSED" in err_x and out_x == "")
++        rc_m, _, err_m = _cli(["--request-file", os.path.join(root, "nope.txt"),
++                               "--repo", root])
++        expect("T3META (e): a missing --request-file is REFUSED with exit 2 "
++               "[planted: the OSError escapes as a traceback]",
++               rc_m == 2 and "REFUSED" in err_m)
++        expect("T3META (e): exactly one trailing newline is stripped "
++               "[planted: rstrip() of every trailing newline]",
++               _read_request_file_text("line one\n\n") == "line one\n"
++               and _read_request_file_text("line one") == "line one")
++        for _bad in ('[0.5]', '{"plumbing": "high"}', '{"plumbing": 2}', 'not json',
++                     '{"plumbing": true}'):
++            rc_p, _, err_p = _cli(["--request-file", req, "--repo", root,
++                                   "--t3-engine", "claude", "--t3-category", "plumbing",
++                                   "--t3-probs-json", _bad])
++            expect("T3META (e): --t3-probs-json %s is REFUSED with exit 2 "
++                   "[planted: probs passed through unchecked]" % _bad,
++                   rc_p == 2 and "REFUSED: --t3-probs-json" in err_p)
++        # The full flag set end to end: the decided triage JSON echoes the t3 block.
++        req2 = os.path.join(root, "request2.txt")
++        with open(req2, "w", encoding="utf-8") as fh:
++            fh.write("fix one log line in scripts/x.py\n")
++        rc_t, out_t, _ = _cli(["--request-file", req2, "--repo", root,
++                               "--t3-category", "plumbing", "--t3-engine", "claude",
++                               "--t3-probs-json", '{"plumbing": 0.9, "unknown": 0.1}',
++                               "--t3-model", "claude-x", "--t3-catalogue-hash", "sha256:c4"])
++        try:
++            obj_t = json.loads(out_t)
++        except ValueError:
++            obj_t = {}
++        expect("T3META (e): triage JSON echoes the t3 block the record carries "
++               "[planted: t3 flags parsed but never reach t3_meta]",
++               rc_t == 0 and obj_t.get("t3") == {
++                   "engine": "claude", "category": "plumbing",
++                   "probs": {"plumbing": 0.9, "unknown": 0.1},
++                   "model": "claude-x", "catalogue_hash": "sha256:c4"})
++        rc_n, out_n, _ = _cli(["--request-file", req, "--repo", root,
++                               "--t3-category", "plumbing"])
++        try:
++            obj_n = json.loads(out_n)
++        except ValueError:
++            obj_n = {}
++        expect("T3META (e): without --t3-engine the triage JSON has no t3 key "
++               "[planted: t3_meta built from --t3-category alone]",
++               rc_n == 0 and bool(obj_n) and "t3" not in obj_n)
++
++
+ def _rejects(fn, exc):
+     try:
+         fn()

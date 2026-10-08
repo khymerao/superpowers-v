@@ -1,0 +1,47 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-integration-gate.py",
+    "scripts/compound-v-update-memory.py",
+    "scripts/compound-v-validate-manifest.py",
+    "tests/test-project-root.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+    "diff_digest": "sha256:db4b9d86ba4dab046fe1e222b9d1ae90bd1a673e37ddd6c8629df68491f615fe",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"2faee4a43c6b3f0f656adcddea588a1e2282444d\",\n  \"changed\": [\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-update-memory.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-integration-gate.py\",\n    \"scripts/compound-v-update-memory.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "2faee4a43c6b3f0f656adcddea588a1e2282444d",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Fix \u2014 integration-gate and update-memory project root, validate-manifest note",
+  "tests": {
+    "command": "bash tests/test-project-root.sh\nbash -c 'for s in integration-gate update-memory validate-manifest triage-outcomes project-config; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo py-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 327156,
+    "cache_read_input_tokens": 4389828,
+    "input_tokens": 94,
+    "measured": true,
+    "output_tokens": 12348,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a25ed902e5a375ce1.jsonl",
+      "agent-a4785257ab37a83fe.jsonl",
+      "agent-af5270d7f15c88d35.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_0b5947eb-44d-2"
+}

@@ -21,13 +21,17 @@ The `scripts/` this command calls ship with the plugin — they are not files in
 repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ---
 
@@ -171,7 +175,7 @@ opencode providers list </dev/null 2>&1 | grep -qv '0 credentials' \
 > posture from Cursor/Antigravity, which refuse until explicitly unlocked. The worktree +
 > `git diff` gate is the only real enforcement (detection, not prevention). **Prefer Codex
 > for untrusted / high-stakes work.** opencode addresses models as `provider/model`
-> strings (e.g. `anthropic/claude-opus-4-6`), so its resolved model family
+> strings (e.g. `anthropic/claude-opus-5-5`), so its resolved model family
 > is data-dependent; it is **WORKER-ONLY for v1, excluded from any cross-model
 > arbiter/review panel** until family-dedup keys on the resolved model. See
 > [`adapter-opencode.md`](../skills/backend-launcher/adapter-opencode.md) for the
@@ -249,14 +253,13 @@ configure; just confirm `python3` is present (the workers already require it).
 **Version gate first.** `/skill-doctor` needs Claude Code **v2.1.261 or later** — the version the
 official `CHANGELOG.md` names for the feature. (`skills.md` itself says 2.1.252; the two
 Anthropic-owned sources disagree and this step cites the stricter one so the probe never fires on
-a build that lacks the command.) Check with:
+a build that lacks the command.) Check the version of the Claude Code that runs this session with
+the host-version block of Step 1g (the fenced block that starts `# cv-host-version`), not with a
+bare `claude --version`: the desktop app runs its own bundled build, which can differ from the CLI
+on `PATH`. Run that block once here and reuse its output in Step 1g.
 
-```bash
-claude --version
-```
-
-Below 2.1.261 → skip this step (say so plainly — "skipped, below the 1f version floor" — rather
-than attempting the command).
+Below 2.1.261, or `unknown` → skip this step (say so plainly — "skipped, below the 1f version
+floor" or "skipped, host version unknown" — rather than attempting the command).
 
 At or above the floor, run it headless, as text, with no stdin:
 
@@ -293,6 +296,97 @@ it.
 skill off is the user's own call, made in the `/plugin` manager's Stats tab (interactive) or by
 editing plugin config directly, never by this walkthrough.
 
+### 1g. Jev vault (optional)
+
+Jev, TypeSafe's System One classifier, is reached only through the separate `compound-v-vault` plugin, which holds
+the OpenRouter key. Without it nothing changes. This step reports one of the states listed at its end and never
+touches the key.
+
+First, is the vault installed, and is it enabled?
+
+```bash
+claude plugin list --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    d = []
+v = [p for p in d if isinstance(p, dict) and str(p.get("id", "")).startswith("compound-v-vault@")]
+on = [p for p in v if p.get("enabled")]
+print(on[0]["id"] if on else ("disabled:" + v[0]["id"] if v else "absent"))'
+```
+
+Only when that printed a bare id (not `absent`, not `disabled:<id>`), go on. Is this session the desktop app?
+
+```bash
+if [ "${CLAUDE_CODE_ENTRYPOINT:-}" = claude-desktop ]; then echo desktop; else echo not-desktop; fi
+```
+
+`desktop` (only the exact value `claude-desktop` counts) means the vault is reported as inert in the desktop app,
+whatever its version or key state, and the rest of this step, the key probe included, is skipped. This is observed
+behaviour, not a documented guarantee: on 2026-10-08 a desktop Code tab session on the bundled Claude Code 2.1.293,
+above the floor, showed `Jev: off (no_key)` while the same key worked in a terminal `claude`. `CLAUDE_CODE_ENTRYPOINT`
+is undocumented; unset, empty or any other value counts as `not-desktop`.
+
+Otherwise read the version of the Claude Code that runs this session (Step 1f may already have run this block; reuse
+its output):
+
+```bash
+# cv-host-version: the running host's version and its source, on one line: "<x.y.z> host", "<x.y.z> path" or "unknown"
+CV_HOST_VER=""; CV_HOST_SRC=""
+if [ -n "${CLAUDE_CODE_EXECPATH:-}" ] && [ -f "$CLAUDE_CODE_EXECPATH" ] && [ -x "$CLAUDE_CODE_EXECPATH" ]; then
+  CV_HOST_VER="$(python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 5 -- "$CLAUDE_CODE_EXECPATH" --version </dev/null 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+  CV_HOST_SRC=host
+fi
+if [ -z "$CV_HOST_VER" ]; then
+  CV_HOST_VER="$(python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 5 -- claude --version </dev/null 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+  CV_HOST_SRC=path
+fi
+if [ -n "$CV_HOST_VER" ]; then echo "$CV_HOST_VER $CV_HOST_SRC"; else echo unknown; fi
+```
+
+`CLAUDE_CODE_EXECPATH` is the binary of the running Claude Code (the desktop app's bundled build lives under
+`~/Library/Application Support/Claude/claude-code/<version>/`). It is undocumented, so the block never fails on it:
+unset, empty, not an executable file, or no `x.y.z` at the start of a line of its output, and the block falls back to
+the `claude` on `PATH` (`path`), which can be a different build from the host. The version is always what the binary
+prints, never read from its directory name.
+
+Then check the floor: the vault is a hooks module, and modules load only on Claude Code 2.1.287 or newer. Compare the
+version the `cv-host-version` block printed. `unknown` never passes the floor; below it, the vault is inert whatever
+its key state. In either case skip the key probe.
+
+Only when the host version is 2.1.287 or newer, ask whether the key is set, without its value:
+
+```bash
+claude plugin configure "<id>" --json 2>/dev/null | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("unknown"); raise SystemExit
+c = d.get("configured") if isinstance(d, dict) else None
+print("set" if isinstance(c, list) and "openrouter_key" in c else "not set")'
+```
+
+`configured` lists the names of the options that hold a value. The output also includes an `inputs` map: never run
+this command without the filter, never print its output raw, and never read or echo `inputs`. The filter prints only
+`set`, `not set` or `unknown`. `claude plugin configure` needs Claude Code 2.1.285 or newer; below that, report the
+key state as `unknown`. This probe runs the `claude` on `PATH`, not the host; that is correct, it is a separate
+command that reads the stored option, not the session that loads the vault.
+
+Report the first of these that applies, in this order:
+
+- `absent`;
+- `disabled` (installed but turned off; Step 2 offers `/plugin enable <id>`, never a second install);
+- `installed, inert in the desktop app (observed 2026-10-08 on the bundled 2.1.293: the vault does not receive its key there) - use Jev from a terminal claude`;
+- `installed, host version unknown (the vault needs Claude Code 2.1.287 or newer)`;
+- `installed, inert (Claude Code < 2.1.287)` (name the host version and its source, `host` or `path`);
+- `installed, key not set` (or `installed, key state unknown`);
+- `installed, key set`. Jev is still off in a repository until the user runs `/egress allow` there; `/egress status`
+  shows the current answer, and the status line reads `Jev: on` once it is allowed. A key entered or changed with
+  `/plugin configure` takes effect in a new session: the vault reads it once, when it loads, so restart `claude`
+  after setting it. Say both in the report.
+
 ---
 
 ## Step 2 — Walk through missing installs, ONE AT A TIME
@@ -308,6 +402,17 @@ worked, then move to the next.** Never chain installs.
   After they confirm, re-run the Step 1b namespace grep.
 - **Plugin surface incomplete:** direct them to reinstall `superpowers-v`; stop and
   resume `/v:init` once it is whole.
+- **Jev vault absent, disabled, inert in the desktop app, or its key not set** (and the user wants Jev): ask once whether they want it. If yes:
+  when it is `absent`, they run `/plugin install compound-v-vault@procoders` (the vault needs Claude Code 2.1.287 or
+  newer); when it is `disabled`, they run `/plugin enable <id>` with the id the probe printed after `disabled:`. Then
+  `/plugin configure <id>` with the id Step 1g printed (`compound-v-vault@procoders` after a fresh install from this
+  marketplace; `configure` accepts only the full `name@marketplace` id) to enter the key in Claude Code's own masked
+  field (2.1.285 or newer), then `/egress allow` in each repository where they want Jev. Re-run the Step 1g probe after each and report
+  the new state. Never ask for the key in chat, never pass it on a command line, never point the user at `/config`
+  for it. Declining leaves Jev off and changes nothing else. A key entered or changed takes effect in a new session:
+  tell the user to restart `claude` after `/plugin configure`. On a desktop host (Step 1g printed `desktop`), do not
+  offer `/plugin configure` here: the vault is inert in the desktop app, so tell the user to run
+  `/plugin configure <id>` and `/egress allow` in a terminal `claude` and use Jev from there.
 
 After each install, **re-probe that one capability** and report the new state before
 touching the next. Codex is **optional** — if the user declines it, proceed Claude-only.
@@ -331,29 +436,68 @@ Confirm the chosen stance back to the user before saving.
 ## Step 3b — V-memory recall lane (semantic embeddings: opt-in)
 
 V-memory (recall over `docs/superpowers/**` prose — see [`memory.md`](../skills/compound-v/memory.md))
-**always** runs its **FTS5 core** (pure stdlib, offline, zero setup). Ask the user — **as a
-structured choice (use the AskUserQuestion tool on Claude Code; a plain two-option question on
-other harnesses)** — which recall lane this project should use:
+**always** runs its **FTS5 core** (pure stdlib, offline, zero setup) — nothing to do here for it:
+the first `/v:remember` or `/v:memory-refresh` builds the index by itself, on the fly.
+
+Ask the user — **as a structured choice (use the AskUserQuestion tool on Claude Code; a plain
+two-option question on other harnesses)** — whether to also enable the semantic lane:
 
 - **"FTS5 only — fast, zero-setup"** — lexical BM25 over the prose; no install, no model,
   fully offline. **Recommend this** while `docs/superpowers/` is small or young — lexical
   search already wins there.
-- **"Semantic embeddings — ~200 MB model, once"** — adds a dense lane that also finds related
-  prior work when the wording differs (including **across languages**); downloads a small
-  multilingual model one time into an out-of-repo cache.
+- **"Semantic embeddings — one-time download, ~200 MB"** — adds a dense lane of vectors beside
+  FTS5. Say what it measurably did on the plugin's own repo (2026-09-24, `tests/memory-queries.tsv`):
+  one extra hit in 23 fused queries; **no** cross-lingual recall (a Russian question gets the same
+  few Russian documents whatever it asks — `/v:remember` translates the question instead) and no
+  help on paraphrases. Costs: one network download of the ONNX model plus an isolated venv
+  (onnxruntime/tokenizers/numpy) living **outside the repo**; the first embed of that repo's
+  6,050 chunks took **19 minutes**, and each dense search adds about a second and a half. Recommend
+  FTS5 only unless the user wants to measure it on their own corpus (`bench`).
 
-**If the user picks semantic**, bootstrap it now — this is the **one consented install step**
-(never done from a hook):
-  ```bash
-  python3 "$CV/scripts/compound-v-memory.py" bootstrap
-  python3 "$CV/scripts/compound-v-memory.py" refresh --with-embeddings
-  ```
-  Confirm the `bootstrap OK` line before counting it enabled. If bootstrap fails (offline /
-  no wheels), say so and fall back to FTS5-only — recall still works.
+**Whichever the user picks, do all of the following, in order, before moving to Step 3c** — this
+sequence is deliberately self-contained and idempotent (safe to re-run), because a session that
+stops partway through must never leave embeddings bootstrapped with no config to show for it (a
+live install hit exactly that: bootstrapped in June, no `.claude/compound-v.json` at all, so
+`refresh` never added a single vector while `doctor` still called it "bootstrapped"):
 
-Record the lane choice in Step 4a as `memory.embeddings: true|false`. When `true`, the engine
-adds vectors on every refresh (including the silent background hook) — but still **only once
-bootstrapped**; it never installs on its own.
+1. **On "semantic embeddings":**
+   - **Bootstrap** — the one consented install step (never done from a hook):
+     ```bash
+     python3 "$CV/scripts/compound-v-memory.py" bootstrap
+     ```
+     Confirm the `bootstrap OK` line before continuing. If it fails (offline / no wheels), tell
+     the user, fall back to FTS5-only, and treat this as the "FTS5 only" branch below instead
+     (write `embeddings: false`, not `true`) — recall still works either way.
+   - **Write the choice right now** — read `.claude/compound-v.json` if it exists (else start
+     from `{}`), merge in `"memory": { "embeddings": true }` (preserving every other top-level
+     key and every other `memory.*` sub-key already present), and write the file back, creating
+     `.claude/` if it doesn't exist yet. Do this **immediately after bootstrap succeeds**, not
+     deferred to Step 4a's single end-of-flow write — this file is **committed project config**:
+     it is how every teammate's own `refresh` (including their background hook) knows to add
+     vectors once THEY bootstrap. Step 4a's later full-file write is a no-op on this one key —
+     it writes back the same value.
+   - **Populate vectors:**
+     ```bash
+     python3 "$CV/scripts/compound-v-memory.py" refresh --with-embeddings
+     ```
+   - **Show the real mode** — run `doctor` and show its mode line to the user, so they see the
+     dense lane actually engaged (not just "bootstrapped"):
+     ```bash
+     python3 "$CV/scripts/compound-v-memory.py" doctor
+     ```
+2. **On "FTS5 only":**
+   - **Write the choice right now, explicitly** — read-merge-write `.claude/compound-v.json`
+     the same way, setting `"memory": { "embeddings": false }`. Do not leave the key absent: an
+     absent key reads as "never asked," which is exactly what lets this question resurface on a
+     later `/v:init`, and it is also what stops `doctor` from being able to say "disabled by
+     choice" instead of "not bootstrapped."
+   - **Run `doctor` too**, so the user sees the FTS5-only mode line before moving on:
+     ```bash
+     python3 "$CV/scripts/compound-v-memory.py" doctor
+     ```
+
+Step 4a's full-file write of `.claude/compound-v.json` later in this flow carries `memory.embeddings`
+forward at whatever value was just written above — it never re-asks or overrides it.
 
 **Then ask a second structured choice — how much V-memory should DRIVE the pipeline:**
 
@@ -533,20 +677,27 @@ was, in those two fields).
     "token_cap": 20000,
     "remember": {}
   },
+  "jev": {
+    "enabled": true,
+    "model": "typesafe/jev-1.13",
+    "t3":        { "mode": "shadow", "confidence_min": 0.8, "calibrated_model": null },
+    "detect_ui": { "mode": "active", "confidence_min": 0.8 },
+    "onboard":   { "mode": "active", "confidence_min": 0.8 }
+  },
   "models": {
     "balanced": {
       "claude":      { "frontier": "fable", "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-      "codex":       { "frontier": "gpt-5.6-sol", "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
       "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" },
-      "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }
+      "opencode":    { "deep": "anthropic/claude-opus-5-5", "standard": "openai/gpt-6.1-sol", "light": "opencode/mimo-v2.5-free" }
     },
     "cost-aware": {
       "claude":      { "frontier": "opus",  "deep": "opus",  "standard": "sonnet",                "light": "sonnet" },
-      "codex":       { "frontier": "gpt-5.6-sol", "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+      "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
       "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" },
       "cursor":      { "deep": "auto",                  "standard": "auto",                  "light": "auto" },
-      "opencode":    { "deep": "anthropic/claude-opus-4-6", "standard": "openai/gpt-5.6-terra", "light": "opencode/mimo-v2.5-free" }
+      "opencode":    { "deep": "anthropic/claude-opus-5-5", "standard": "openai/gpt-6.1-sol", "light": "opencode/mimo-v2.5-free" }
     }
   }
 }
@@ -562,7 +713,9 @@ identically to `balanced`. Only `cost-aware.claude.standard` differs: `sonnet`, 
 `opus`; `cost-aware.claude.deep` stays `opus`.)
 
 - `stance` = the stance chosen in Step 3.
-- **`memory.embeddings`** = the Step 3b lane choice (default `false` = FTS5-only). When `true`,
+- **`memory.embeddings`** = the Step 3b lane choice (default `false` = FTS5-only) — already
+  written to disk by Step 3b itself the moment the user answered; this pass writes the same
+  value back as part of the whole-file save, it does not decide it. When `true`,
   `compound-v-memory.py` adds the semantic lane on every refresh (the engine reads this flag),
   but only after an explicit `bootstrap` — it never installs on its own. `false` keeps the
   pure-stdlib FTS5 lane.
@@ -646,6 +799,15 @@ identically to `balanced`. Only `cost-aware.claude.standard` differs: `sonnet`, 
   DIRECT auto-route class (Iron Invariant #4 as amended in v3.0, plus #5: membership in that class is
   decided by the scorer's mechanically checkable predicates against the repo-local impact taxonomy,
   never by a config value and never by model judgement). Do not re-implement these rules inline; call the loader.
+- **`jev`** (defaults exactly the block above) = how Compound V may use the Jev classifier. This is
+  **committed team policy only.** The OpenRouter key and each user's egress consent live in the
+  `compound-v-vault` plugin and **never** go in this file; do not add a key, a token or a consent
+  field here. `t3.mode` is `off` or `shadow`, and in shadow Jev never changes the triage decision.
+  `active` is not available until spec 1.5, and the loader turns it back into `shadow` with a warning.
+  `detect_ui.mode` and `onboard.mode` are `off` or `active`. Each `confidence_min` is a number above
+  0 and at most 1. `t3.calibrated_model` is unused until spec 1.5 and defaults to `null`. The shared loader
+  (`resolve_jev` in `scripts/compound-v-project-config.py`) coerces every bad value to its default
+  and returns a warning, and a `jev` value that is not an object makes `load_project_config` raise.
 - **`models` — SEED the default per-stance tier→model map (exactly the block above)** so
   intent-based routing resolves out of the box even with no further setup. The map is
   **per-stance** — shape `{<stance>: {<backend>: {<tier>: model}}}`. Only the `claude`
@@ -661,8 +823,10 @@ identically to `balanced`. Only `cost-aware.claude.standard` differs: `sonnet`, 
   NEVER `haiku` anywhere. If `agy` is present, the Step 1a-bis discovery
   pipe has already overwritten the `antigravity` block with **real** discovered names
   (`agy models </dev/null` → discovery script), so the block above is just the fallback
-  used when `agy` is absent; codex has no list command (curated + user-overridable);
-  claude uses native tier aliases. Tell the user they can refresh or customize this map any time
+  used when `agy` is absent; codex gets no equivalent live-discovery step here — this
+  step just seeds the static GPT-6 default above (codex's own live discovery, via
+  `codex debug models` since codex-cli 0.156.1, is `/v:models` §1b's job, run later or
+  on demand); claude uses native tier aliases. Tell the user they can refresh or customize this map any time
   with [`/v:models`](v-models.md) — they do **not** need to hand-edit JSON. The map
   is project-local config; it is documented but not committed in the plugin repo.
 
@@ -821,6 +985,82 @@ Read the file first if it exists, merge `advisorModel` into the parsed object al
 is already there (including `worktree` from Step 4d), and write the merged result back — never
 truncate the file to just this one key.
 
+### 4f. Two optional native settings — `bashOutputMaxChars` / `taskOutputMaxChars`, and `bashEditDiffEnabled`
+
+**Offer each; never write either without a yes.** Both are **native Claude Code settings**, not
+Compound V keys, verified against `code.claude.com/docs/en/settings-reference` (and
+`/docs/en/hooks#bash` for the third one) rather than assumed from a version number — the same
+discipline Step 4e already applies to `advisorModel`. None of the three was exercised live when
+this step was written (3.7.0), so treat every behavioral claim here as **documented, not
+probed**, and re-verify once against your own project before trusting it at scale.
+
+**`bashOutputMaxChars` / `taskOutputMaxChars` — why now.** A 3.6.0 wide dispatch found Engine C's
+80-turn implementer cap is a real ceiling: a documentation job hit it three times reading a large
+merged diff file-by-file, because Bash output past the default ~30,000-character inline window is
+saved to a file and has to be re-read — each re-read is another turn spent on plumbing, not on the
+task. Both settings raise that window; both are scope `Any file`, so the project's own
+`.claude/settings.json` is a legal place for them, both require **Claude Code v2.1.261 or later**,
+and Claude Code clamps either value into `4000`–`128000` regardless of what is asked for.
+
+> Raising the inline ceiling costs nothing on a small command — a `git status` or a one-file
+> diff still reads back exactly as many characters as it produces. The only downside is a rare
+> huge command flooding context inside the 80-turn cap, which a large-but-bounded value avoids.
+> Shall I show you the edit?
+
+```jsonc
+// .claude/settings.json — the PROJECT's file. Merge only these two keys in; every other key
+// already present (worktree, advisorModel, permissions, hooks, env, ...) is preserved untouched.
+{
+  "bashOutputMaxChars": 100000,
+  "taskOutputMaxChars": 100000
+}
+```
+
+100000 is comfortably above the default (~30,000 for Bash, ~32,000 for background tasks) and
+comfortably under the 128,000 ceiling, leaving headroom before the 80-turn cap without inviting a
+single oversized command to dominate a job's whole context budget. `bashOutputMaxChars` then
+supersedes the `BASH_MAX_OUTPUT_LENGTH` env var; `taskOutputMaxChars` supersedes
+`TASK_MAX_OUTPUT_LENGTH` the same way.
+
+**`taskOutputMaxChars`, honestly: it may already do nothing.** It governs what the `TaskOutput`
+tool reads back from a finished background task — but Claude Code **2.1.277** (September 18,
+2026) removed `TaskOutput` outright: "Claude reads a background task's output file with `Read`
+instead, and the `taskOutputMaxChars` setting … no longer [has] any effect." This development
+session's own `2.1.278` is past that floor. Offer it anyway for a project that may run on an
+older pinned binary, but say plainly that on 2.1.277+ it is inert — `bashOutputMaxChars` is the
+one that actually addresses the 80-turn-cap finding above; `taskOutputMaxChars` is offered only
+for completeness on an older install.
+
+**`bashEditDiffEnabled` — a different scope, and public beta.** Compound V's transcript-watch
+(a parallel effort — see `scripts/compound-v-transcript-watch.py`) attributes in-flight Bash
+writes to a job's lane; this setting is what makes a Bash-made edit carry a diff in the first
+place, so the in-flight lane watch has something to read before the job finishes. Requires
+**Claude Code v2.1.269 or later**, and the settings-reference marks it **public beta**: "The list
+is best effort … The field shape may change." Unlike the two settings above, its scope is **User
+or managed only** — the reference is explicit that "a `true` in a repository's
+`.claude/settings.json` … can't turn the recording on" — so this one goes in the user's own
+`~/.claude/settings.json`, the same file Step 4b already writes to, never the project file.
+
+> With this on, every Bash-made file edit records a diff Claude Code can read back — in every
+> permission mode, not only auto mode and `bypassPermissions`. Compound V's own in-flight lane
+> watch is the reason to want it; it costs nothing to a session that never reads the field. It's
+> a beta field, so the shape may still move. Shall I show you the edit?
+
+```jsonc
+// ~/.claude/settings.json — the USER's file, not the project's, and not .claude/settings.local.json
+// (a project file cannot turn this on, only turn it off if a higher-precedence file set it true).
+// Merge only the "bashEditDiffEnabled" key in; every other key already there is preserved untouched.
+{
+  "bashEditDiffEnabled": true
+}
+```
+
+`CLAUDE_CODE_BASH_EDIT_DIFF` overrides this key for one session, in either direction.
+
+Read each file first if it exists, merge the offered key(s) into the parsed object alongside
+whatever is already there, and write the merged result back — never truncate either file to just
+the key(s) this step adds.
+
 ---
 
 ## Step 5 — Report
@@ -834,8 +1074,9 @@ models.
 
 - **Next:** run `/v:onboard` to build the project knowledge base (architecture docs + AGENTS.md bridge). This is a suggestion, not automatic.
 - Report whether Step 1f's `/skill-doctor` hygiene check ran (and its `superpowers-v:` summary, if
-  so) — or was skipped below the version floor — and whether Step 4e's `advisorModel` offer was
-  accepted or declined.
+  so) — or was skipped below the version floor — and whether Step 4e's `advisorModel` offer and
+  Step 4f's `bashOutputMaxChars`/`taskOutputMaxChars`/`bashEditDiffEnabled` offers were accepted or
+  declined.
 
 **Honesty rules:** report only what the probes actually returned. Never print token or
 cost numbers of your own estimation. (Step 1f's context/7-day-token figures are an exception:

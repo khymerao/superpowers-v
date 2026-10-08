@@ -132,6 +132,16 @@ Two consequences worth knowing before you use it:
 Do not "fix" this by widening `write_allowed` to `node_modules/**`. That hands the job a lane it can write anything into for the rest of
 the run, and the gate will agree with it.
 
+## Scope gate BLOCKS `tsconfig.tsbuildinfo` / a vitest or jest cache / `.next/` that the job never wrote
+
+**Symptom:** a job is BLOCKED with violations under a single build-artifact path — `tsconfig.tsbuildinfo`, `node_modules/.vite/vitest/<hash>/results.json`, a Jest cache, `.turbo/`, `.next/` — none of them a file the implementer's own diff touched.
+
+**Cause:** the before-image snapshot (`preexisting/<id>.txt`) is taken after `provision_command` runs but **before the test floor ever runs** in the fresh worktree. If your floor is the first thing to create that path (e.g. `tsc --noEmit` with `"incremental": true` in `tsconfig.json`, or a Vitest/Jest run seeding its cache), the snapshot never saw it, and the gate attributes it to the job like any other new gitignored write.
+
+**Fix, either of:**
+- Declare it in the manifest: `toolchain_artifacts: ["tsconfig.tsbuildinfo", "node_modules/.vite/**"]` (top level, alongside `provision_command`). The gate subtracts a matching path only when `git check-ignore` confirms it is actually gitignored at gate time — a tracked file, or `.env`/`dist/` left off the list, is still caught. See `skills/compound-v/execution-manifest.md` § `toolchain_artifacts`.
+- Or warm the artifact inside `provision_command` so it already exists when the snapshot is taken, e.g. `npm ci && npx tsc --noEmit || true && npx vitest run <one fast test> || true`. No manifest schema change needed; this is the older workaround and still works.
+
 ## `validate-manifest.py` rejects the manifest before dispatch
 
 **Symptom:** `partition-reviewer` fails (or `/v:dispatch` halts) with a manifest-invariant violation — e.g. overlapping `write_allowed`, a Codex job without `isolation: worktree`, or a reviewer not on Opus.
@@ -151,10 +161,32 @@ Re-run the validator (or `/v:dispatch`) until it's clean. The manifest schema + 
 
 **Causes & fixes:**
 1. **The deprecation line is cosmetic.** `codex` emits `[features].codex_hooks is deprecated` on stderr; the worker script already suppresses it. If you call `codex exec` by hand, ignore that line — it does not indicate a failure.
-2. **Wrong flags.** The verified `codex-cli 0.144.1` flag set is `--cd <wt> --sandbox workspace-write --skip-git-repo-check --model <m> --output-last-message <f> -c sandbox_workspace_write.network_access=<bool>` (optionally `--output-schema <f>`). **Do not pass `--ask-for-approval never`** — it is invalid for `codex exec` (a top-level/interactive flag only) and will fail every job. `exec` already defaults to `approval: never`; if you ever need a non-default, use `-c approval_policy=never`.
+2. **Wrong flags.** The verified `codex-cli 0.144.1` flag set (verified 2026-07-11 on 0.144.1, re-verified 2026-09-24 on 0.156.1 with `gpt-6-sol`/`gpt-6-luna` and 2026-09-30 on 0.159.1 with `gpt-6.1-sol`/`gpt-6-astra`) is `--cd <wt> --sandbox workspace-write --skip-git-repo-check --model <m> --output-last-message <f> -c sandbox_workspace_write.network_access=<bool>` (optionally `--output-schema <f>`). **Do not pass `--ask-for-approval never`** — it is invalid for `codex exec` (a top-level/interactive flag only) and will fail every job. `exec` already defaults to `approval: never`; if you ever need a non-default, use `-c approval_policy=never`.
 3. **Timeout.** The worker wraps `codex exec` in `timeout` (default 900s). A `status: timeout` result means the job exceeded it — raise `--timeout-sec` or split the job smaller.
 4. **Stale flags after a Codex upgrade.** Re-probe with `/v:init`, which re-checks the flag set against `codex exec --help` (the **exec** subcommand help, not the top-level help — the top-level merge is what masked the original `--ask-for-approval` bug).
 5. **No worktree / dirty diff.** The worker runs inside a fresh `git worktree add <wt> HEAD` under `$TMPDIR`. If `git worktree` fails (e.g. repo not initialized, or `$TMPDIR` unwritable), the script reports an environment fault rather than a job result.
+
+## Codex job fails: "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account"
+
+**Cause:** the installed `codex` is too old to know the model. The message says "account", but the account is fine: on 2026-09-30 codex-cli 0.157.0 returned exactly this for `gpt-6.1-sol`, and 0.159.1 ran it on the same account.
+
+**Fix:** `codex update` (standalone install) or `npm i -g @openai/codex`, then `codex debug models` should list `gpt-6.1-sol`. To stay on an old client, pin the previous workhorse in `.claude/compound-v.json`: `"models": {"codex": {"deep": "gpt-6-sol", "standard": "gpt-6-sol"}}`.
+
+## `/v:onboard --refresh` always says 0 stale, though the code changed
+
+**Cause (before 3.7.6):** step 9 wrote `.onboard-manifest.json` with `docs: {}`, so there was nothing to compare (issue #21).
+
+**Check:** `python3 scripts/compound-v-onboard.py staleness --repo .`. `state: unregistered` means the manifest registers no cited file; its `count: 0` is not a clean result. `state: registered` is a real check.
+
+**Fix:** update to 3.7.6 or later and run `/v:onboard --refresh`. It re-verifies each generated doc's citations and re-registers them with `staleness --write --docmap <file>`; the write now fails loudly without a docmap.
+
+## The run band above the prompt does not appear (or I want it gone)
+
+**It appears only while a run has a pending or running job**, and only on Claude Code ≥ 2.1.287 in the terminal or the desktop Code tab; with no active run it draws nothing by design. Check the reader it draws from: `python3 scripts/compound-v-dashboard.py hud` prints `{"run": null}` when nothing is active. A run older than 72 hours is not shown.
+
+**An age shows `?`:** the liveness probe did not answer in time; the band prints "unknown" rather than a number it did not measure.
+
+**Turn it off:** `CV_DISABLED_HOOKS=run-band` in the shell that launches Claude Code.
 
 ## A run was interrupted — how do I resume?
 
@@ -167,6 +199,14 @@ Re-run the validator (or `/v:dispatch`) until it's clean. The manifest schema + 
 - Resume also gates integration: it runs `scripts/compound-v-integration-gate.py` before any job commit is integrated, so **do not remove a job's worktree before resuming** — a missing receipt is *re-derived* from the tree, and a removed worktree makes the job `unverifiable` instead.
 - A run dispatched **before** 3.0's cutover has no `baseline`, no `lane-map.json` and no receipts. That resumes fine: every field Engine C adds is optional on read, and each such job simply takes the re-derivation branch.
 - If you don't know the run-id, list `docs/superpowers/execution/` — each subdirectory is a run.
+
+## After re-running `/v:dispatch` on a halted run, the gate lists `manifest.yaml`, `state.json`, `dispatch.workflow.js`, `results/…` as violations
+
+**Symptom:** you re-ran `/v:dispatch` (not `/v:resume`) on the same run-id after a halt, and the gate now BLOCKS a job whose own lane files were fine, citing the run directory's own bookkeeping — `manifest.yaml`, `dispatch.workflow.js`, `state.json`, `results/<id>.json`, `preexisting/<id>.txt` — as out-of-lane writes.
+
+**Cause:** the job's `baseline` was pinned once, at the first attempt, and a bare re-dispatch branches the new worktree from the current `HEAD` while the gate still diffs against that first pin — so every commit the pipeline made to the run directory between attempts (including the previous attempt's own record-keeping) reads as a write this attempt made. This is finding 146 (2026-09-03), reached through a door `/v:resume` does not guard.
+
+**Fix:** fixed in 3.6.3 for `worktree` jobs — `register-lane` now detects a concluded previous attempt (a receipt or result already on disk for the job) and re-pins `baseline` to the fresh worktree's `HEAD` before re-registering, so this no longer happens on a plain re-dispatch. For a `direct` job the pin still does not clear itself; run [`/v:resume <run-id>`](commands/v-resume.md) instead, which calls `resume-prepare` to clear it. See `skills/compound-v/state-machine.md` § `baseline` re-pins on a re-attempt.
 
 ## Engine C didn't run — the dispatch fell back to the subagent path
 
@@ -247,11 +287,21 @@ render it — read it from `state.json` or the ack.
 
 **Symptom:** `hooks/lane-guard.sh` is registered, but an obviously out-of-lane write goes through.
 
-**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`. **If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
+**Cause:** the guard could not resolve which job is acting, and its contract is **fail-open** — a false deny inside a long autonomous run costs far more than a missed write the git gate catches anyway. It resolves `agent_id` first, then falls back to `cwd` → worktree, both via `docs/superpowers/execution/<run>/lane-map.json`.
+A `cwd` claim stops at a git working-tree boundary: a session in a nested worktree, submodule or repository under a claimed path is not that job, and is logged as unresolved.
+**If nothing wrote that file, the guard resolves nothing and allows everything, silently.**
 
 **Fix:** dispatch through Engine C, which writes `lane-map.json` — each implementer registers its real worktree as its first command. Confirm the file exists and maps that worktree to the job. Check the guard's log (`$TMPDIR/compound-v-lane-guard.log`, or `$CV_LANE_GUARD_LOG`); it records every allow-because-unresolved.
 
 Two honest limits: on Claude Code 2.1.238 an agent is **not told its own `agent_id`**, so the `agents` map is normally empty and resolution runs on the `worktrees` map — which is the fallback the 1D probe proved works. And the guard is **defence in depth, never the authority**: shell writes have unbounded evasions (`eval`, an interpreter one-liner, a variable holding the path), and the git-derived scope gate plus the integration postcondition still decide what enters the tree.
+
+## A Compound V hook is noisy
+
+**Symptom:** one particular hook (a nudge, a banner line, the triage record) keeps firing and you want it off without disabling the whole plugin.
+
+**Fix:** set `CV_DISABLED_HOOKS` to a comma-separated list of hook basenames (no `.sh`; spaces around names are ignored), e.g. `CV_DISABLED_HOOKS=triage-prompt-nudge,memory-refresh`. It covers the 8 reminder/nudge/banner hooks in `hooks/` — not `lane-guard`, which deliberately ignores it (it is the pre-write enforcement gate; an env var that can switch it off, including one set for every clone via a committed `.claude/settings.json` `env` block, would widen an authorization). Naming `lane-guard` there is reported by the session banner as "ignored (enforcement hook)" and changes nothing.
+
+Set it in the shell that launches Claude Code — verified by `tests/test-disabled-hooks.sh`. Per the Claude Code docs it can also go in `settings.json`'s `env` block and takes effect after a restart, but that path is **not verified here**.
 
 ## There is a line in `lane-guard-unresolved.jsonl`
 
@@ -371,3 +421,49 @@ Compound V is overkill for:
 - Solo learning sessions
 
 Fall back to default Superpowers for those. Document the fallback at the top of the plan: `"Compound V skipped — single-file feature; using default subagent-driven-development."`
+
+## A running Engine C job is reported `STALE` while the session is waiting out a usage limit
+
+**Symptom:** `/v:status` or the liveness sweep marks a job `STALE` (no progress for 600 s) and the reason ends in `PAUSED?`, while `/workflows` shows the run waiting for a usage-limit reset.
+
+**Cause:** since Claude Code 2.1.271 the Workflow runtime *pauses* a run whose agent hit the claude.ai usage limit instead of failing it — in an interactive, subscription-signed-in session with `autoContinueAtUsageLimit` on, when the reset is within 24 h and the run has not already waited twice. Nothing on disk records the pause, so a filesystem/git liveness probe cannot tell it from a hang.
+
+**Fix:** none needed — read the `/workflows` header for the reset time and let it continue. The `PAUSED?` hint (3.7.0) is added only on Engine C runs (`dispatch.workflow.js` or `lane-map.json` present in the run dir). In `claude -p`, a background session, Remote Control or an agent-team teammate the run never pauses: the affected agent fails and the emitted script's retry/escalation ladder handles it, so a `STALE` there is a real timeout.
+
+## The in-flight lane watch never reports a Bash write (`sed -i`, `tee`, codegen)
+
+**Symptom:** `compound-v-transcript-watch.py` reports `Write`/`Edit` lane violations in flight but a Bash command that rewrote a file outside the lane is only caught by the scope gate at job end.
+
+**Cause:** the watcher can only read what the transcript carries. A Bash result carries the list of files the command changed only when the native `bashEditDiffEnabled` setting is on (Claude Code ≥ 2.1.269, public beta, **user or managed scope only** — a project `.claude/settings.json` cannot turn it on).
+
+**Fix:** set `"bashEditDiffEnabled": true` in `~/.claude/settings.json` (`/v:init` Step 4f offers the edit). The parser in 3.7.0 targets the documented `bashEditDiff` shape (`changedFiles`, `files[].filePath`) and is marked unverified-live in the source until a probe on a signed-in install confirms where the field lands in the transcript; without the setting the watch is still blind to Bash writes its command text does not name.
+
+## `claude plugin eval .` refuses to start in this checkout
+
+**Symptom:** `a plugin directory holds more than 20000 entries`, `Not logged in · Please run /login`, or a Bash-sandbox refusal naming a symbolic link under `~/.docker`.
+
+**Cause and fix:** (1) stale `.claude/worktrees/` from earlier pipeline runs push the checkout over the eval harness's 20 000-entry scan limit — `git worktree list` and remove the ones with no commits ahead of `main`, or run the suite from a copy without `.git/` and `.claude/worktrees/`; (2) the CLI must be signed in (`claude auth status`) — a desktop-app session's login does not carry over to a nested `claude` process; (3) `find ~/.docker -type l` names the link the sandbox refuses; the harness documents this precondition nowhere, so it is recorded here.
+
+## V-memory finds nothing for a Russian question, or for a paraphrase
+
+**Symptom:** `/v:remember` (or `search`) misses an obviously related document when the question is in another language than the docs, or uses none of their words.
+
+**Cause:** neither lane crosses that gap on this corpus. FTS5 matches words (Porter stemming, English only). The dense lane was expected to, and was measured not to: on the plugin's own repo, pure-Russian questions score 0/4 with and without it, because `multilingual-e5-small` pulls every Russian question towards the same few Russian-language documents; paraphrases score 0/3 either way (`skills/compound-v/memory.md` § Recall benchmark).
+
+**Fix:** ask in English, keeping identifiers, flags and error strings verbatim — `/v:remember` now translates a non-English question itself and searches both forms (the same four questions went from 0/4 to 2/4). If a doc still does not surface, name one of its words: a flag, a file, an error message. To see which lane answered, read `doctor`'s `mode` line — "bootstrapped" alone only means the venv exists; the dense lane also needs `memory.embeddings: true` in `.claude/compound-v.json` and at least 80 vectors.
+
+## `sqlite3` on this machine has no FTS5
+
+**Symptom:** `doctor` prints `sqlite FTS5 : MISSING — …` and exits non-zero, or (on an older engine that didn't check yet) `refresh`/`search` raises a `sqlite3.OperationalError` mentioning `fts5`; a background `memory-refresh.sh` hook never builds an index either way (it redirects all output by design, so it never surfaces this on its own — run `refresh` yourself in the foreground to see it).
+
+**Cause:** V-memory's FTS5 lane needs a `python3` whose linked `sqlite3` library was compiled with the FTS5 extension. Most `python.org` and Homebrew builds have it; some Linux distro packages of Python (and some very old macOS system pythons) don't.
+
+**Fix:** `doctor`'s own message already names the fix — point at a `python3` that has FTS5: stock macOS `/usr/bin/python3` (Apple's system Python ships it), a python.org installer build, or a Homebrew build (`brew install python3`). Either put it first on `PATH` or invoke it explicitly: `/path/to/python3 scripts/compound-v-memory.py refresh`. To check a candidate interpreter by hand: `python3 -c "import sqlite3; sqlite3.connect(':memory:').execute('CREATE VIRTUAL TABLE t USING fts5(x)'); print('FTS5 OK')"`. There is no code-level fallback: the engine is pure-stdlib by design (see `CONVENTIONS.md` §"Python: stdlib only"), so this is a "use a different interpreter" fix, not a config change.
+
+## `recall-check` says tighten on a lane that never actually failed
+
+**Symptom:** the deterministic recall→action bridge (`recall-check`, or the auto-tighten it drives at emit time) reports a `tighten` verdict for a file lane, but the prior runs it's counting weren't real content failures on that lane — they were a harness fault (an `error`/`timeout` job_result — out of credits, network, a crashed worker), a test-supervisor timeout, or a run the team has already flagged as not representative.
+
+**Cause:** the engine only counts a `job_result` as evidence when the failure is attributable to the *job's own work* — a real scope violation (`violations` non-empty) or a real test failure (`tests.exit_code` nonzero and not the supervisor's own timeout code). Everything else is tallied separately as excluded and never taught to recall: a harness fault (`status` `error`/`timeout`), a test-supervisor timeout, a violation that only touched the run's own bookkeeping files (`state.json`, `preexisting/`, a baseline), an unattributed `blocked` with nothing to point at — or a run whose own `manifest.yaml` carries a top-level `recall_exclude: true`, the explicit "this was a deliberately planted failure (a dogfood probe), don't teach recall from it" escape hatch. See [`memory.md`](skills/compound-v/memory.md) for the full attribution table.
+
+**Fix:** if a specific run's `job_result.json` genuinely wasn't a content failure and isn't already excluded by the rules above, set `recall_exclude: true` at the top level of that run's `manifest.yaml`, then re-run `recall-check` — the verdict is deterministic and re-derives cleanly from the same evidence. Don't hand-edit the `tighten`/`none` verdict itself; edit the manifest that the attribution reads.

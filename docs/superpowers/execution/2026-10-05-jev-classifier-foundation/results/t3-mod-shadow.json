@@ -1,0 +1,50 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "hooks/hooks.json",
+    "hooks/jev-t3.test.tsx",
+    "hooks/jev-t3.tsx",
+    "skills/compound-v/phase-preeval.md",
+    "tests/test-jev-t3-mod.sh",
+    "tests/test-run-band-mod.sh",
+    "types/index.d.ts"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "diff_digest": "sha256:19bc0053ecba7236987324e6f882a6d4fd1b88234c360e3aeafa8ca7c8c4a7b9",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a4654200b86b20c425c77012a6e6e3d3fe5a24c8\",\n  \"changed\": [\n    \"hooks/hooks.json\",\n    \"hooks/jev-t3.test.tsx\",\n    \"hooks/jev-t3.tsx\",\n    \"skills/compound-v/phase-preeval.md\",\n    \"tests/test-jev-t3-mod.sh\",\n    \"tests/test-run-band-mod.sh\",\n    \"types/index.d.ts\"\n  ],\n  \"allowed\": [\n    \"hooks/jev-t3.tsx\",\n    \"hooks/jev-t3.test.tsx\",\n    \"hooks/hooks.json\",\n    \"types/index.d.ts\",\n    \"tests/test-jev-t3-mod.sh\",\n    \"skills/compound-v/phase-preeval.md\",\n    \"tests/test-run-band-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task F2 \u2014 hooks/jev-t3.tsx shadow module",
+  "tests": {
+    "command": "/usr/bin/python3 -B scripts/lint-frontmatter.py .\nbash -c 'bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooksjson-ok'\nbash -c 'bash tests/test-jev-t3-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo mods-ok'\nbash tests/test-jev-t3-mod.sh\nbash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "full",
+    "selected_count": 5
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 291665,
+    "cache_read_input_tokens": 10816168,
+    "input_tokens": 140,
+    "measured": true,
+    "output_tokens": 17242,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a050def37fa21078b.jsonl",
+      "agent-ac4d75426a2811ea7.jsonl",
+      "agent-ae74291975ab702d7.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-8"
+}

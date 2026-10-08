@@ -1,0 +1,46 @@
+{
+  "base_commit": "3fee9d45f70137d6b09468d8c54b8414141cb908",
+  "confidence": "localization:exact; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "commands/v-init.md",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:e807f061d54253f7247e840ac25a87c243061069e15ca77ed30fbf81ef34f6db",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "exact",
+    "fan_out": 3,
+    "flags": [
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "commands/v-init.md",
+      "plugins/compound-v-vault/README.md",
+      "tests/test-vault-mod.sh"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
+  "request_slug": "v-init-step-1g-read-the-running-host-claude-code-version-fro",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T05:52:10Z"
+}

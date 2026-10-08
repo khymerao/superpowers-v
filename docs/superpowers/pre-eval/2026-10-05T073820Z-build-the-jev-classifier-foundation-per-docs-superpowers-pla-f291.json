@@ -1,0 +1,61 @@
+{
+  "base_commit": "b19fade56c1f6768d0a55a0f52c1b80c39302f8c",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md",
+    "hooks/hooks.json",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "schemas/pre-eval-record.schema.json",
+    "scripts/compound-v-jev.py",
+    "scripts/compound-v-onboard.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-project-config.py"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:871f4b5db012f3bd34413b2664a04d8e4d931f462213f82d5c2c2430a618c71a",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 9,
+    "flags": [
+      "content:config_literal",
+      "content:feature_flag",
+      "new_file",
+      "sensitive_path"
+    ],
+    "resolved_paths": [
+      "docs/superpowers/plans/2026-10-05-jev-classifier-foundation.md",
+      "hooks/hooks.json",
+      "hooks/jev-t3.tsx",
+      "hooks/triage-prompt-nudge.sh",
+      "schemas/pre-eval-record.schema.json",
+      "scripts/compound-v-jev.py",
+      "scripts/compound-v-onboard.py",
+      "scripts/compound-v-preeval.py",
+      "scripts/compound-v-project-config.py"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": 2,
+  "pre_eval_id": "2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291",
+  "request_slug": "build-the-jev-classifier-foundation-per-docs-superpowers-pla",
+  "session_id": "36694b53-012e-4e0a-9316-78e06dd27c6d",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-05T073820Z-build-the-jev-classifier-foundation-per-docs-superpowers-pla-f291.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-05T07:38:20Z"
+}

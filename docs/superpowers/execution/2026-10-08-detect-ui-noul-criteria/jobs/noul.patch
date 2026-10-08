@@ -1,0 +1,39 @@
+diff --git a/scripts/compound-v-jev.py b/scripts/compound-v-jev.py
+index 55a36fd..5534678 100644
+--- a/scripts/compound-v-jev.py
++++ b/scripts/compound-v-jev.py
+@@ -109,8 +109,11 @@ ALT_WORDINGS = {
+     ),
+ }
+ NOUL_CRITERIA = {
+-    "detect_ui": ("Yes when at least one file renders markup or a user interface that an end user sees; "
+-                  "no for build scripts, documentation tooling, tests or data files."),
++    "detect_ui": {
++        "true": "At least one file renders markup or a user interface that an end user sees.",
++        "false": ("No file renders anything an end user sees: build scripts, documentation tooling, "
++                  "tests and data files do not count."),
++    },
+ }
+ LAYER_DEFS = (
+     ("unknown", "The paths do not let you place the directory in exactly one of the layers below."),
+@@ -1158,6 +1161,20 @@ def _selftest():
+               and catalogue_entry("detect_ui")["type"] == "noul")
+         check("catalogue covers every point", sorted(catalogue()) == sorted(POINTS))
+ 
++        def noul_criteria_shape_ok(q):
++            """A Noul `criteria` is absent or an object keyed by a subset of true/false with text values."""
++            if q.get("type") != "noul" or "criteria" not in q:
++                return True
++            crit = q["criteria"]
++            return (isinstance(crit, dict) and set(crit) <= {"true", "false"}
++                    and all(isinstance(v, str) and v.strip() for v in crit.values()))
++
++        wire = [qq for p in POINTS for v in (0, 1, 2) for qq in questions_for(catalogue_entry(p, v)).values()]
++        check("catalogue Noul criteria are a true/false object on the wire",
++              any(qq["type"] == "noul" for qq in wire) and all(noul_criteria_shape_ok(qq) for qq in wire))
++        check("Noul criteria shape check rejects the string form",
++              not noul_criteria_shape_ok({"type": "noul", "criteria": "Yes when ...; no for ..."}))
++
+         # -- build: insertion order, modes, redaction, budget.
+         sf = os.path.join(tmp, "state.json")
+         with open(sf, "w") as fh:

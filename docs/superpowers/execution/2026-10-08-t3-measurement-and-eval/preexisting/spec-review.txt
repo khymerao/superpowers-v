@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/.run.lock
+5f6a5c1890692f8daf5c1ff9443ec573e05e49849ad69e536ea0bdfa1c5bd766  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/lane-map.json
+c656cb261048f04164039879fabcbd759cb028e9aa53fed07b6b779db3f4a63c  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/dispatch.workflow.js
+202d83659b23fde6366a41ae41e028345311535bc754de517f0e60437a21100a  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/measure-eval.baseline
+150c5df956c8457d73cf7158a17254e2c3c5b80f95d5b99d885c74c1865a3e28  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/measure-eval.patch
+4489464538287fcb9e23283c03020d62db5107731adb559e8c1e6accb0a654c7  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/measure-eval.prompt.md
+0dabeef026a3d0e9d4487285a07f482bb94e56ebf228c6b98ddf59b9d109d1e4  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/measure-eval.test-contract.json
+fe56af33940bf87b9f2bce8a987b3c9edb9e3fc6f9b575fe9a9d35a6b690a114  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/spec-review.baseline
+5be0f0a149531cac113ee54a575c25c01dc570f109246bddf7359f7ab4ba0ed7  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/spec-review.prompt.md
+bb5dc8ec1f104d136ee4bda0c8ac37da88bc42f93201b71e2e3fa82033193b3e  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/jobs/spec-review.test-contract.json
+71e5fff1595d57443a2a9fcf4c7f7ea971ccbadc6ba485747a9fdda97966b8de  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/manifest.yaml
+0a92d39565e5f9138883420be8620d6baa76f759819c201604c5944c968f9bd3  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/preexisting/spec-review.txt
+93d4a6417c439ad9ce0b0ef28f947bf0e64a1a9f68e675af57ea48efebb9e58f  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/receipts/measure-eval.gate.json
+8af4171ddea10500548035432f55de636307bdb75f85a6cb90471e2c3e052b5a  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/results/measure-eval.json
+b3994a12b6c0a4b965e6d6789869a54c6b8fce9dbc66780be541682ab1dca74d  docs/superpowers/execution/2026-10-08-t3-measurement-and-eval/state.json

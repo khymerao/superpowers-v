@@ -34,6 +34,14 @@ max_parallel: 5                     # batch ceiling (phase-3 concurrency reality
 provision_command: "npm ci"
 provision_timeout_s: 600
 
+# v3.6.3 — OPTIONAL. Build artifacts a test floor writes on first run (e.g. `tsc
+# --noEmit` with "incremental": true, or a vitest cache) that provisioning never
+# saw. Subtracted only when git check-ignore confirms the path is gitignored at
+# gate time — a catch-all glob is rejected. See execution-manifest.md.
+# toolchain_artifacts:
+#   - "tsconfig.tsbuildinfo"
+#   - "node_modules/.vite/**"
+
 # v3.4.17 — the plan's `## Global Constraints` section (Superpowers 6.2.0), copied
 # VERBATIM, one line per entry. OPTIONAL: a plan written before 6.2.0 has no such
 # section and a manifest materialized from it carries no such key — still valid.

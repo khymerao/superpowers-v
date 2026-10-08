@@ -1,0 +1,333 @@
+# Review Gate: run 2026-10-05-jev-review-fixes
+
+Reviewer: `superpowers-v:spec-reviewer`, job `spec-review`, direct isolation, baseline `58ab998` (HEAD at review).
+Run base: `fd02c46` (both implementation jobs' pinned baseline). Scope reviewed: `git diff fd02c46..HEAD` outside
+`docs/superpowers/execution/`, which is the wave 1 merge `50f540b` (ui-sample, jev-reasons-prune): five files.
+Spec read amendments first (`docs/superpowers/specs/2026-10-05-jev-review-fixes-design.md`, "Pre-flight amendments"
+overrides), then the plan's Tasks A, B and R. Every check below was run by scripts kept in the reviewer's scratchpad
+(`verify.sh`, `full.sh`, `regex.sh`) with a sandbox `HOME`; outputs are quoted from those runs. The interpreter was
+`/usr/bin/python3` 3.9.6, the CI floor.
+
+## Recall
+
+- V-memory block in the dispatch prompt: eight rows, all from this run's spec, the parent run's review and spec, and
+  the three pre-flights. Used for orientation; each claim below is re-verified against HEAD.
+- `recall-check --files scripts/compound-v-onboard.py scripts/compound-v-jev.py tests/test-jev-core.sh
+  skills/compound-v/onboarding.md` -> `none (0/2 match ...)`. No escalation.
+- Reviewer memory (`verifying-acceptance-criteria.md`): three leads applied. Run each AC instead of reading its
+  selftest; build the audit MUST table explicitly (it produced finding 4 and 5); for a closed enum split across two
+  jobs, diff the producer's literals against the consumer's tuple (done under AC-3).
+- No directive was found in any memory file or recalled row.
+
+## SPEC
+
+### Requirement coverage (amendments first)
+
+| Requirement | Implemented in | Status |
+|---|---|---|
+| A1 `config` directory rule, every ranked extension, case-insensitive | `scripts/compound-v-onboard.py:1096` `"config" in parts[:-1]` on the lowered path | ok |
+| A2 `settings.py`, `local_settings.py`, `*settings*.php`, `configuration.php`, `env.php` | `:1072` `_SECRET_BASENAMES`, `:1090-1093` | ok |
+| A3 credential assignment in the bounded read | `:1075-1080` `_CRED_ASSIGN_RE`, `:1099-1101`, call at `:1234` after `scan_secrets` | ok (see finding 1) |
+| A4 name rules before any read, git and `os.walk` paths | `:1216`, in the ranking loop before `_read_bounded` (`:1228`); walk path probed below | ok |
+| A5 residual stated, never "no secrets are sent" | docstring `:1206-1207`; `skills/compound-v/onboarding.md:83`; `git grep` finds the phrase only in the spec | ok |
+| A6 `onboarding.md:78-79` updated, `commands/v-onboard.md` unchanged | `skills/compound-v/onboarding.md:78-83`; `v-onboard.md` not in the diff | ok |
+| Issue 1 base rules: `wp-config.php`, `.env*`, `secret`/`credential` in path | `:1090`, `:1094` | ok |
+| Issue 1 test, non-vacuous (tracked probe, floor `no-ui`, Jev active, non-`SECRET_RE` plants, walk copy) | `:2583-2636` | ok |
+| Issue 2 `no_key` in `UNAVAILABLE_REASONS` | `scripts/compound-v-jev.py:60-61` | ok |
+| Issue 2 both places in the parent spec, 401/403 `auth` wording | parent spec `:68-69` and `:219`; `:222` keeps `auth` for 401/403 | ok |
+| Issue 2 contract: call shapes only, no `http_status`, status mapping, zero fails | `tests/test-jev-core.sh:104-131` | ok |
+| Issue 3 regular `pending-*.json` older than cutoff, `lstat` + `S_ISREG`, future left, `listdir` guarded | `scripts/compound-v-jev.py:308-322` | ok |
+| Issue 3 docstring | `:273-277` prune docstring | ok; module docstring not updated (finding 4) |
+| Issue 3 test: old removed; fresh, future, symlink kept | `:1199-1219` | ok |
+
+### Audit MUST table
+
+| Audit | Constraint | Status |
+|---|---|---|
+| Expert 1-2 | `config` rule for every ranked extension; the five basenames, docstring lists them | ok |
+| Expert 3 | walk path tested | ok: selftest row "ui sample: the os.walk path applies the same rules"; probe below |
+| Expert 4 | predicate before any read, both paths | ok |
+| Expert 5 | MUST NOT describe `scan_secrets` as covering passwords | ok: comment `:1074` says it knows vendor token families only |
+| Expert 6 | `auth` worded "HTTP 401 (rejected or disabled key) or HTTP 403 (...)" | ok: parent spec `:69` |
+| Expert 7 | `no_key` distinct from `auth`; 401-sourced `auth` stays `auth` | ok: AC-3 probe; selftest table `compound-v-jev.py:1140` |
+| Expert 8 | never prune a newer descriptor, never follow or remove a symlink or directory | ok: AC-4 probe |
+| Arch 1-4, 6-9, 11, 13 | widened rule, non-vacuous row, onboarding.md firm, both spec places, contract shape, Bash 3.2, residual, `listdir` guard, AC-5 | ok |
+| Arch 10 | update the prune docstring **and** the module docstring sentence at `jev.py:18-23` | **partial, finding 4** |
+| Arch 12 | pending row also asserts a directory named `pending-x.json` survives | **missing, finding 5** (behaviour holds, see AC-4) |
+| Lib MUST 1-7 | 3.9 stdlib; `no_key` only in `UNAVAILABLE_REASONS`; contract shape; definitions excluded; `S_ISREG`; case-insensitive before read; byte-identity | ok |
+| Lib MUST NOT 1-3 | proof on 3.9; no symlink assumption; no second reason list that disagrees | ok: parent spec list equals the tuple |
+
+### Scope, job acceptance, over-build
+
+- Scope: both gate receipts `verdict: pass`, `violations: []` (`receipts/ui-sample.gate.json`,
+  `receipts/jev-reasons-prune.gate.json`). The merged diff touches only the five lane files.
+- ui-sample acceptance: rows green, each fails with its predicate stubbed (mutations below), onboarding.md lists the
+  rules and the residual, lint clean. Met.
+- jev-reasons-prune acceptance: selftest and jev-core green; contract extracts every literal, fails without `no_key`;
+  prune rows fail with the block removed; parent spec carries `no_key` and the 401/403 wording. Met.
+- Over-build: none. Every added symbol is named in the plan; nothing outside the spec's three issues.
+- Not counted as a defect: "nothing new is ever sent" is read as "the eligible set only shrinks". A skipped file lets a
+  later ranked file fill one of the 12 slots, exactly as the pre-existing `scan_secrets` skip already did; every file
+  sent still passes every rule the base applied.
+
+## QUALITY
+
+### Revert proof (each AC row fails with its change undone)
+
+Run on `git archive HEAD` copies, one mutation each:
+
+```text
+-- M1 _secret_named -> False
+  FAIL ui sample: _secret_named is name-only and case-insensitive
+  FAIL ui sample: secret-named files are skipped (wp-config, config/ dir any ext, settings, credentials, secret)
+  FAIL jev detect_ui: the request exists, holds lib/math.php, and none of the planted values
+  FAIL ui sample: the os.walk path applies the same rules
+FAILED 4   exit=1
+-- M2 _has_credential_assignment -> False
+  FAIL ui sample: a credential assignment omits the file (lib/db.py)
+  FAIL ui sample: secret-named files are skipped (...)
+  FAIL jev detect_ui: the request exists, holds lib/math.php, and none of the planted values
+  FAIL ui sample: the os.walk path applies the same rules
+FAILED 4   exit=1
+-- M3 both call sites removed from _ui_sample (predicates kept, so the unit rows stay true)
+FAILED 3   exit=1
+-- M4 no_key removed from UNAVAILABLE_REASONS: tests/test-jev-core.sh
+FAIL contract: vault unavailable(no_key) parsed as 'unavailable upstream'
+exit=1
+-- M5 pending-*.json unlink removed from prune
+FAIL prune: a pending-*.json older than 30 days is removed
+exit=1
+-- M6 S_ISREG guard dropped
+FAIL prune: a pending-*.json symlink is never removed
+exit=1
+```
+
+### Reward-hack scan
+
+No removed or loosened assertion, no skip, no scorer edit: the diff's `^-` lines in code are the old tuple, the old
+docstrings, one guard line extended and one `head = ...` line reformatted. `tests/test-jev-core.sh` only gains lines.
+
+### Other checks
+
+- Python 3.9 grammar: `ast.parse(..., feature_version=(3, 9))` ok for both scripts under 3.9.6; stdlib only.
+- Anti-ruflo regex (`validate.yml:194`) over the run's added lines: no hit (grep exit 1).
+- Docs: no added line over 200 characters outside code and tables in the two changed docs.
+- `shellcheck tests/test-jev-core.sh`: exit 0.
+- `git grep "unavailable(auth)" -- docs skills`: the only hits outside this run's own plan and patch are the parent
+  plan's `401/403 -> unavailable(auth)` and the parent spec's `402 / 401 / 403` row. None names a missing key.
+
+### Runtime cost of the new credential regex (finding 1)
+
+`_CRED_ASSIGN_RE` starts with an unbounded `[a-z0-9_.-]*` on both sides of the name alternation, so a long run of
+those characters backtracks quadratically. Measured on 3.9.6, wall clock from `time.monotonic()`:
+
+```text
+ordinary source  len= 62900 match=False seconds=0.017
+4 KiB hex run    len=  4103 match=False seconds=0.653
+16 KiB hex run   len= 16391 match=False seconds=10.469
+64 KiB hex run   len= 65543 match=False seconds=167.956
+input: one .js line holding a 16384-char base64url literal
+scan_secrets (pre-existing): hits=0 seconds=0.000
+_has_credential_assignment (new): False seconds=10.011
+_exclude_reason('src/font.js') -> None
+base _ui_sample: ['src/app.js', 'src/font.js'] seconds=0.042
+head _ui_sample: ['src/app.js', 'src/font.js'] seconds=10.089
+same pattern with {0,64} name parts: False seconds=0.079
+```
+
+## INTEGRATION
+
+### Acceptance criteria, run on the merged tree (HEAD `58ab998`)
+
+| AC | Evidence | Status |
+|---|---|---|
+| AC-1 | onboard selftest exit 0 with the five new rows; `tests/test-onboard-rules.sh` 58 passed; M1-M3 fail | ok |
+| AC-2 | parent review's Issue 1 probe, git and walk paths: base leaks four values, HEAD sends `lib/math.php` only | ok |
+| AC-3 | jev selftest 85 rows ok; jev-core all pass with "contract: 11 vault reasons"; `no_key` parses unchanged | ok |
+| AC-4 | probe: only the old regular descriptor removed; selftest rows; M5, M6 fail | ok |
+| AC-5 | manifest full command `all-tests-ok`, exit 0; `vault.tsx`, `jev-t3.tsx` diff empty against the run base | ok |
+
+**AC-1.**
+
+```text
+$ /usr/bin/python3 -B scripts/compound-v-onboard.py --selftest      exit=0
+  ok   ui sample: _secret_named is name-only and case-insensitive
+  ok   ui sample: a credential assignment omits the file (lib/db.py)
+  ok   ui sample: secret-named files are skipped (wp-config, config/ dir any ext, settings, credentials, secret)
+  ok   jev detect_ui: the request exists, holds lib/math.php, and none of the planted values
+  ok   ui sample: the os.walk path applies the same rules
+OK
+$ bash tests/test-onboard-rules.sh      exit=0
+58 passed, 0 failed
+```
+
+**AC-2.** The parent review's Issue 1 probe, rebuilt: a committed repo with `wp-config.php` (`DB_PASSWORD`, `AUTH_KEY`),
+`config/database.php` (`password`), `lib/credentials.php` (`$api_secret`), `lib/math.php`, and
+`.claude/compound-v.json` with `jev.enabled` and `detect_ui.mode: active`; then the same tree copied without `.git`
+for the `os.walk` path. Base is `git archive fd02c46`, HEAD is `git archive HEAD`.
+
+```text
+--- [base] $ python3 -B scripts/compound-v-onboard.py detect-ui --repo probe-base --reason
+no-ui none
+--- [base] $ python3 -B scripts/compound-v-onboard.py jev-requests --repo probe-base --point detect_ui
+{"request_files": [".../home/.claude/compound-v-jev/360e4a6c29ea0663/req/702e6ce8....req.json"]}
+paths in request: config/database.php lib/credentials.php lib/math.php wp-config.php
+planted values in request: probe-api-secret-74 probe-cfg-dbpass-73 probe-wp-authkey-72 probe-wp-dbpass-71
+--- [base] (walk copy) same four paths, same four values
+--- [head] $ python3 -B scripts/compound-v-onboard.py detect-ui --repo probe-head --reason
+no-ui none
+--- [head] $ python3 -B scripts/compound-v-onboard.py jev-requests --repo probe-head --point detect_ui
+{"request_files": [".../home/.claude/compound-v-jev/dbf3d4e40b5641af/req/7edeef33....req.json"]}
+paths in request: lib/math.php
+planted values in request:
+--- [head] (walk copy) $ ... detect-ui -> no-ui none; jev-requests -> one request
+paths in request: lib/math.php
+planted values in request:
+```
+
+**AC-3.** A `no_key` response through `parse`, HEAD and base:
+
+```text
+--- [head] $ python3 -B scripts/compound-v-jev.py parse --response-file <resp> --repo <repo> --mode shadow
+    response: {"status": "unavailable", "reason": "no_key", "latency_ms": 0}
+{"status": "unavailable", "reason": "no_key", "point": "t3", "answers": {}, "latency_ms": 0, "model": null, ...}
+    calls.jsonl last line: {..., "status": "unavailable", "reason": "no_key", ..., "mode": "shadow"}
+--- [base] same response
+{"status": "unavailable", "reason": "upstream", ...}
+```
+
+Seam check, vault literals against the parser's tuples:
+
+```text
+vault unavailable: ['auth', 'credits', 'disabled', 'egress', 'no_key', 'no_vault', 'rate_limited', 'timeout', 'upstream']
+vault failed: ['bad_input', 'schema']
+missing from UNAVAILABLE_REASONS: []
+missing from ERROR_REASONS: []
+non-literal call arguments: []
+$ bash tests/test-jev-core.sh      exit=0
+PASS contract: 11 vault reasons survive parse unchanged
+all jev-core tests pass
+$ /usr/bin/python3 -B scripts/compound-v-jev.py --selftest      exit=0
+selftest: 85 rows ok
+```
+
+Every `unavailable(`/`failed(` call in `vault.tsx` passes a literal, so "every reason literal" is every reason.
+
+**AC-4.** `prune(dd, now)` on a data dir built by hand (old = 30 days plus one hour):
+
+```text
+before: ['.pending.AbC123', 'other-old.json', 'pending-dir.json', 'pending-fresh.json', 'pending-future.json',
+         'pending-link.json', 'pending-old.json', 'pending-old.txt', 'target-old.json']
+removed: ['pending-old.json']
+symlink target still present: True
+```
+
+The old symlink, the old directory, the `.pending.*` crash leftover and the non-matching names all stay.
+
+**AC-5.**
+
+```text
+$ git diff --stat fd02c46..HEAD -- plugins/compound-v-vault/hooks/vault.tsx hooks/jev-t3.tsx
+(empty)  git diff --quiet exit=0   (also empty against cf3df28 and e665663)
+blobs at HEAD and at fd02c46: a8e723fa... (vault.tsx), 4c607970... (jev-t3.tsx), identical
+$ /usr/bin/python3 -B scripts/lint-frontmatter.py .
+✅ All frontmatter clean          floor exit=0
+$ bash -c 'for s in scripts/compound-v-*.py; do ... --selftest ...; done; for t in tests/*.sh; do ...; done; echo all-tests-ok'
+all-tests-ok
+full exit=0
+```
+
+### Seams and test evidence
+
+- ui-sample and jev-reasons-prune share no file; no barrel, registry or type is edited by both. No partition leak.
+- The one cross-component seam, vault reasons -> `parse`, now holds and is pinned by the contract check.
+- Test obligation (tier FULL, declared `impacted_map`): ui-sample's two paths match the onboard rule and
+  `skills/**/*.md`; jev-reasons-prune's three paths match the jev, jev-core and `docs/**/*.md` rules. No unmapped path,
+  so `full_command` was not owed per job. Results: ui-sample `tests.command` floor + onboard rule, `exit_code` 0,
+  `scope: impacted`; jev-reasons-prune floor + jev rule + jev-core, `exit_code` 0, `scope: impacted`. The run-level
+  full command was run here anyway (above).
+
+## Verdict
+
+**ISSUES.** PASS 1 SPEC: ISSUES (finding 4). PASS 2 QUALITY: ISSUES (findings 1, 2, 3, 5). PASS 3 INTEGRATION: clean.
+All three review issues of the parent run are closed and AC-1 to AC-5 are met on the merged tree; the findings below
+are what blocks DONE.
+
+1. **REGRESSION (PASS 2, medium).** `scripts/compound-v-onboard.py:1075-1080` `_CRED_ASSIGN_RE` backtracks
+   quadratically on a long run of `[A-Za-z0-9_.-]`: the unbounded `[a-z0-9_.-]*` before and after the name alternation.
+   `_ui_sample` calls it (`:1234`) on every ranked file it reads, up to `UI_READ_CAP` (64 KiB), until 12 are kept.
+   Measured: one committed `.js` holding a 16 KiB base64url literal takes `_ui_sample` from 0.042 s (base) to 10.089 s
+   (HEAD); a 64 KiB hex run costs 168 s in one call. `/v:onboard`'s `jev-requests` stalls on such a repository. The same
+   pattern with `{0,64}` name parts ran 0.079 s on that input. Fix: bound the name parts (or otherwise make the match
+   linear), with a test row that fails when the bound is removed. Context, not an excuse: the regex is the plan's own
+   text (`docs/superpowers/plans/2026-10-05-jev-review-fixes.md:101-106`, Task A step 3), copied verbatim, so the fix
+   belongs in the plan as well as the code.
+2. **QUALITY (PASS 2, low).** `scripts/compound-v-onboard.py:1236` `head ="\n".join(...)`: the diff turned the base's
+   `head = "\n".join(...)` into a missing space after `=`. Restore the spacing.
+3. **QUALITY (PASS 2, low).** `scripts/compound-v-onboard.py:1101-1104`: the new block was inserted above
+   `_LAYER_BANDS`, leaving its comment and assignment directly after `_has_credential_assignment`'s return with no
+   blank lines (PEP 8 E305). Add the two blank lines.
+4. **CONSTRAINT_VIOLATION (PASS 1, low).** Archaeology §7 item 10 requires updating the prune docstring **and** the
+   module docstring sentence at `scripts/compound-v-jev.py:18-21`. Only the prune docstring changed; the module
+   docstring still says the data dir "holds req/, resp/, calls.jsonl, shadow-pairs.jsonl and eval-t3.json" and that
+   every write prunes entries older than 30 days, omitting the `pending-*.json` descriptors that `prune` now removes.
+5. **TEST_GAP (PASS 2, low).** Archaeology §7 item 12 asks the pending row to also assert that a directory named
+   `pending-x.json` survives. `scripts/compound-v-jev.py:1199-1219` covers old, fresh, future and symlink, not a
+   directory. The behaviour holds today (AC-4 probe: `pending-dir.json` kept), so this is a missing guard only.
+
+Not verified in this review: a live vault call with a real key; the T3 module inside a real Claude Code session.
+
+## Re-review (e222217)
+
+Focused re-review of the five findings above against HEAD `e222217`; not a full three-pass rerun. Every probe ran
+with `/usr/bin/python3 -B`. The mutation probes ran on scratch copies of `scripts/`, never in the repository.
+
+1. **CLOSED.** `_CRED_ASSIGN_RE` name parts are `{0,64}` (`scripts/compound-v-onboard.py:1078`, and the plan at
+   `docs/superpowers/plans/2026-10-05-jev-review-fixes.md` Task A step 3). Measured at HEAD: `_ui_sample` on a repo
+   holding one committed `.js` with a 16384-char base64url literal took 0.098 s (`kept=['app.js']`; the review
+   measured 10.089 s); `_has_credential_assignment` on a 64 KiB hex run took 0.248 s (the review measured 168 s), and
+   on a quoted 64 KiB `A` run 0.280 s. It still matches all four shapes: `define('DB_PASSWORD', 'x1234')`,
+   `'password' => 'x1234'`, `password: 'x1234'` and `db_password = 'x1234'` each return `True`. The new selftest row
+   (`:2597-2601`) catches the regression: with both bounds put back to `*` on a scratch copy, the onboard selftest
+   printed `FAIL ui sample: the credential rule stays linear on a 16 KiB name-like run (no backtracking blow-up)`
+   and `FAILED 1`, exit 1.
+2. **CLOSED.** `scripts/compound-v-onboard.py:1239` reads `head = "\n".join(text.splitlines()[:JEV_UI_SAMPLE_LINES])`.
+3. **CLOSED.** `scripts/compound-v-onboard.py:1101-1102` are two blank lines between `_has_credential_assignment`'s
+   return and the `_LAYER_BANDS` comment.
+4. **CLOSED, but the fix introduced a new defect (finding 6).** The module docstring
+   (`scripts/compound-v-jev.py:20-21`) now names "the T3 hook's pending-*.json descriptors" and says "Every write
+   prunes entries older than 30 days, descriptors included."
+5. **CLOSED.** `scripts/compound-v-jev.py:1212-1220` creates an old `pending-dir.json` directory and asserts
+   `prune: a directory named pending-*.json is never removed`. On a scratch copy where `prune` also `rmdir`s old
+   `pending-*` directories, the jev selftest printed `FAIL prune: a directory named pending-*.json is never removed`
+   and `selftest: 1 of 86 rows failed`.
+6. **NEW, OPEN: QUALITY (PASS 2, low).** `scripts/compound-v-jev.py:21` is 155 characters. The fix put the new
+   sentence on the old line without rewrapping it, so `Every write prunes ... A response body that is not a` is one
+   line in a paragraph whose other lines are 82-93 characters. It is the longest line in the file; the next is 139
+   (`awk 'length>120'`). Rewrap the paragraph to match its neighbours.
+7. **NEW, OPEN: QUALITY (PASS 2, low).** `scripts/compound-v-onboard.py:2597` `import time as _time` repeats the
+   import already at `:2499` in the same `_selftest()` scope, at the same indent. It is dead and harmless. Drop the
+   second import and use the existing `_time`.
+
+Selftests at HEAD: `scripts/compound-v-onboard.py --selftest` exited 0 (217 `ok` rows, last line `OK`, and the new
+row printed `ok   ui sample: the credential rule stays linear ...`). `scripts/compound-v-jev.py --selftest` exited 0
+(`selftest: 86 rows ok`).
+
+Observation, not a finding: the linearity row is a wall-clock assertion (`< 2.0` s). The bounded pattern takes
+about 0.1 s here, and this review's base measurement put the unbounded one at 10.089 s on a 16 KiB literal. The
+margin is wide. A heavily loaded CI host could still flake it.
+
+**Verdict: ISSUES.** Findings 1-5 are closed. Findings 6 and 7 are new, both introduced by `e222217`, and both are
+low-severity style defects of the same class as findings 2 and 3, which blocked DONE. They block DONE too, until the
+docstring paragraph is rewrapped and the duplicate import is dropped.
+
+## Findings 6-7 closed (orchestrator, after the re-review)
+
+6. CLOSED. `scripts/compound-v-jev.py` module docstring rewrapped; its paragraph lines are 88-95 characters.
+7. CLOSED. The duplicate `import time as _time` in `_selftest()` is removed; the earlier import in the same scope
+   serves the linearity row.
+
+Evidence after the change: `scripts/compound-v-onboard.py --selftest` exit 0; `scripts/compound-v-jev.py --selftest`
+`selftest: 86 rows ok`; `tests/test-jev-core.sh` exit 0; `tests/test-onboard-rules.sh` exit 0.
+
+**Final verdict: APPROVED.** All seven findings across the review and re-review are closed.

@@ -1,0 +1,14 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:f9b9d72bedf3d32c028e9b993e4af9ca78048c344dd38c27b5f3efe28c4ac644",
+  "fan_out": 4,
+  "flags": [
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    ".claude/compound-v.json",
+    "scripts/compound-v-emit-workflow.py",
+    "scripts/compound-v-integration-gate.py",
+    "scripts/compound-v-resolve-model.py"
+  ]
+}

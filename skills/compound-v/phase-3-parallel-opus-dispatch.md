@@ -16,13 +16,18 @@
 target repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
 ## Concurrency Reality
 
@@ -66,7 +71,7 @@ The first override is safe ONLY because Phase 2 produced a verified Partition Ma
 
 **Updated 2026-09-02 by the maintainer.** The split is **execution vs judgment**, not "how much code does this touch". Sonnet *executes*: HTML/CSS, Node plumbing, translations, mechanical refactors, and anything whose spec already survived brainstorming and planning — plus *reading* code, which is execution however large the codebase. Opus *judges*: deciding, and connecting parts of code to each other. Business logic with many code-level dependencies is Opus **however mechanical each individual edit looks** — coupling is the signal, not line count. Fable (`tier: frontier`) is the extreme seat: it is what a failed job escalates into, and where interface-design work belongs.
 
-**Default: Opus for judgment, Sonnet for execution.** A Claude implementer's model is its manifest `tier`, resolved at dispatch — `deep` → Opus, `standard`/`light` → Sonnet under the default stance. The boxes below are what earns a job `standard`/`light` instead of `deep`. Reviewers (spec + quality) are ALWAYS Opus — they're the safety net, and a cheap reviewer is no reviewer. (Codex jobs carry their own model, e.g. `gpt-5.6-sol`, set by the routing policy — that is execution-layer data and never appears in any frontmatter.)
+**Default: Opus for judgment, Sonnet for execution.** A Claude implementer's model is its manifest `tier`, resolved at dispatch — `deep` → Opus, `standard`/`light` → Sonnet under the default stance. The boxes below are what earns a job `standard`/`light` instead of `deep`. Reviewers (spec + quality) are ALWAYS Opus — they're the safety net, and a cheap reviewer is no reviewer. (Codex jobs carry their own model, e.g. `gpt-6.1-sol`, set by the routing policy — that is execution-layer data and never appears in any frontmatter.)
 
 ### When Sonnet IS allowed (the "Junior Dev" carve-out)
 
@@ -160,9 +165,12 @@ Each dispatch must include:
 1. **Backend + tier/effort from the manifest; resolve the concrete model BEFORE dispatch** — never re-decide backend/tier/isolation here. The manifest carries the routing **intent** (`tier` ∈ {deep, standard, light}, optional `effort` ∈ {low, medium, high, xhigh} — `xhigh` is valid **iff** `backend: codex`; every other backend rejects it with a clear error naming the rule (use `high` instead)) instead of a hardcoded model string, so the plugin survives model churn (refresh the config `models` map via `/v:models`, never the call sites). Before invoking the backend for a job, resolve the model with [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py):
 
    ```bash
-   # (backend, tier, effort, config) -> concrete model. --config points at the
-   # project .claude/compound-v.json whose `models` map overrides built-in
-   # defaults per cell; omit --config to use built-in defaults.
+   # (backend, tier, effort, config) -> concrete model. The project
+   # .claude/compound-v.json, whose `models` map overrides built-in defaults per
+   # cell, is read even WITHOUT --config: omitting it means
+   # <root>/.claude/compound-v.json, root = --repo-dir or the git toplevel — not
+   # the built-in table. Outside git, pass --repo-dir (or --config); the
+   # maxEffortLevel cap comes from the same root.
    # Build the flag list with explicit if/else (portable across bash AND zsh —
    # ${VAR:+...} conditional expansion does NOT word-split under zsh).
    # Read `routing_stance` once from the manifest and pass `--stance` on every
@@ -171,13 +179,14 @@ Each dispatch must include:
    set -- --backend "$BACKEND" --tier "$TIER"
    [ -n "$EFFORT" ] && set -- "$@" --effort "$EFFORT"
    [ -n "$CONFIG" ] && set -- "$@" --config "$CONFIG"
+   set -- "$@" --repo-dir "$PWD"
    [ -n "$STANCE" ] && set -- "$@" --stance "$STANCE"
    RESOLVED=$(python3 "$CV/scripts/compound-v-resolve-model.py" "$@")
    MODEL=$(printf '%s' "$RESOLVED" | python3 -c 'import json,sys; print(json.load(sys.stdin)["model"])')
    ```
 
    - **`claude`** resolves tier→model: `frontier`→fable, `deep`→opus, `standard`→sonnet (opus under `conservative`), `light`→sonnet. The dispatcher passes `--stance` from the manifest's `routing_stance` (default `balanced`), which is what keeps `standard` on Opus under `conservative` and caps `frontier` at Opus under `cost-aware`. Pass the resolved model to the `Task` call. `effort` is advisory on this path — the `Task` call has no separate effort flag.
-   - **`codex`** resolves tier→model (e.g. `deep`→`gpt-5.6-sol`) and passes `--model <resolved>` **and** `--effort <effort>` to [`scripts/compound-v-run-codex-worker.sh`](../../scripts/compound-v-run-codex-worker.sh) (`--effort` → `-c model_reasoning_effort=<effort>`; this is the one backend where `xhigh` is accepted). The execution-layer model never appears in any frontmatter.
+   - **`codex`** resolves tier→model (e.g. `deep`→`gpt-6.1-sol`) and passes `--model <resolved>` **and** `--effort <effort>` to [`scripts/compound-v-run-codex-worker.sh`](../../scripts/compound-v-run-codex-worker.sh) (`--effort` → `-c model_reasoning_effort=<effort>`; this is the one backend where `xhigh` is accepted). The execution-layer model never appears in any frontmatter.
    - **`antigravity`** resolves tier→model (a Gemini name, e.g. `deep`→`Gemini 3.1 Pro (High)`) and passes `--model <resolved>` to [`scripts/compound-v-run-antigravity-worker.sh`](../../scripts/compound-v-run-antigravity-worker.sh) (omitted when empty; agy has no effort flag). `--write-allowed` is colon-joined globs; always `worktree`.
    - **`cursor`** resolves tier→model (default `auto`) and passes `--model <resolved>` to [`scripts/compound-v-run-cursor-worker.sh`](../../scripts/compound-v-run-cursor-worker.sh) (cursor has no effort flag). On a Cursor **Free** plan only `auto` works (named models error); set named ids per tier via config on a paid plan. Always `worktree`; requires an authenticated `cursor-agent`.
    - **An explicit manifest `model:` override skips resolution** (call the resolver with `--explicit-model <M>`, or pass the model straight through). This keeps existing explicit-model jobs valid — a job MUST carry `model` OR `tier`.
@@ -408,7 +417,7 @@ Use Compound V when speed-to-shipping matters more than minimum cost. For tiny f
 - "I'll trust the worker's report of what it changed" → no; enforcement is **git-derived**, run the scope gate (Step 2b) on every job — never trust a model to self-report its writes
 - "A Codex job can run direct, the worktree is overhead" → no; Codex ⇒ worktree is a hard invariant (the sandbox can't enforce a file allow-list)
 - "I'll route the model/backend myself per task" → no; backend/tier/isolation come from the manifest (routed by `routing-policy.md`); the concrete model is resolved from `(backend, tier, effort, config)` via `compound-v-resolve-model.py` before dispatch — don't hardcode model strings
-- "I'll hardcode `gpt-5.6-sol` / `opus` in the job_spec" → no; pass `tier`/`effort` and let the resolver produce the model, so a model-churn refresh via `/v:models` (not a call-site edit) keeps routing alive. Only an explicit manifest `model:` override is hand-set, and it skips resolution.
+- "I'll hardcode `gpt-6.1-sol` / `opus` in the job_spec" → no; pass `tier`/`effort` and let the resolver produce the model, so a model-churn refresh via `/v:models` (not a call-site edit) keeps routing alive. Only an explicit manifest `model:` override is hand-set, and it skips resolution.
 
 ## Handoff
 

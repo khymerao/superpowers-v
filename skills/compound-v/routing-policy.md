@@ -106,7 +106,7 @@ judgment is bumped to `deep` — that is a planner call, not a hard rule.
 
 > With the per-stance models map (Balanced shown), `frontier` on `claude` resolves to
 > `fable`, `deep` to `opus`, and `standard`/`light` to `sonnet`; `standard` on `codex`
-> resolves to `gpt-5.6-terra`. **This is a behaviour change as of 3.0.5**: `standard`
+> resolves to `gpt-6.1-sol` (the same model as `deep`, differing only by `effort`). **This is a behaviour change as of 3.0.5**: `standard`
 > on `claude` was `opus` before, and — because `opts.model` was never set on the
 > claude path — nothing was actually routed at all. Every agent inherited the session
 > model. The tier existed, was validated, was documented, and never reached `agent()`.
@@ -298,8 +298,10 @@ a different effort independently. For `codex`, effort maps to
 `-c model_reasoning_effort=<effort>`; for `claude` it is advisory (the `Task` path
 has no separate effort flag). `xhigh` is valid **iff** `backend: codex`; every other
 backend rejects it with a clear error naming the rule (use `high` instead) — it is
-codex's top effort rung (live-verified 2026-07-11 on codex-cli 0.144.1), enforced by
-the resolver and the manifest validator.
+codex's top *adopted* effort rung (live-verified 2026-07-11 on codex-cli 0.144.1,
+re-verified 2026-09-24 on codex-cli 0.156.1 with `gpt-6-sol`/`gpt-6-luna`, and 2026-09-30 on 0.159.1 with `gpt-6.1-sol`/`gpt-6-astra`), enforced by
+the resolver and the manifest validator. GPT-6 also exposes `ultra` (astra/sol) and
+`max` above `xhigh`; Compound V adopts neither — see "Not adopted" above.
 
 ### The models map (project config, refreshable, not committed)
 
@@ -315,16 +317,35 @@ reaching `fable`:
 "models": {
   "balanced": {
     "claude":      { "frontier": "fable", "deep": "opus", "standard": "sonnet", "light": "sonnet" },
-    "codex":       { "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" }
   },
   "cost-aware": {
     "claude":      { "frontier": "opus", "deep": "opus", "standard": "sonnet", "light": "sonnet" },
-    "codex":       { "deep": "gpt-5.6-sol", "standard": "gpt-5.6-terra", "light": "gpt-5.6-luna" },
+    "codex":       { "frontier": "gpt-6-astra", "deep": "gpt-6.1-sol", "standard": "gpt-6.1-sol", "light": "gpt-6-luna" },
     "antigravity": { "deep": "Gemini 3.1 Pro (High)", "standard": "Gemini 3.1 Pro (Low)", "light": "Gemini 3.8 Flash (Low)" }
   }
 }
 ```
+
+Codex is the one non-claude backend with its own explicit `frontier` cell: GPT-6 ships a
+dedicated frontier model (`gpt-6-astra`) above the workhorse `deep`/`standard` model
+(`gpt-6.1-sol`), so — unlike antigravity/cursor, where `frontier` defaults to the same value
+as `deep` because no vendor there ships a rung above its own top model — codex's `frontier`
+is genuinely stronger. **Every Codex review/judge role runs on `frontier`:** the cross-model
+plan review ([`cross-model-review.md`](cross-model-review.md)), [`/v:review-plan`](../../commands/v-review-plan.md),
+and the epic arbiter's Codex ballot all resolve `codex` at `tier: frontier` / `effort: xhigh`
+(e.g. `gpt-6-astra`), never `tier: deep` — review is where the strongest reasoning pays;
+implementation stays on the workhorse (`deep`/`standard`, `gpt-6.1-sol`).
+
+**Not adopted: `max`, `ultra`.** GPT-6 exposes five reasoning efforts (`low`, `medium`,
+`high`, `xhigh`, `max`) plus `ultra` on `astra`/`sol` ("maximum reasoning with automatic
+task delegation"). Compound V keeps `low|medium|high|xhigh` only. `max` is simply not
+adopted this release. `ultra` is a **lane hazard**, never adopted: its automatic delegation
+spawns sub-agents that write outside the job's declared `write_allowed` lane — writes the
+git-derived scope gate would BLOCK only after the fact, and the `PreToolUse` lane guard
+cannot see coming at all, because they happen inside codex's own process tree, never
+through a Claude Code tool call.
 
 (`conservative` and `claude-only` mirror `balanced`. Only `cost-aware.claude.standard`
 differs — `sonnet`, not `opus`. `cost-aware.claude.deep` stays `opus`.)
@@ -332,8 +353,10 @@ differs — `sonnet`, not `opus`. `cost-aware.claude.deep` stays `opus`.)
 The map is **documented, not committed** in this repo — it is project-local config.
 [`/v:init`](../../commands/v-init.md) seeds this per-stance default map so routing
 works out of the box; `/v:models` discovers what is actually available per backend
-and rewrites the map (`agy models` for antigravity; a curated, user-overridable list
-for codex, which has no list command; native tier aliases for claude). The resolver
+and rewrites the map (`agy models` for antigravity; `codex debug models` for codex — a
+live discovery command since codex-cli 0.156.1, ranked the same way as antigravity's,
+with a curated user-overridable fallback when codex is absent; native tier aliases for
+claude). The resolver
 still **accepts the legacy flat shape** `{<backend>: {<tier>: model}}` (applied to
 every stance) for backward-compat — it auto-detects which shape it was handed.
 Antigravity values above are illustrative placeholders. **NEVER `haiku` anywhere.**
@@ -348,13 +371,18 @@ into it.
 ```
 compound-v-resolve-model.py --backend codex --tier deep --effort high \
   --config .claude/compound-v.json
-# → {"backend": "codex", "tier": "deep", "model": "gpt-5.6-sol", "effort": "high"}
+# → {"backend": "codex", "tier": "deep", "model": "gpt-6.1-sol", "effort": "high"}
 ```
 
 Precedence, lowest to highest:
 
 1. **Built-in default map** (the one above) so the resolver works with no config file.
-2. **`models.<backend>.<tier>`** from `--config`, if present, overrides that one cell.
+2. **`models.<backend>.<tier>`** from the project config, if present, overrides that one
+   cell. The project config is `--config` when given; **omitting `--config` does not mean
+   the built-in defaults** — it means `<root>/.claude/compound-v.json`, where root is
+   `--repo-dir` or the git toplevel of the current directory (a missing file is the
+   built-in map). The `maxEffortLevel` cap is read from the same root. Outside a git
+   repository with neither flag the resolver fails closed, except under `--explicit-model`.
 3. **`--explicit-model M`** (a manifest `model` override) always wins and skips the
    map entirely.
 
@@ -370,6 +398,31 @@ as a hard stop. See
 fields and [adapter-codex](../backend-launcher/adapter-codex.md) /
 [adapter-claude](../backend-launcher/adapter-claude.md) for per-backend effort
 handling.
+
+**The `maxEffortLevel` cap (Claude Code 2.1.267+).** `maxEffortLevel` is a native Claude
+Code setting — top-level, or per model under `modelSettings.<model>.maxEffortLevel` —
+that "cap[s] the effort level a session can use," and "[w]hen several scopes set a cap,
+the lowest applies, so a cap set in one scope can't be raised from another"
+([settings reference](https://code.claude.com/docs/en/settings-reference#maxeffortlevel)).
+A manifest routes `backend: claude` jobs with an `effort` the routing table below
+picked, but if the project's or the user's own settings cap that model below it, Claude
+Code silently runs the job at the cap — the manifest would record an effort that never
+ran. For **`backend: claude` only**, `compound-v-resolve-model.py`'s CLI now reads (read-only)
+`.claude/settings.json`, `.claude/settings.local.json`, and `~/.claude/settings.json`
+(overridable with `CLAUDE_CONFIG_DIR`), computes the effective per-model cap per file — a
+matching `modelSettings.<model>.maxEffortLevel` **replaces**, not intersects, that file's
+own top-level `maxEffortLevel` — takes the LOWEST cap across the three files, and if the
+requested effort ranks above it, lowers `effort` to the cap and adds
+`"effort_capped": {"requested": ..., "cap": ..., "source": "<file>"}` (`null` when
+nothing capped it). The effort ladder is `low < medium < high < xhigh < max` (`max` is a
+cap-only sentinel meaning "no cap"; it is never a value this resolver's own `--effort`
+accepts). This never affects a non-`claude` backend — `maxEffortLevel` is a Claude Code
+client setting with no meaning for a codex/antigravity/cursor/opencode worker process.
+Two honest limits: matching a settings file's `modelSettings` key to this resolver's own
+alias (`opus`/`sonnet`/`fable`) is a **best-effort** exact-or-segment match, not Claude
+Code's own internal alias/canonical-id table; and organization-**managed** settings (a
+separate OS-specific path) are invisible to this script but still apply at runtime, so
+`effort_capped: null` here does not guarantee the job actually ran uncapped.
 
 ---
 
@@ -517,12 +570,15 @@ the machine-generated scorecard that
 job joined against its own `results/<job-id>.json`), unioned with the legacy
 `task-outcomes.jsonl` — one row per `(backend, type)` with a `health` verdict.
 Query a single cell at routing time. The script ships with the plugin, not with the target
-repository, so resolve the plugin root first — `CLAUDE_PLUGIN_ROOT` is a hook-context hint, not
-a Bash variable, so this fallback covers an installed plugin cache or a checkout of this repo:
+repository, so resolve the plugin root first — reuse the `CV` the
+command, skill or agent that sent you here resolved. This reference is read with the Read tool,
+so the braced `CLAUDE_PLUGIN_ROOT` reference is not substituted here, and the block accepts only
+a `$PWD` that is a checkout of this plugin or says on stderr that it found none:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 python3 "$CV/scripts/compound-v-scorecard.py" --query --backend <default> --type <task-type>
 # → stats + health ∈ {insufficient_data, healthy, watch, unhealthy}
 ```

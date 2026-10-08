@@ -1,0 +1,26 @@
+{
+  "evidence": [
+    {
+      "file": "scripts/compound-v-preeval.py",
+      "reason": "test_failure",
+      "run": "2026-10-05-jev-classifier-foundation/attempt1-wrong-base/results/record-t3.json",
+      "status": "blocked"
+    },
+    {
+      "file": "scripts/compound-v-validate-manifest.py",
+      "reason": "test_failure",
+      "run": "2026-09-03-v3.4.6-triage-test-scoping-fixes-r3/results/validator.json",
+      "status": "blocked"
+    },
+    {
+      "file": "tests/test-native-points.sh",
+      "reason": "test_failure",
+      "run": "2026-09-02-v3.4-native-first-r3/results/deletions-fixup.json",
+      "status": "blocked"
+    }
+  ],
+  "k": 2,
+  "match_count": 3,
+  "recall_check_ms": 197,
+  "verdict": "tighten"
+}

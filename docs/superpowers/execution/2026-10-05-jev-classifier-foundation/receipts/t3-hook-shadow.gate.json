@@ -1,0 +1,56 @@
+{
+  "baseline_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+  "diff_digest": "sha256:6347403823f1057fe25c410086eb6fdbeea15ad4dacb00c982a848e9b6b3c834",
+  "exit_code": 0,
+  "job_id": "t3-hook-shadow",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/t3-hook-shadow.patch",
+  "patch_paths": [
+    "hooks/triage-prompt-nudge.sh",
+    "tests/test-native-points.sh"
+  ],
+  "patch_sha256": "sha256:6347403823f1057fe25c410086eb6fdbeea15ad4dacb00c982a848e9b6b3c834",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"a4654200b86b20c425c77012a6e6e3d3fe5a24c8\",\n  \"changed\": [\n    \"hooks/triage-prompt-nudge.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"allowed\": [\n    \"hooks/triage-prompt-nudge.sh\",\n    \"tests/test-native-points.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "a4654200b86b20c425c77012a6e6e3d3fe5a24c8",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "hooks/triage-prompt-nudge.sh",
+      "tests/test-native-points.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && echo hook-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-native-points.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 2 command(s) from 2 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-7"
+}

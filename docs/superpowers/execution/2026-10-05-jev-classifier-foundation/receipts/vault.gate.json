@@ -1,0 +1,66 @@
+{
+  "baseline_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
+  "diff_digest": "sha256:f26e0e7363028f9dbae438e963ca888667a3fafe0709e373b6c105df81850a4a",
+  "exit_code": 0,
+  "job_id": "vault",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/docs/superpowers/execution/2026-10-05-jev-classifier-foundation/jobs/vault.patch",
+  "patch_paths": [
+    "plugins/compound-v-vault/.claude-plugin/plugin.json",
+    "plugins/compound-v-vault/.tests/vault.test.tsx",
+    "plugins/compound-v-vault/README.md",
+    "plugins/compound-v-vault/hooks/hooks.json",
+    "plugins/compound-v-vault/hooks/vault.tsx",
+    "plugins/compound-v-vault/types/index.d.ts",
+    "tests/test-vault-mod.sh"
+  ],
+  "patch_sha256": "sha256:f26e0e7363028f9dbae438e963ca888667a3fafe0709e373b6c105df81850a4a",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"2ba0b812644e2155584ec49656cef64b3ff2343a\",\n  \"changed\": [\n    \"plugins/compound-v-vault/.claude-plugin/plugin.json\",\n    \"plugins/compound-v-vault/.tests/vault.test.tsx\",\n    \"plugins/compound-v-vault/README.md\",\n    \"plugins/compound-v-vault/hooks/hooks.json\",\n    \"plugins/compound-v-vault/hooks/vault.tsx\",\n    \"plugins/compound-v-vault/types/index.d.ts\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"plugins/compound-v-vault/**\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "2ba0b812644e2155584ec49656cef64b3ff2343a",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "plugins/compound-v-vault/.claude-plugin/plugin.json",
+      "plugins/compound-v-vault/.tests/vault.test.tsx",
+      "plugins/compound-v-vault/README.md",
+      "plugins/compound-v-vault/hooks/hooks.json",
+      "plugins/compound-v-vault/hooks/vault.tsx",
+      "plugins/compound-v-vault/types/index.d.ts",
+      "tests/test-vault-mod.sh"
+    ],
+    "checks": [
+      {
+        "checker": "/usr/bin/python3 -B scripts/lint-frontmatter.py .",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && echo vault-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 7 command(s) from 7 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_d3a0cf8b-031-2"
+}

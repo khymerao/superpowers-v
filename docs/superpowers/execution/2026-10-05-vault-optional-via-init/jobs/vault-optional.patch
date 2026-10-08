@@ -1,0 +1,172 @@
+diff --git a/.claude-plugin/marketplace.json b/.claude-plugin/marketplace.json
+index c15c945..a84c4c0 100644
+--- a/.claude-plugin/marketplace.json
++++ b/.claude-plugin/marketplace.json
+@@ -15,6 +15,16 @@
+         "name": "Oleg",
+         "email": "copeus@gmail.com"
+       }
++    },
++    {
++      "name": "compound-v-vault",
++      "description": "Optional key holder for Compound V's Jev classifier: keeps the OpenRouter key in secure storage and is the only program that calls Jev. Inert without a key. Needs Claude Code 2.1.287 or newer.",
++      "version": "0.1.0",
++      "source": "./plugins/compound-v-vault",
++      "author": {
++        "name": "Oleg",
++        "email": "copeus@gmail.com"
++      }
+     }
+   ]
+ }
+diff --git a/README.md b/README.md
+index 7e7753d..5798e0a 100644
+--- a/README.md
++++ b/README.md
+@@ -18,6 +18,10 @@ Every write is checked against the files that worker was allowed to touch, and a
+ /plugin install superpowers-v@procoders
+ ```
+ 
++**Jev is optional.** The `compound-v-vault` plugin holds an OpenRouter key for Jev, TypeSafe's System One classifier; without it nothing changes.
++`/v:init` offers it: `/plugin install compound-v-vault@procoders` (Claude Code 2.1.287 or newer), then `/plugin configure compound-v-vault@procoders`
++to set the key, then `/egress allow` in each repository.
++
+ **Other model CLIs are optional.** Install and log into them and Compound V picks them up; without them it runs Claude-only.
+ 
+ - **Codex** (≥ 0.156.1, for the gpt-6 family): `npm i -g @openai/codex` → `codex login`
+diff --git a/commands/v-init.md b/commands/v-init.md
+index 4abce22..b72626b 100644
+--- a/commands/v-init.md
++++ b/commands/v-init.md
+@@ -293,6 +293,44 @@ it.
+ skill off is the user's own call, made in the `/plugin` manager's Stats tab (interactive) or by
+ editing plugin config directly, never by this walkthrough.
+ 
++### 1g. Jev vault (optional)
++
++Jev, TypeSafe's System One classifier, is reached only through the separate `compound-v-vault` plugin, which holds
++the OpenRouter key. Without it nothing changes. This step reports one of three states and never touches the key.
++
++First, is the vault installed and enabled?
++
++```bash
++claude plugin list --json 2>/dev/null | python3 -c '
++import json, sys
++try:
++    d = json.load(sys.stdin)
++except Exception:
++    d = []
++v = [p for p in d if isinstance(p, dict) and str(p.get("id", "")).startswith("compound-v-vault@") and p.get("enabled")]
++print(v[0]["id"] if v else "absent")'
++```
++
++Only when that printed an id, ask whether the key is set, without its value:
++
++```bash
++claude plugin configure "<id>" --json 2>/dev/null | python3 -c '
++import json, sys
++try:
++    d = json.load(sys.stdin)
++except Exception:
++    print("unknown"); raise SystemExit
++c = d.get("configured") if isinstance(d, dict) else None
++print("set" if isinstance(c, list) and "openrouter_key" in c else "not set")'
++```
++
++`configured` lists the names of the options that hold a value. The output also includes an `inputs` map: never run
++this command without the filter, never print its output raw, and never read or echo `inputs`. The filter prints only
++`set`, `not set` or `unknown`. `claude plugin configure` needs Claude Code 2.1.285 or newer; below that, report the
++key state as `unknown`.
++
++Report one of: `absent`, `installed, key not set` (or `installed, key state unknown`), `ready`.
++
+ ---
+ 
+ ## Step 2 — Walk through missing installs, ONE AT A TIME
+@@ -308,6 +346,12 @@ worked, then move to the next.** Never chain installs.
+   After they confirm, re-run the Step 1b namespace grep.
+ - **Plugin surface incomplete:** direct them to reinstall `superpowers-v`; stop and
+   resume `/v:init` once it is whole.
++- **Jev vault absent, or its key not set** (and the user wants Jev): ask once whether they want it. If yes, they run
++  `/plugin install compound-v-vault@procoders` (the vault needs Claude Code 2.1.287 or newer), then
++  `/plugin configure compound-v-vault@procoders` to enter the key in Claude Code's own masked field (2.1.285 or
++  newer), then `/egress allow` in each repository where they want Jev. Re-run the Step 1g probe after each and report
++  the new state. Never ask for the key in chat, never pass it on a command line, never point the user at `/config`
++  for it. Declining leaves Jev off and changes nothing else.
+ 
+ After each install, **re-probe that one capability** and report the new state before
+ touching the next. Codex is **optional** — if the user declines it, proceed Claude-only.
+diff --git a/hooks/jev-t3.tsx b/hooks/jev-t3.tsx
+index 4c60797..ec7ae67 100644
+--- a/hooks/jev-t3.tsx
++++ b/hooks/jev-t3.tsx
+@@ -112,7 +112,7 @@ async function isShadowConfigured($: EngineInterface, proj: string): Promise<boo
+ /**
+  * CV_JEV_T3=1 when the vault noun is present, Jev is on for this project and the committed config
+  * resolves `jev.t3.mode` to `shadow`; unset otherwise. The config verdict is read once per project
+- * per load; the vault's answer is asked every time, so `/compound-v-vault:egress allow` given
++ * per load; the vault's answer is asked every time, so `/egress allow` given
+  * mid-session counts from the next prompt.
+  */
+ async function refreshFlag($: JevT3Engine, cwd: unknown): Promise<void> {
+diff --git a/plugins/compound-v-vault/README.md b/plugins/compound-v-vault/README.md
+index bf6ab73..ea07f5a 100644
+--- a/plugins/compound-v-vault/README.md
++++ b/plugins/compound-v-vault/README.md
+@@ -17,9 +17,12 @@ it does with no Jev at all.
+ 
+ ## Setup
+ 
+-1. Install the plugin from the same marketplace as Compound V and enable it.
+-2. Set the key: run `/config`, find **compound-v-vault**, and fill in **OpenRouter API key**. The field is marked
+-   sensitive, so Claude Code keeps it in secure storage, not in a settings file.
++1. Install it with `/plugin install compound-v-vault@procoders`, from the same marketplace as Compound V, or let
++   `/v:init` offer it.
++2. Enter the key with `/plugin configure compound-v-vault@procoders` (Claude Code 2.1.285 or newer); the install
++   dialog may also ask for it. The field is marked sensitive, so Claude Code keeps it in secure storage, not in a
++   settings file, and you type it into Claude Code's own masked field, never into the chat.
++   It is not listed in `/config`, by design: sensitive options never are.
+ 3. In each repository where you want Jev, run `/egress allow` once (see Egress below).
+ 
+ Use a dedicated OpenRouter key with a credit limit set on the OpenRouter side. The vault cannot cap spending; the
+diff --git a/tests/test-vault-mod.sh b/tests/test-vault-mod.sh
+index 47a8e51..e7caace 100644
+--- a/tests/test-vault-mod.sh
++++ b/tests/test-vault-mod.sh
+@@ -11,6 +11,7 @@
+ # nothing is the v2.14.1 false-green.
+ set -uo pipefail
+ cd "$(dirname "$0")/.." || exit 1
++REPO_ROOT="$PWD"
+ 
+ PIN="2.1.289"
+ PLUGIN="plugins/compound-v-vault"
+@@ -83,5 +84,28 @@ else
+   ok "no key-shaped literal in $PLUGIN"
+ fi
+ 
++# Optional vault: the marketplace lists it, in lockstep with its own manifest; superpowers-v does not depend on it.
++mk_check="$(python3 -B - "$REPO_ROOT" <<'PY'
++import json, os, sys
++root = sys.argv[1]
++mk = json.load(open(os.path.join(root, ".claude-plugin", "marketplace.json")))
++entry = next((p for p in mk.get("plugins", []) if p.get("name") == "compound-v-vault"), None)
++if entry is None:
++    print("no marketplace entry"); raise SystemExit
++src = os.path.normpath(os.path.join(root, entry.get("source", "")))
++mf = os.path.join(src, ".claude-plugin", "plugin.json")
++if not os.path.isfile(mf):
++    print("source has no plugin.json"); raise SystemExit
++pj = json.load(open(mf))
++if pj.get("name") != entry.get("name") or pj.get("version") != entry.get("version"):
++    print("name/version mismatch"); raise SystemExit
++sv = json.load(open(os.path.join(root, ".claude-plugin", "plugin.json")))
++deps = json.dumps(sv.get("dependencies", []))
++print("ok" if "compound-v-vault" not in deps else "superpowers-v depends on the vault")
++PY
++)"
++if [ "$mk_check" = ok ]; then ok "marketplace lists the vault in lockstep; superpowers-v does not depend on it"; else bad "vault marketplace entry: $mk_check"; fi
++if grep -nE '`/config`' "$PLUGIN/README.md" | grep -qiE 'key|set|fill'; then bad "vault README still sends the key to /config"; else ok "vault README does not send the key to /config"; fi
++
+ echo "tests/test-vault-mod.sh: $pass passed, $fail failed"
+ [ "$fail" -eq 0 ]

@@ -9,13 +9,17 @@ not files in your own repository. Resolve the plugin root once per session befor
 them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 **Default — offline, FTS5, no install, no network:**
 
@@ -40,6 +44,24 @@ If the project opted into embeddings at [`/v:init`](v-init.md) (`memory.embeddin
 bootstrapped — you don't need the flag. If `{{args}}` asks for `--with-embeddings` and
 `doctor` shows embeddings are not bootstrapped, run `bootstrap` first (tell the user it will
 download a ~200 MB model once).
+
+**`--with-embeddings` only does something once ALL THREE conditions hold** — say this plainly
+if `doctor` shows the dense lane inactive after a refresh:
+
+1. `bootstrap` has completed (out-of-repo venv present);
+2. `.claude/compound-v.json` has `memory.embeddings: true` (set at [`/v:init`](v-init.md) Step
+   3b, or by hand); and
+3. the corpus has reached the scale gate (a minimum vector count — dense stays dormant,
+   FTS5-only, below it, deliberately: on a handful of docs a full read or FTS5 already wins).
+
+`doctor`'s own `mode` line reports exactly which of the three is missing in plain language (e.g.
+"dense venv installed but disabled", "dense enabled but not bootstrapped", "below the scale
+gate (N vectors < gate)") — read that line rather than re-deriving the state from the other
+fields. Any one of the three missing ⇒ FTS5-only, silently and correctly. This is also the shape
+of the most common confusion: bootstrapped-but-not-configured (condition 2 missing) looks
+identical to "nothing happened" from the outside — the `mode` line is what tells them apart. See
+[`TROUBLESHOOTING.md`](../TROUBLESHOOTING.md) for that failure mode written out.
+
 The semantic lane is **scale-gated**: it only changes ranking once the corpus is large
 enough to matter; on a small corpus FTS5 already wins. If bootstrap fails (offline / no
 wheels), the engine stays FTS5-only — recall still works. See

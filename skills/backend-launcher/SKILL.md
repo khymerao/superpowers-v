@@ -15,13 +15,17 @@ There is no skill-import API: an adapter is a sibling doc (`adapter-codex.md`, `
 caller's repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ---
 
@@ -35,7 +39,7 @@ of this repo.
   "prompt": "…",                       // the worker prompt (opens with the planner/executor lock, below)
   "tier": "standard",                  // frontier | deep | standard | light — the routing INTENT (stable across model churn)
   "effort": "medium",                  // low | medium | high | xhigh — orthogonal reasoning-effort hint (optional; xhigh is codex-only)
-  "model": "gpt-5.6-sol",                  // OPTIONAL explicit override; when present it skips resolution.
+  "model": "gpt-6.1-sol",                  // OPTIONAL explicit override; when present it skips resolution.
                                        //   execution-layer data — NEVER appears in any frontmatter
   "cwd": "/repo",                      // absolute repo root
   "write_allowed": ["src/features/sequences/components/**"],
@@ -221,6 +225,18 @@ it against missing dependencies would spend real model time arriving at a failur
 nobody anything. `--provision-command` is optional; omit it and no worker's behaviour changes
 (no provisioning step runs, and nothing about the existing flag set or timing shifts).
 
+**`--toolchain-artifact <glob>` (v3.6.3, repeatable).** A manifest's top-level `toolchain_artifacts`
+list (see [`execution-manifest.md`](../compound-v/execution-manifest.md#toolchain_artifacts--build-artifacts-the-test-floor-writes-v363))
+reaches each of the four worker scripts as this flag, once per glob, passed through to
+[`compound-v-scope-check.py`](../../scripts/compound-v-scope-check.py) unchanged. It is a
+declared exemption for build artifacts the test floor itself writes on first run
+(`tsconfig.tsbuildinfo`, a vitest/jest cache, `.turbo/`, `.next/`) — distinct from
+`--provision-command`, which runs before the model starts; a toolchain artifact can appear only
+after the floor runs, which is typically inside the job. The same check-ignore rule applies here
+as at the manifest level: the gate subtracts a matching path only when `git check-ignore` confirms
+it is gitignored in the gated tree at gate time, so a tracked file or a genuinely untracked file is
+never forgiven by this flag.
+
 ---
 
 ## `gate_receipt` — the receipt, not the authority (v3.0, Feature D1)
@@ -306,7 +322,7 @@ This is the *instructed* half. The git-diff scope gate above is the *enforced* h
 
 ---
 
-## Pinned `codex exec` flag set (verified live against codex-cli 0.144.1)
+## Pinned `codex exec` flag set (verified live against codex-cli 0.144.1, re-verified 2026-09-24 on 0.156.1)
 
 The codex adapter MUST use exactly this flag set, launched **under the process-group supervisor with `stdin </dev/null`** per the non-negotiable rule above (never a bare `timeout … codex exec`):
 

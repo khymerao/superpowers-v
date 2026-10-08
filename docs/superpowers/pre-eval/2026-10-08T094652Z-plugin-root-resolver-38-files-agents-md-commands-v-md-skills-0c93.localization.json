@@ -1,0 +1,17 @@
+{
+  "confidence": "new_file",
+  "digest": "sha256:d63e4770a0136f9a2580691686d6d10d079b86edfdc8f3ecaaf620cdafc7d35f",
+  "fan_out": 6,
+  "flags": [
+    "new_file",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "agents/*.md",
+    "commands/v-*.md",
+    "evals/README.md",
+    "scripts/compound-v-plugin-root.sh",
+    "skills/backend-launcher/*.md",
+    "skills/compound-v/*.md"
+  ]
+}

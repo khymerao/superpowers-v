@@ -1,0 +1,44 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "scripts/compound-v-jev.py"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "643ba42d046f762b542232c0acd6896ed94b6724",
+    "diff_digest": "sha256:dbfa7654cfdd9ea1af6b2e1cc8ad74ea0fdca8a1f440f21187e40548e9997de4",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"643ba42d046f762b542232c0acd6896ed94b6724\",\n  \"changed\": [\n    \"scripts/compound-v-jev.py\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-jev.py\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "643ba42d046f762b542232c0acd6896ed94b6724",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 Noul criteria as an object",
+  "tests": {
+    "command": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && echo floor-ok'\nbash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo jev-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 2
+  },
+  "usage": {
+    "advisor_calls": 0,
+    "backend": "claude",
+    "cache_creation_input_tokens": 126234,
+    "cache_read_input_tokens": 864328,
+    "input_tokens": 36,
+    "measured": true,
+    "output_tokens": 3332,
+    "source": "workflow-transcript",
+    "transcripts": [
+      "agent-a37befbf97dcc1839.jsonl",
+      "agent-a770a71cec8622968.jsonl",
+      "agent-a8ccf31a28632491a.jsonl"
+    ]
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_b570e89f-0ef-2"
+}

@@ -9,8 +9,18 @@
     {
       "name": "superpowers-v",
       "description": "Compound V for Superpowers: triple parallel pre-flight (code archaeology + domain-expert + Context7 library validator), disjoint partitioning, manifest-driven multi-backend dispatch (Claude + Codex + Antigravity + Cursor), git-diff scope enforcement, crash-resumable runs, adaptive tier-based routing, epic mode, research-grounded brainstorming (gated pre-brainstorm recon + batched elicitation), V-memory local-first semantic+lexical recall over docs/superpowers (opt-in pure-python embeddings + a deterministic recall→action bridge), and batched parallel dispatch (Opus default, narrow Sonnet exception)",
-      "version": "3.6.2",
+      "version": "3.8.3",
       "source": "./",
+      "author": {
+        "name": "Oleg",
+        "email": "copeus@gmail.com"
+      }
+    },
+    {
+      "name": "compound-v-vault",
+      "description": "Optional key holder for Compound V's Jev classifier: keeps the OpenRouter key in secure storage and is the only program that calls Jev. Inert without a key. Needs Claude Code 2.1.287 or newer.",
+      "version": "0.1.0",
+      "source": "./plugins/compound-v-vault",
       "author": {
         "name": "Oleg",
         "email": "copeus@gmail.com"

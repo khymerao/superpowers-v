@@ -64,3 +64,6 @@ jobs:
          # undeclared
 
          This path is NOT in write_allowed. The gate should block this job.
+
+# Deliberately planted failure (dogfood test of the gate) — not a real lane failure; excluded from recall-check.
+recall_exclude: true

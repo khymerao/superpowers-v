@@ -6,14 +6,20 @@ The worker script ships with the plugin, not with the caller's repository. Resol
 once per session before invoking it:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is a hook-context hint, not a Bash variable, so the fallback covers an
-installed plugin cache or a checkout of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so on its own it
+is only a hint. A reference file like this one is read with the Read tool, which does not
+substitute the braced reference in the first line as Claude Code does in a command, skill or
+agent body. Reuse the `CV` path the command, skill or agent that sent you here resolved;
+otherwise the shell expands the unset variable to an empty string, the second line accepts
+`$PWD` only when it is a checkout of this plugin, and the third says so on stderr instead of
+guessing.
 
-The opencode backend is a **Bash-spawned `opencode run` worker** — its own process, its own git worktree. It mirrors the Antigravity / Cursor adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md), [`adapter-cursor.md`](adapter-cursor.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. UNLIKE every other backend, opencode is **provider-agnostic / multi-provider** — its resolved `model` is always a `provider/model` string (e.g. `anthropic/claude-opus-4-6`), never a bare model name.
+The opencode backend is a **Bash-spawned `opencode run` worker** — its own process, its own git worktree. It mirrors the Antigravity / Cursor adapters step-for-step ([`adapter-antigravity.md`](adapter-antigravity.md), [`adapter-cursor.md`](adapter-cursor.md)): worktree isolation, a git-derived scope gate, normalize → `job_result`, caller merges. UNLIKE every other backend, opencode is **provider-agnostic / multi-provider** — its resolved `model` is always a `provider/model` string (e.g. `anthropic/claude-opus-5-5`), never a bare model name.
 
 Verified live against **opencode-ai 1.17.18** (npm, installed via `npm install -g opencode-ai`) on stock macOS. **This package ships new dev/beta builds multiple times per day** (`npm view opencode-ai --json` showed dist-tags timestamped within the hour of the original research probe) — re-probe the flag set at `/v:init` time; do not assume it is stable across even a few weeks.
 
@@ -33,7 +39,7 @@ Verified live against **opencode-ai 1.17.18** (npm, installed via `npm install -
 
 > **The worker script MUST NOT blindly inherit the dispatcher's own provider environment variables into the `opencode run` child process.** If it does, a job could silently authenticate as the ORCHESTRATOR's own Claude/OpenAI/Anthropic credentials rather than a credential intentionally scoped to that job — an unintended privilege leak from the calling process into an isolated, lower-trust worker. The worker MUST explicitly pass through only a documented allow-list of provider env vars (or none at all, forcing `opencode providers login` / a real `auth.json`), never a raw environment inherit (`env -i` plus an explicit allow-list, or an explicit `unset` of every known provider var before exec, is the correct shape — pick one and document it in the worker script when built).
 
-**WORKER-ONLY — never an arbiter/review-panel seat (separate from the trust-tier question above).** opencode addresses models as `provider/model` strings, and the provider is allowed to differ **per tier cell** — so opencode's resolved model family is data-dependent. A `backend: opencode, model: "anthropic/claude-opus-4-6"` ballot would land in the SAME family bucket as the native Claude arbiter (`model_family()`'s existing substring heuristic), and a `backend: opencode, model: "openai/gpt-5.6-sol"` ballot would collapse with Codex's own bucket. Adding opencode to any arbiter panel without first keying family-dedup on the *resolved* model (never the backend name) would let a correlated ballot silently masquerade as an independent vote — **this adapter is worker dispatch only**; the family-dedup fix is a separate, later change.
+**WORKER-ONLY — never an arbiter/review-panel seat (separate from the trust-tier question above).** opencode addresses models as `provider/model` strings, and the provider is allowed to differ **per tier cell** — so opencode's resolved model family is data-dependent. A `backend: opencode, model: "anthropic/claude-opus-5-5"` ballot would land in the SAME family bucket as the native Claude arbiter (`model_family()`'s existing substring heuristic), and a `backend: opencode, model: "openai/gpt-6.1-sol"` ballot would collapse with Codex's own bucket. Adding opencode to any arbiter panel without first keying family-dedup on the *resolved* model (never the backend name) would let a correlated ballot silently masquerade as an independent vote — **this adapter is worker dispatch only**; the family-dedup fix is a separate, later change.
 
 ---
 
@@ -123,12 +129,12 @@ No kernel sandbox toggle exists (VERIFIED live by omission), and network access 
 The dispatcher resolves the concrete model **before** dispatch via [`scripts/compound-v-resolve-model.py`](../../scripts/compound-v-resolve-model.py) with `--backend opencode --tier <tier> [--config .claude/compound-v.json]`. **Design point (no schema change needed):** the resolver already treats every `{tier: model}` cell as an opaque string — opencode's convention is simply that each cell's value is a full `provider/model` string, and the **provider is allowed to differ per cell** (unlike every other backend's single-vendor map). The built-in curated map:
 
 ```
-deep     → anthropic/claude-opus-4-6
-standard → openai/gpt-5.6-terra
+deep     → anthropic/claude-opus-5-5
+standard → openai/gpt-6.1-sol
 light    → opencode/mimo-v2.5-free      # a real, credential-free model — verified live via `opencode models`
 ```
 
-`light` legitimately points at one of opencode's own curated **free** models — VERIFIED live via `opencode models` (works with zero configured credentials, backed by models.dev): `opencode/big-pickle`, `opencode/deepseek-v4-flash-free`, `opencode/hy3-free`, `opencode/mimo-v2.5-free`, `opencode/nemotron-3-ultra-free`, `opencode/north-mini-code-free`. This is the **one backend where a real free tier exists out of the box** — no other backend in this plugin offers that. `opencode models [provider]` is real live discovery (unlike Codex's curated-only pattern); `/v:models` shows the catalog, but assignment stays curated + user-confirmed (opencode's catalog spans unrelated vendor families with no shared naming convention, mirroring the Cursor precedent — Compound V does not auto-rank it).
+`light` legitimately points at one of opencode's own curated **free** models — VERIFIED live via `opencode models` (works with zero configured credentials, backed by models.dev): `opencode/big-pickle`, `opencode/deepseek-v4-flash-free`, `opencode/hy3-free`, `opencode/mimo-v2.5-free`, `opencode/nemotron-3-ultra-free`, `opencode/north-mini-code-free`. This is the **one backend where a real free tier exists out of the box** — no other backend in this plugin offers that. `opencode models [provider]` is real live discovery — codex now has one too (`codex debug models`, since codex-cli 0.156.1), so this is no longer the "unlike Codex" contrast it used to be — but `/v:models` still shows the opencode catalog and keeps assignment curated + user-confirmed, because opencode's catalog spans unrelated vendor families with no shared naming convention (mirroring the Cursor precedent — Compound V does not auto-rank it).
 
 An explicit manifest `model` override skips resolution and wins.
 

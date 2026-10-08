@@ -16,19 +16,25 @@ The `scripts/` this command calls ship with the plugin — they are not files in
 repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo.
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
 
 ## Branch on `{{args}}`
 
 - **`--refresh`** → the refresh branch (§Refresh in the skill): re-extract **only files whose content
   hash changed** since generation, run the **cited-evidence staleness gate**
-  (`python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .`), re-run
+  (`python3 "$CV/scripts/compound-v-onboard.py" staleness --repo .` — if it answers
+  `state: unregistered`, the manifest registers nothing and its `count: 0` is not a clean result:
+  re-verify every generated doc's citations and re-register with `staleness --write --docmap`), re-run
   `python3 "$CV/scripts/compound-v-onboard.py" rules-lint --repo .` over `.claude/rules/**` (a rule whose
   cited line drifted is flagged `cited-changed`; one whose citation now dangles is a lint failure),
   put any flagged docs and rules through the **same human gate**, commit, then auto-run
@@ -37,6 +43,45 @@ of this repo.
   `detect → pack → extract → verify → diagnose → gate → write → commit → index`, with the
   **path-scoped rules** step inside it: `rules-plan` at DIAGNOSE, one drafted `.claude/rules/*.md`
   per area at the GATE, `rules-lint` blocking before COMMIT (§Path-scoped rules in the skill).
+  When the status line shows `Jev: on`, DETECT and DIAGNOSE also run the Jev steps in the skill:
+  `jev-requests`, one `jev_classify` call per request file, then `detect-ui --jev-responses DIR` and
+  `draft-taxonomy --jev-responses DIR`. Without the vault both steps are skipped.
+
+## Note on AGENTS.md-only projects (Claude Code 2.1.277+)
+
+Since Claude Code v2.1.277, a project with an `AGENTS.md` and **no** `CLAUDE.md` (or
+`CLAUDE.local.md`, in the working directory or above it) is read **natively** — no
+import, no setting, no generated bridge required. Per
+[`code.claude.com/docs/en/claude-md#agents-md`](https://code.claude.com/docs/en/claude-md#agents-md):
+"Claude Code can read AGENTS.md as your project instructions, so a repository already
+set up for other coding agents works without adding a CLAUDE.md, an import, or a
+setting." (Reading it directly still requires v2.1.277 or later; older sessions, and
+some configurations such as Amazon Bedrock or disabled hooks, need the `@AGENTS.md`
+import instead — see "When AGENTS.md support is unavailable" on that page.)
+
+This pipeline still generates **both** files (detect-and-bridge,
+[`skills/compound-v/onboarding.md`](../skills/compound-v/onboarding.md) §"Detect-and-bridge")
+because the generated `CLAUDE.md` bridge — `@AGENTS.md` plus an optional `## Claude
+Code` section — carries content `AGENTS.md` alone does not. This very repo's own
+`CLAUDE.md` is that exact pattern: its `## Claude Code` section holds the model policy
+(Opus by default / Sonnet exception / never Haiku), the advisor pairing and the
+project-only `advisorModel` setting, the `/v:remember` / `/v:memory-refresh` recall
+surface, and the architecture-doc pointers — none of which belongs in the
+tool-portable `AGENTS.md`.
+
+A downstream project that wants a single file can delete the generated `CLAUDE.md`
+**only if** its `## Claude Code` section is empty or the project genuinely has no
+Claude-specific instructions — check first: deleting it while it holds real content
+loses that content, not just a redundant wrapper. Deleting it also changes behavior
+beyond "does it still load": with the bridging `CLAUDE.md` in place, `InstructionsLoaded`
+hooks fire for it and it is listed in `/memory` and `/context`; reading `AGENTS.md`
+directly does neither (same page, "Where AGENTS.md differs from CLAUDE.md").
+
+Docs-only for this note — no `--agents-only` generator flag was added.
+`scripts/compound-v-onboard.py` has no `CLAUDE.md`/`AGENTS.md` writer function to gate
+(the bridge is written by the WRITE-phase prose in `skills/compound-v/onboarding.md`,
+outside a Compound V harness change's usual file lane), so a flag would mean editing
+that skill file's prose, not adding a small, testable Python branch.
 
 ## Non-negotiables (the skill is authoritative — these are the ones you must not lose)
 
@@ -47,7 +92,10 @@ of this repo.
 3. **Secret scan is a blocking refusal** at PACK and again before WRITE.
 4. **Commit before index** — recall and the scope gate see only git-tracked files.
 5. **DESIGN.md only when `detect-ui` is true**; the gate says token pairs pass WCAG AA
-   **structurally**, never "accessible."
+   **structurally**, never "accessible." `detect-ui --reason` names why: `deterministic:<signal>` (the
+   floor found a config, extension or markup signal) or `jev:sample` (the floor found none and Jev said
+   yes at or above `jev.detect_ui.confidence_min`). Show that reason at the gate. Jev only ever adds:
+   it never turns `ui` into `no-ui`, and its taxonomy rows never lower or remove a row.
 6. **Every line of a `.claude/rules/*.md` is copied from `CONVENTIONS.md` or the architecture docs
    with its `file:line` citation — never invented**, every citation resolves strictly inside the
    repo, and `rules-lint` must exit 0 before those files are committed. The body grammar allows only

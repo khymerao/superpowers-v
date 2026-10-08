@@ -1,0 +1,63 @@
+{
+  "baseline_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+  "diff_digest": "sha256:ea58b238780defbd057b9da36993ca41b3ad6b8b115bddb110198d5f2e2b9651",
+  "exit_code": 0,
+  "job_id": "spec-review",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.patch",
+  "patch_paths": [
+    ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+    ".claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md",
+    "docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md"
+  ],
+  "patch_sha256": "sha256:ea58b238780defbd057b9da36993ca41b3ad6b8b115bddb110198d5f2e2b9651",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"direct\",\n  \"baseline\": \"47a9861acf859460d8d352b4c13c72b395335326\",\n  \"changed\": [\n    \".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md\",\n    \"docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md\"\n  ],\n  \"allowed\": [\n    \"docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md\",\n    \".claude/agent-memory/superpowers-v-spec-reviewer/**\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "47a9861acf859460d8d352b4c13c72b395335326",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      ".claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md",
+      ".claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md",
+      "docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/.run.lock",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.baseline",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/jobs/spec-review.test-contract.json",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/lane-map.json",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/preexisting/spec-review.txt",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/preexisting/spec-review.verified.txt",
+      "docs/superpowers/execution/2026-10-08-phase-t-jev-shadow/state.json"
+    ],
+    "checks": [
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo floor-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in scripts/compound-v-*.py; do grep -q -- \"--selftest\" \"$s\" || continue; /usr/bin/python3 -B \"$s\" --selftest >/dev/null 2>&1 || { echo \"FAIL $s\"; exit 1; }; done; for t in tests/*.sh; do bash \"$t\" >/dev/null 2>&1 || { echo \"FAIL $t\"; exit 1; }; done; echo all-tests-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "scope: no test_scope declared, defaulted to 'impacted' \u2014 test_contract declares an impacted_map (4 rule(s)) \u2014 the repository has said which tests relate to which paths, so the default honours it instead of running everything",
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 0 command(s) from 10 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)",
+      "ignored 7 bookkeeping path(s) for the unmapped rule",
+      "unmapped: .claude/agent-memory/superpowers-v-spec-reviewer/MEMORY.md, .claude/agent-memory/superpowers-v-spec-reviewer/jev-tool-refusals.md, docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md matched no `when` glob \u2014 unknown blast radius resolves to full_command, never to nothing",
+      "scope: labelled `full` \u2014 full_command was added for an unmapped path at this tier, so the whole suite is what ran"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": ""
+}

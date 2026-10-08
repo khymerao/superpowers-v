@@ -10,6 +10,13 @@ Hard-won routing knowledge for Compound V — distilled by a human from the raw
 > writes `results/<id>.json` and never touches memory. The loop is:
 > collector → `task-outcomes.jsonl` (automatic) → a human spots a pattern →
 > a lesson here (manual). Keep entries lean, dated, and reversible.
+>
+> The *spotting* step can be drafted: `/v:lessons` runs
+> `scripts/compound-v-lessons.py draft`, which mines run results for failures that
+> recur in two or more independent runs and proposes bullets in the format below,
+> with the runs they rest on. It is still a human who accepts or rejects each draft,
+> and it is the agent acting on that answer — not the script — that adds the bullet.
+> The script only reads this file and appends decisions to `lesson-reviews.jsonl`.
 
 The routing engine (`skills/compound-v/routing-policy.md`) consults this file as
 an input when it picks backend / model / isolation for a job type — so a lesson
@@ -34,7 +41,9 @@ One bullet per lesson. Date each one. Cite the run(s) when you can.
 
 1. **Read the data first.** Skim `task-outcomes.jsonl` for a repeated signal —
    the same `type`+`backend` repeatedly `blocked`, or a high `rework_rounds`.
-   One bad run is noise; **two or more is a pattern** worth a lesson.
+   One bad run is noise; **two or more is a pattern** worth a lesson. `/v:lessons`
+   drafts these for you from `docs/superpowers/execution/*/results/` — review each
+   draft's evidence runs before accepting; a draft is a proposal, not a lesson.
 2. **Write it in the format above**, in the `## Lessons` list:
    `<job type> on <backend·model> → <outcome>; prefer <action>.`
    Lead with the date. Name the run id(s) if you have them.
@@ -44,4 +53,5 @@ One bullet per lesson. Date each one. Cite the run(s) when you can.
 4. **Keep it lean and honest.** No fabricated cost or token numbers (anti-ruflo).
    If a lesson stops holding, edit or delete it — this file is meant to be pruned,
    not to grow forever.
-5. **Commit it in a PR** like any other curated doc. Never script-generate it.
+5. **Commit it in a PR** like any other curated doc. Never script-generate it —
+   `/v:lessons` proposes, a human confirms, and the bullet is written only then.

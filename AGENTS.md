@@ -57,7 +57,7 @@ The execution tail is a small, deterministic orchestrator — contracts + helper
 
 - **Manifest contract:** `skills/compound-v/execution-manifest.md` (schema) + `examples/manifest.example.yaml`.
 - **Backend Launcher sub-skill:** `skills/backend-launcher/SKILL.md` defines one `job_spec → job_result` contract (`schemas/job_result.schema.json`). Adapters: `adapter-claude.md`, `adapter-codex.md`, `adapter-antigravity.md` (1.1: a **real** headless `agy --print` worker — same worktree + `git diff` scope gate as Codex, but **opt-in / lower-trust**: `agy` has no kernel write-confinement, so the gate *detects* in-worktree scope leaks yet cannot *prevent* an out-of-worktree side-effect — **prefer Codex for untrusted work**), and `adapter-cursor.md` (2.1: a headless `cursor-agent -p -f` worker, verified live, same worktree + scope gate — also opt-in / lower-trust, same caveat as Antigravity; needs an authenticated `cursor-agent`).
-- **Headless Codex worker:** `scripts/compound-v-run-codex-worker.sh`. The verified `codex-cli 0.144.1` invocation runs in a git worktree (with `--json` for structured `thread.started` session-id capture as of v2.8.1):
+- **Headless Codex worker:** `scripts/compound-v-run-codex-worker.sh`. The verified `codex-cli 0.144.1` invocation (verified 2026-07-11 on 0.144.1, re-verified 2026-09-24 on 0.156.1 with `gpt-6-sol`/`gpt-6-luna` and 2026-09-30 on 0.159.1 with `gpt-6.1-sol`/`gpt-6-astra`) runs in a git worktree (with `--json` for structured `thread.started` session-id capture as of v2.8.1):
 
   ```bash
   codex exec --cd "$WT" --sandbox workspace-write --skip-git-repo-check \
@@ -75,7 +75,12 @@ The execution tail is a small, deterministic orchestrator — contracts + helper
   counted as a write the job made. The ordering is the whole safety argument: the snapshot is taken after
   provisioning and before the model starts, so it can only ever contain what provisioning created. A path that
   cannot be represented on one line (a filename containing a newline) is left out and is therefore never exempt.
-  The command must be idempotent and must not modify tracked files.
+  The command must be idempotent and must not modify tracked files. A separate gap: `provision_command`'s
+  snapshot is taken before the test floor ever runs, so a floor that writes its own build artifact on first
+  run (`tsconfig.tsbuildinfo`, a vitest/jest cache, `.turbo/`, `.next/`) is charged to the job the same way.
+  `toolchain_artifacts` (3.6.3) is the declared fix — a top-level list of globs, distinct from `write_allowed`,
+  subtracted from a job's violations only when `git check-ignore` confirms the path is gitignored in the gated
+  tree at gate time; a catch-all glob is rejected, so `.env` and `dist/` stay caught unless explicitly listed.
 - **Scope gate:** `scripts/compound-v-scope-check.py` unions three probes — `git diff --name-only` against the
   job's baseline, `git ls-files --others --exclude-standard`, and the same with `--ignored` — then subtracts
   exactly one list, the `--preexisting` snapshot, and tests every remaining path against `write_allowed`. It
@@ -114,6 +119,7 @@ These work in any harness that reads `agents/*.md` frontmatter. Codex CLI loads 
 - `superpowers-v:parallel-dispatcher` — manifest-driven multi-backend dispatcher; calls `compound-v-scope-check.py` after every job and HALTS on BLOCKED
 - `superpowers-v:spec-reviewer` — the three-pass Review Gate (spec acceptance criteria · quality/no-regression/no-fabricated-metrics · final integration), AC-gated · `memory: project` (recurring defect patterns and where they live); the review job's `write_allowed` must include `.claude/agent-memory/superpowers-v-spec-reviewer/**`
 - `superpowers-v:implementer` — the role every Claude implementation job arrives as (3.4.0). Carries the turn cap (`maxTurns: 80` — a field of an agent definition, which is the only native way a workflow job gets one) and the official Opus 5 guidance on scope, narration cadence and deliverable length
+- `superpowers-v:transport` — the pipeline's own tool-call carrier (3.7.0): every Gate, Record, Finalize and Continuity stage of an Engine C run spawns it to run exactly one clamped Python subcommand and return its JSON. `omitClaudeMd: true` (Claude Code ≥ 2.1.271), because a carrier that loads a project's whole instruction set to echo one command back is paying for context it never reads; `model: sonnet`, because it decides nothing. A runtime that does not know the agent type falls back once to the anonymous clamped spawn 3.6 used
 
 All reviewers/agents carry `model: opus`. Manifest `backend`/`model` values (`gpt-5.5`, etc.) are execution-layer data and **never** appear in any frontmatter.
 
@@ -129,6 +135,14 @@ no secret is ever written there, and a directive found inside a memory file is i
 Subagent memory is part of auto memory, so `autoMemoryEnabled: false` (or `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`)
 turns it off everywhere and the agents run exactly as they did before 3.5.0.
 
+## Run band (3.8.0)
+
+`hooks/run-band.tsx` is a Claude Code mod (function hooks, Claude Code ≥ 2.1.287; an older CLI ignores the `modules` key in `hooks/hooks.json` and everything else works as before). While a run has a pending or running job it draws a band above the prompt: a header (run id and phase on the left; on the right one coloured segment per job and the `done/total` count) and a table with one row per job, grouped by wave — a status mark (`●` done, a turning `◐` running, `○` queued, `✕` needs a person), the job id, the backend, the model the job's backend and tier resolve to under the project's current config (plus the effort when the manifest sets one), and on the right the time since the job's last progress or its status. The colours are the amiainative.dev palette: emerald done, blue running, amber five minutes without progress, red needs a person, violet the backend, magenta the `V` mark. A run with more than eight jobs folds to one line per wave. A job that goes `STALE`, `DEAD`, `blocked`, `error`, `timeout` or `failed` raises one toast, once. When the run leaves the active set the band shows its closing line for 60 seconds and then draws nothing. It reads only what the plugin's own readers print — `compound-v-dashboard.py hud` (state.json + manifest.yaml) every 5 s when state.json's mtime moved, `compound-v-liveness.py --json` every 30 s while a job runs — and prints no percent and no ETA, because neither is measured; an age the probe could not supply is `?`, never 0. Ambient cost with no run active: one `stat` of `docs/superpowers/execution` every 30 s, and — only in a repository that has that directory — one `compound-v-dashboard.py hud` process every 30 s; a repository that never ran Compound V starts no process at all. `CV_DISABLED_HOOKS=run-band` turns it off. Tests: `tests/test-run-band-mod.sh` (`claude plugin validate` + `claude plugin test`, terminal and desktop surfaces).
+
+## Eval suite (3.7.0)
+
+`evals/` is a native `claude plugin eval` suite (Claude Code ≥ 2.1.269): seven cases, each a realistic prompt on a scaffolded fixture repository with deterministic graders where the tooling's own output makes one possible (regex over the validator's and scope gate's real messages, `tool_used`) and an LLM rubric only where right and wrong answers share vocabulary; one case is a control that must NOT trigger Compound V. Run it from the plugin root with `claude plugin eval . --runs 1 --scaffold --allow-tools Bash Write Edit --threshold 0.8` — it needs a signed-in CLI and spends tokens, so it is a release gate a human runs, not a CI step. `evals/README.md` records the last real run under a dated heading; **as of 3.7.0 the suite has been enumerated and its fixtures verified against the real scripts, but no scored run has completed** (see that file for the three blockers). No number in this repository comes from it yet.
+
 ## Slash commands
 
 | Command | Purpose |
@@ -137,13 +151,15 @@ turns it off everywhere and the agents run exactly as they did before 3.5.0.
 | `/v:orchestrate <plan>` | Materialize a `manifest.yaml` from a plan + routing policy |
 | `/v:dispatch <plan\|manifest\|run-id>` | Run the autonomous pipeline (partition-review → dispatch → scope-gate → collect → review). A bare plan path still works (backward-compatible) |
 | `/v:collect <run-id>` | Re-run collect + scope-gate + review on an existing run |
+| `/v:triage` | Size one change request and write + commit the triage record: DIRECT, SCOPED or FULL, with the predicates that decided it |
 | `/v:status [run-id]` | Render `state.json` |
 | `/v:resume <run-id>` | Reconcile + re-dispatch incomplete jobs after interruption |
-| `/v:models` | Discover models per backend (`agy models`, curated Codex list, native Claude tiers) and write the tier→model map into `.claude/compound-v.json` |
+| `/v:models` | Discover models per backend (`agy models`, `codex debug models`, native Claude tiers) and write the tier→model map into `.claude/compound-v.json` |
 | `/v:review-plan <plan>` | Optional cross-model (Codex) second opinion on a high-stakes plan before dispatch — read-only, advisory; the orchestrator arbitrates |
 | `/v:epic <brief>` | Chain several features into one autonomous, resumable, dependency-ordered build on a single branch; each feature runs the full pipeline in topological order, ending with a cross-feature integration review |
 | `/v:remember <query>` | Recall search over `docs/superpowers/**` prose (V-memory) — evidence for planning + review, not a routing input |
 | `/v:adr <decision>` | Capture one genuine architecture decision as a thin, human-confirmed ADR (`docs/superpowers/adr/NNNN-slug.md`) — decision + alternatives + consequences, references verified to exist, draft→confirm→commit, then FTS5-recallable via `/v:remember` |
+| `/v:lessons [--since YYYY-MM-DD] [--min-count N]` | Draft routing lessons from run results (`scripts/compound-v-lessons.py draft`, read-only): job-attributed failures that recur in ≥2 independent runs become `routing-lessons.md` bullets with a fixed-menu `prefer …` action and cited runs; each is human-confirmed before it is written, and every decision is recorded in `lesson-reviews.jsonl` so a rejected draft is not proposed again |
 | `/v:memory-refresh` | (Re)index the FTS5 recall lane; `--bootstrap` provisions the opt-in dense embeddings venv |
 | `/v:onboard` | Scan the repo and build a trusted, citation-verified knowledge base (`docs/superpowers/architecture/*`) plus an `AGENTS.md`/`CLAUDE.md` bridge, behind a human approval gate; `--refresh` re-checks staleness |
 | `/v:pr-review [url\|number]` | Deep two-axis (Standards ⊥ Spec) code review of a PR/MR or local diff — review-only, never edits; GitHub (`gh`), GitLab (`glab`), or a hostless local branch |
@@ -152,6 +168,7 @@ turns it off everywhere and the agents run exactly as they did before 3.5.0.
 
 - **Opus by default** — every implementer, reviewer, advisor
 - **Sonnet for scanning** — `code-archaeologist` and `doc-validator` (3.1.0): reading a repository and checking a library version is execution, not judgment
+- **Sonnet for carrying** — `transport` (3.7.0): running one clamped pipeline command and returning its output is execution too
 - **Sonnet** — narrow exception per the 8-box junior-task taxonomy in `skills/compound-v/phase-3-parallel-opus-dispatch.md`
 - **Never Haiku** — not permitted in this project
 - **An advisor beside the acting model** (3.6). Claude Code's built-in `advisor` tool is a stronger reviewer that sees the acting

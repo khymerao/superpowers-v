@@ -14,13 +14,18 @@ The `scripts/` and `schemas/` this command calls ship with the plugin — they a
 your own repository. Resolve the plugin root once per session before calling any of them:
 
 ```bash
-CV="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME"/.claude/plugins/cache/*/superpowers-v/*/ 2>/dev/null | sort -V | tail -1)}"
-CV="${CV:-$PWD}"; CV="${CV%/}"
+CV="${CLAUDE_PLUGIN_ROOT}"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (no harness substitution, and $PWD is not a Compound V checkout); set CV to the plugin directory" >&2
 ```
 
-`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment, so treat it as a
-hint, never the whole answer — the fallback line covers an installed plugin cache or a checkout
-of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
+`CLAUDE_PLUGIN_ROOT` is set for hooks but is not set in this Bash environment. Claude Code
+substitutes the plugin's path for the braced reference in the first line when it loads this
+file, so that line already holds the path of the copy it loaded. Where nothing substituted it
+(another harness, or this file read with the Read tool), the shell expands the unset variable to
+an empty string; the second line then accepts `$PWD` only when it is a checkout of this plugin,
+and the third says so on stderr instead of guessing.
+Paths under `docs/superpowers/` stay relative; only the plugin's own `scripts/` and
 `schemas/` get `$CV`.
 
 ## Steps
@@ -75,6 +80,8 @@ of this repo. Paths under `docs/superpowers/` stay relative; only the plugin's o
    DONE is gated on all three. Unresolvable reviewer ISSUES ⇒ HALT (do not merge).
 
 5. **Update state + report.** Write `state.json` after each transition (`COLLECTED` → `REVIEWED`). **Commit what this command rewrote** — `state.json` and the refreshed `results/*.json` — the same commit discipline as [`parallel-dispatcher`](../agents/parallel-dispatcher.md)'s Step 7: an uncommitted `state.json` is not in the repository at all — `git clean -fdx` wipes it, a fresh clone never had it, and removing the worktree it was written in takes it along, so the committed record is the only durable audit trail (the hand-off skill is not the threat: Superpowers 6.2.0's `finishing-a-development-branch` menu is merge locally / push a PR / keep the branch as-is with no Discard option (`finishing-a-development-branch/SKILL.md:55-65`; a discard needs the human to ask for one in so many words), and its cleanup removes a worktree only when the path sits under `.worktrees/` or `worktrees/`, `SKILL.md:169-178`) — and `/v:collect` is explicitly usable **standalone** (re-checking an already-dispatched run), so don't assume a later step will commit on your behalf. Before you report anything as passed or clear to merge, run `superpowers:verification-before-completion` — evidence before claims: state each verdict only from a command you ran and read in this pass, never from a step you remember succeeding. Report: per-job scope verdict, the three review-pass outcomes, and whether the run is clear to merge. If clear, point at the merge step (worktree diffs apply into the main tree, then `superpowers:finishing-a-development-branch`). If BLOCKED, point at [`/v:resume {{args}}`](v-resume.md).
+
+   After a run with any BLOCKED or failed job, also suggest [`/v:lessons`](v-lessons.md): it checks whether the same failure has now recurred across independent runs and, if so, drafts a routing lesson for the human to accept or reject.
 
    The refreshed `results/*.json` this step just wrote are also the scorecard's raw material: [`scripts/compound-v-scorecard.py`](../scripts/compound-v-scorecard.py) `--update --from-runs docs/superpowers/execution` **regenerates** `docs/superpowers/memory/worker-performance.jsonl` FROM those files (manifest jobs × `results/*.json`, unioned with the legacy `task-outcomes.jsonl`) — never a value this command hand-writes. For a **live** view of an in-progress run, point the user at the native `/workflows` and `/tasks` surfaces.
 

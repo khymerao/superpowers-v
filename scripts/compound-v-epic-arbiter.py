@@ -175,7 +175,7 @@ EVIDENCE_OMITTED = _EvidenceOmitted()
 TRUNC_MARKER = "\n...[TRUNCATED]"
 DEPRECATION_LINE = "[features].codex_hooks is deprecated"
 
-_FALLBACK_CODEX_MODEL = "gpt-5.6-sol"  # mirrors compound-v-resolve-model.py's codex/deep default
+_FALLBACK_CODEX_MODEL = "gpt-6-astra"  # mirrors resolve-model.py's codex/frontier default
 _FALLBACK_AGY_MODEL = "Gemini 3.1 Pro (High)"  # mirrors compound-v-resolve-model.py's antigravity/deep default
 
 # Closed blocker-category enum (v2.14). A CONFIRMED external blocker requires the confirming
@@ -584,7 +584,14 @@ def _load_sibling_module(filename, modname):
         return None
 
 
-def resolve_codex_model(config_path=None, explicit_model=None, tier="deep"):
+def resolve_codex_model(config_path=None, explicit_model=None, tier="frontier"):
+    """Resolve the codex model for the arbiter's ballot. The arbiter is a JUDGE, not an
+    implementer, so its default tier is `frontier` -- "the strongest brains for review"
+    -- never `deep`: codex's frontier and deep now resolve to genuinely different models
+    (gpt-6-astra vs gpt-6.1-sol, since the 2026-09-24 GPT-6 default-map update), unlike
+    antigravity's frontier/deep which still mirror each other (see resolve_agy_model,
+    left on `deep` below -- changing its default would be a no-op there anyway, and the
+    maintainer's frontier-for-judges decision was scoped to codex)."""
     if explicit_model:
         return explicit_model
     mod = _load_sibling_module("compound-v-resolve-model.py", "compound_v_resolve_model")
@@ -600,7 +607,7 @@ def resolve_codex_model(config_path=None, explicit_model=None, tier="deep"):
 
 def resolve_agy_model(config_path=None, explicit_model=None, tier="deep"):
     """Resolve the EXPLICIT Gemini model the agy poll pins (mirrors resolve_codex_model). agy
-    1.1.1's live catalog is NO LONGER Gemini-only (it also serves Claude Opus/Sonnet 4.6 and
+    1.1.1's live catalog is NO LONGER Gemini-only (it also serves Claude Opus/Sonnet — 5.5 as of 2026-10-05 — and
     GPT-OSS 120B), so the poll must never ride agy's ambient default: it pins this resolved
     string and resolves model_family() from THAT same string, fail-closed."""
     if explicit_model:
