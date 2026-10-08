@@ -10,17 +10,22 @@ CLI (one JSON object on stdout; exit 0 unless a usage error, which exits 2):
   build --point {t3,detect_ui,onboard_layer} --state-file F --repo R [--context hook|offline]
   t3-request --repo R --request-env NAME --prompt-file P --context hook|offline
   parse --response-file F --repo R --mode M [--hook-budget-left-ms N] [--request-file F]
-  pair --request-file F --claude-category C --backend B --t3-reason R --repo R
-  eval --t3 --prepare [--corpus F] [--pairs] --repo R
-  eval --t3 --report OUT --repo R
+  pair --request-file F --claude-category C --backend B --t3-reason R --repo R [--claude-measure-json J]
+  eval --t3 --freeze --corpus F [--protocol P] --repo R
+  eval --t3 --label-claude --corpus F [--protocol P] --repo R      (live headless Claude calls)
+  eval --t3 --merge-human [SHEET] --corpus F --repo R
+  eval --t3 --prepare [--corpus F] [--pairs] [--protocol P] --repo R
+  eval --t3 --report OUT [--protocol P] --repo R
   data-dir --repo R
   --selftest
 
 Data dir: ~/.claude/compound-v-jev/<repo-digest>/ (0700; files 0600), where <repo-digest> is
 the first 16 hex of sha256 of the repo's absolute real path. It holds req/, resp/,
-calls.jsonl, shadow-pairs.jsonl, eval-t3.json and the T3 hook's pending-*.json descriptors.
-Every write prunes entries older than 30 days, descriptors included. Request text only ever
-arrives in a file or an environment variable, never in argv.
+calls.jsonl, shadow-pairs.jsonl, eval/ (the eval manifest and the Claude label runs) and the T3
+hook's pending-*.json descriptors. Every write prunes entries older than 30 days, descriptors
+included, except eval/ and the eval's own `eval-*` request and response files. Request text only
+ever arrives in a file or an environment variable, never in argv, and is never written to a pair
+or results line.
 
 `t3-request` is the one T3 request builder: the prompt hook (`--context hook`) and `/v:triage`
 Phase T (`--context offline`) both call it. It reads the request from the environment variable
@@ -62,8 +67,36 @@ MAX_INPUT_BYTES = 1 << 20
 
 CALLS_FILE = "calls.jsonl"
 PAIRS_FILE = "shadow-pairs.jsonl"
-EVAL_MANIFEST = "eval-t3.json"
 TS_FMT = "%Y-%m-%dT%H:%M:%SZ"
+
+# The T3 eval (2026-10-08 "T3 measurement and eval" spec). Its manifest and results live in the
+# data dir's `eval/` subdirectory, which the 30-day prune never enters. Its request and response
+# files cannot: the vault serves only `<data dir>/req/<name>.req.json` and writes the sibling
+# `resp/`, so they stay there under an `eval-` name, and the prune skips that prefix.
+EVAL_DIR = "eval"
+EVAL_MANIFEST = os.path.join(EVAL_DIR, "eval-t3.json")
+EVAL_PREFIX = "eval-"
+CLAUDE_LABELS_FILE = os.path.join(EVAL_DIR, "claude-labels.jsonl")
+DEFAULT_PROTOCOL = os.path.join("docs", "superpowers", "research", "2026-10-08-jev-t3-eval-protocol.json")
+DEFAULT_SHEET = os.path.join("docs", "superpowers", "research", "2026-10-08-jev-t3-labelling-sheet.md")
+PROTOCOL_VERSION = 1
+DIGEST_FIELDS = ("id", "request", "paths", "hints")
+BASE_REPEATS = 3                 # the original wording, asked three times
+CLAUDE_LABEL_RUNS = 3            # headless Claude runs per corpus row for `claude_label`
+SPLIT_SEED = 20261008
+MIN_HUMAN_LABELS = 80
+RISK_GRID = (0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 0.99, 1.0)
+SKIPPABLE_SHARE_MIN = 0.25
+HUMAN_CODES = {"p": "plumbing", "m": "user-facing-minor", "M": "user-facing-major", "u": "unknown"}
+
+# The Claude-side measure `compound-v-classify-request.py --classify-headless` prints and `pair
+# --claude-measure-json` stores: a closed key set of non-negative integers or null, plus the
+# resolved model id. No money field, ever.
+MEASURE_KEYS = ("wall_ms", "duration_ms", "duration_api_ms", "tokens", "model")
+MEASURE_INT_KEYS = ("wall_ms", "duration_ms", "duration_api_ms")
+MEASURE_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
+MEASURE_MAX_CHARS = 1024
+CLAUDE_MODEL_RE = re.compile(r"^[A-Za-z0-9._/:\[\]~-]{1,80}$")
 
 UNAVAILABLE_REASONS = ("no_vault", "disabled", "no_key", "egress", "timeout", "rate_limited",
                        "upstream", "credits", "auth")
@@ -284,7 +317,9 @@ def prune(dd, now=None):
     """Drop jsonl lines and req/resp files older than RETENTION_S. Unparseable lines go too.
 
     Also removes regular pending-*.json descriptors (left by the T3 hook in the data dir root)
-    older than the cutoff. It never follows or removes a symlink among them.
+    older than the cutoff. It never follows or removes a symlink among them. It never touches the
+    `eval/` subdirectory, nor a req/resp file named `eval-*`: an eval may run longer than the
+    retention window, and it needs every one of its own inputs.
     """
     cutoff = (_now() if now is None else now) - RETENTION_S
     for name in (CALLS_FILE, PAIRS_FILE):
@@ -303,11 +338,11 @@ def prune(dd, now=None):
                 keep.append(line)
         if len(keep) != len(lines):
             _replace_private(path, "".join(x + "\n" for x in keep))
-    candidates = [os.path.join(dd, EVAL_MANIFEST)]
+    candidates = []
     for sub in ("req", "resp"):
         sd = os.path.join(dd, sub)
         if os.path.isdir(sd):
-            candidates.extend(os.path.join(sd, n) for n in os.listdir(sd))
+            candidates.extend(os.path.join(sd, n) for n in os.listdir(sd) if not n.startswith(EVAL_PREFIX))
     for path in candidates:
         try:
             st = os.lstat(path)
@@ -396,8 +431,10 @@ def _check_state(point, state):
                 raise _Refused("bad_input")
 
 
-def build_request(point, state, repo, variant=0, reverse=False, context=None, do_prune=True):
-    """Redact, budget and write one request file. Returns the CLI result object."""
+def build_request(point, state, repo, variant=0, reverse=False, context=None, do_prune=True, name_prefix=""):
+    """Redact, budget and write one request file. Returns the CLI result object.
+
+    `name_prefix` is `EVAL_PREFIX` for the eval's own requests, which the prune then skips."""
     try:
         _check_state(point, state)
         entry = catalogue_entry(point, variant, reverse)
@@ -429,7 +466,7 @@ def build_request(point, state, repo, variant=0, reverse=False, context=None, do
             raise _Refused("redaction")
         if do_prune:
             prune(dd)
-        path = os.path.join(dd, "req", uuid.uuid4().hex + ".req.json")
+        path = os.path.join(dd, "req", name_prefix + uuid.uuid4().hex + ".req.json")
         _write_new_private(path, text)
         return {"status": "ok", "request_file": path}
     except _Refused as exc:
@@ -714,6 +751,14 @@ def telemetry_line(res, mode, hook_budget_left_ms=None, now=None):
 # eval
 # --------------------------------------------------------------------------- #
 VARIANTS = (("original", 0, False), ("reversed", 0, True), ("wording1", 1, False), ("wording2", 2, False))
+# Per row: the original wording BASE_REPEATS times, each other variant once (6 calls, amendment 5).
+VARIANT_REPEATS = {"original": BASE_REPEATS, "reversed": 1, "wording1": 1, "wording2": 1}
+DECISION_RULE = (
+    "Spec 1.5 is worth building only if (a) Jev shows zero strictness inversions against the human label, "
+    "(b) Jev's agreement with the human label is not worse than Claude's (the 95% Wilson intervals overlap, "
+    "or Jev's rate is higher), and (c) the share of calls Jev would decide on its own under the spec 1.5 "
+    "candidate policy is at least the pinned minimum. Otherwise spec 1.5 is not built and the next step is "
+    "spec 2. With fewer than the pinned number of human labels the rule is not decidable.")
 
 
 def wilson(k, n, z=1.96):
@@ -730,8 +775,55 @@ def _label_or_none(x):
     return x if x in T3_ORDER else None
 
 
-def _corpus_items(path):
-    items = []
+def _majority(labels):
+    """The most frequent label; a tie goes to the stricter one (`unknown` is the strictest)."""
+    counts = {}
+    for lab in labels:
+        if lab in STRICTNESS:
+            counts[lab] = counts.get(lab, 0) + 1
+    if not counts:
+        return None
+    return max(counts, key=lambda lab: (counts[lab], STRICTNESS[lab]))
+
+
+# ----- the measure (pair --claude-measure-json) ----------------------------------------------- #
+def _measure_value(v):
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        raise ValueError("measure value")
+    return v
+
+
+def validate_measure(text):
+    """The Claude-side measure as a normalised dict (every key present), or ValueError.
+
+    A closed key set: `wall_ms`, `duration_ms`, `duration_api_ms` and the four `tokens` fields are
+    non-negative integers or null; `model` is a model id or null. Absent keys are null. Anything
+    else - an unknown key, a float, a string number, a nested surprise - is refused whole."""
+    if not isinstance(text, str) or len(text) > MEASURE_MAX_CHARS:
+        raise ValueError("measure size")
+    obj = json.loads(text)
+    if not isinstance(obj, dict) or not set(obj) <= set(MEASURE_KEYS):
+        raise ValueError("measure keys")
+    out = {k: _measure_value(obj.get(k)) for k in MEASURE_INT_KEYS}
+    tokens = obj.get("tokens")
+    if tokens is None:
+        tokens = {}
+    if not isinstance(tokens, dict) or not set(tokens) <= set(MEASURE_TOKEN_FIELDS):
+        raise ValueError("measure tokens")
+    out["tokens"] = {k: _measure_value(tokens.get(k)) for k in MEASURE_TOKEN_FIELDS}
+    model = obj.get("model")
+    if model is not None and not (isinstance(model, str) and CLAUDE_MODEL_RE.match(model)):
+        raise ValueError("measure model")
+    out["model"] = model
+    return out
+
+
+# ----- the corpus ------------------------------------------------------------------------------ #
+def _corpus_rows(path):
+    """The raw corpus rows, in file order, key order kept."""
+    rows = []
     with open(path, encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -739,13 +831,52 @@ def _corpus_items(path):
             row = json.loads(line)
             if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not isinstance(row.get("request"), str):
                 raise ValueError("corpus row")
-            state = {"request": row["request"], "paths": row.get("paths") or [], "hints": row.get("hints") or []}
-            items.append({"id": row["id"], "source": "corpus", "state": state,
-                          "t3_reason": row.get("t3_reason") if isinstance(row.get("t3_reason"), str) else None,
-                          "labels": {"human": _label_or_none(row.get("human_label")),
-                                     "claude": _label_or_none(row.get("claude_label")),
-                                     "draft": _label_or_none(row.get("label_draft"))}})
+            rows.append(row)
+    ids = [r["id"] for r in rows]
+    if len(set(ids)) != len(ids):
+        raise ValueError("corpus ids")
+    return rows
+
+
+def _corpus_items(path):
+    items = []
+    for row in _corpus_rows(path):
+        state = {"request": row["request"], "paths": row.get("paths") or [], "hints": row.get("hints") or []}
+        items.append({"id": row["id"], "source": "corpus", "state": state,
+                      "t3_reason": row.get("t3_reason") if isinstance(row.get("t3_reason"), str) else None,
+                      "labels": {"human": _label_or_none(row.get("human_label")),
+                                 "claude": _label_or_none(row.get("claude_label")),
+                                 "draft": _label_or_none(row.get("label_draft"))}})
     return items
+
+
+def _write_corpus(path, rows):
+    """Rewrite the corpus atomically, one row per line, every row's key order unchanged."""
+    text = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(os.path.abspath(path)), prefix=".tmp-corpus-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except Exception:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
+def corpus_digest(path):
+    """sha256 over `id`, `request`, `paths` and `hints` of every row, in file order.
+
+    Labels are left out on purpose: `--label-claude` and `--merge-human` rewrite them after the
+    freeze, and must not invalidate it (amendment 4)."""
+    h = hashlib.sha256()
+    for row in _corpus_rows(path):
+        sub = {k: row.get(k) for k in DIGEST_FIELDS}
+        h.update(json.dumps(sub, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+        h.update(b"\n")
+    return "sha256:" + h.hexdigest()
 
 
 def _pair_items(dd):
@@ -772,26 +903,269 @@ def _pair_items(dd):
     return items
 
 
-def eval_prepare(repo, corpus=None, pairs=False):
+# ----- the frozen protocol ------------------------------------------------------------------------ #
+def _eval_dir(dd):
+    d = os.path.join(dd, EVAL_DIR)
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    os.chmod(d, 0o700)
+    return d
+
+
+def _repo_rel(repo, path):
+    real_repo = os.path.realpath(os.path.abspath(repo))
+    real = os.path.realpath(os.path.abspath(path))
+    return os.path.relpath(real, real_repo) if _inside(real, real_repo) else real
+
+
+def _protocol_frozen_part(corpus):
+    """Everything the freeze pins and a later run must still match. Never the models block."""
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "corpus_digest": corpus_digest(corpus),
+        "digest_fields": list(DIGEST_FIELDS),
+        "rows": len(_corpus_rows(corpus)),
+        "catalogue_hashes": {name: catalogue_hash("t3", variant, reverse) for name, variant, reverse in VARIANTS},
+        "variants": [{"name": name, "repeats": VARIANT_REPEATS[name]} for name, _v, _r in VARIANTS],
+        "label_claude_runs": CLAUDE_LABEL_RUNS,
+        "split_seed": SPLIT_SEED,
+        "thresholds": {"risk_coverage_grid": list(RISK_GRID),
+                       "fit_rule": "the lowest grid threshold with zero disagreements on the fit half",
+                       "skippable_share_min": SKIPPABLE_SHARE_MIN,
+                       "min_human_labels": MIN_HUMAN_LABELS,
+                       "hook_budget_ms": TIMEOUT_MS["hook"],
+                       "offline_cap_ms": TIMEOUT_MS["offline"]},
+        "decision_rule": DECISION_RULE,
+    }
+
+
+def _frozen_digest(frozen):
+    canon = json.dumps(frozen, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
+
+def _claude_requested_model():
+    try:
+        return _load("cv_classify_request", "compound-v-classify-request.py").resolve_claude_light_model()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _protocol_path(repo, protocol):
+    return protocol if protocol else os.path.join(repo, DEFAULT_PROTOCOL)
+
+
+def eval_freeze(repo, corpus, protocol=None):
+    """Write the protocol before any call. Refuses to overwrite one that exists."""
+    path = _protocol_path(repo, protocol)
+    if os.path.exists(path):
+        return {"status": "error", "reason": "already_frozen", "protocol": path}
+    frozen = _protocol_frozen_part(corpus)
+    doc = {"frozen_at": _ts(), "corpus_path": _repo_rel(repo, corpus)}
+    doc.update(frozen)
+    doc["frozen_digest"] = _frozen_digest(frozen)
+    # The resolved ids are unknown before the first call: `--label-claude` fills Claude's, the
+    # report fills Jev's. Neither is part of the frozen digest.
+    doc["models"] = {"jev": {"requested": MODEL_DEFAULT, "resolved": None},
+                     "claude": {"requested": _claude_requested_model(), "resolved": None}}
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+    return {"status": "ok", "protocol": path, "frozen_digest": doc["frozen_digest"]}
+
+
+def _check_protocol(repo, protocol, corpus, required=False):
+    """(protocol doc or None, None) when usable; (None, reason) when it refuses.
+
+    An explicit `--protocol` must exist. The default path is enforced when it exists."""
+    path = _protocol_path(repo, protocol)
+    if not os.path.isfile(path):
+        return (None, "no_protocol") if (protocol or required) else (None, None)
+    try:
+        doc = _read_json_file(path)
+        frozen = {k: doc[k] for k in _protocol_frozen_part(corpus)}
+    except Exception:  # noqa: BLE001
+        return None, "protocol_unreadable"
+    if doc.get("frozen_digest") != _frozen_digest(frozen):
+        return None, "protocol_edited"
+    now = _protocol_frozen_part(corpus)
+    if now["corpus_digest"] != frozen["corpus_digest"] or now["rows"] != frozen["rows"]:
+        return None, "corpus_changed"
+    if now["catalogue_hashes"] != frozen["catalogue_hashes"]:
+        return None, "catalogue_changed"
+    if now != frozen:
+        return None, "protocol_mismatch"
+    doc["_path"] = path
+    return doc, None
+
+
+def _protocol_set_resolved(doc, side, model_id):
+    """Fill `models.<side>.resolved` once. A different id later is reported, never overwritten."""
+    if not doc or not model_id:
+        return
+    models = doc.get("models") if isinstance(doc.get("models"), dict) else {}
+    entry = models.get(side) if isinstance(models.get(side), dict) else {}
+    if entry.get("resolved") is not None:
+        return
+    entry["resolved"] = model_id
+    models[side] = entry
+    doc["models"] = models
+    path = doc.pop("_path")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
+    doc["_path"] = path
+
+
+# ----- labels ------------------------------------------------------------------------------------- #
+def _append_eval_line(dd, name, obj):
+    _eval_dir(dd)
+    path = os.path.join(dd, name)
+    line = json.dumps(obj, ensure_ascii=False) + "\n"
+    if KEY_SHAPED_RE.search(line):
+        raise ValueError("key-shaped value refused")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as fh:
+        fh.write(line)
+    os.chmod(path, 0o600)
+
+
+def eval_label_claude(repo, corpus, protocol=None, runs=CLAUDE_LABEL_RUNS, timeout_s=None):
+    """Run the headless Claude classifier CLAUDE_LABEL_RUNS times per row and write `claude_label`.
+
+    The prompt is `build_prompt` over the row's own request, paths and hints: the one the hook
+    classifies. Each run's outcome and measure go to `eval/claude-labels.jsonl` (no request text);
+    the majority (ties to the stricter label) goes into the corpus."""
+    doc, why = _check_protocol(repo, protocol, corpus)
+    if why:
+        return {"status": "error", "reason": why}
+    cr = _load("cv_classify_request", "compound-v-classify-request.py")
+    dd = data_dir(repo)
+    rows = _corpus_rows(corpus)
+    started = _ts()
+    models = set()
+    labelled = 0
+    for row in rows:
+        paths, hints = row.get("paths") or [], row.get("hints") or []
+        prompt = cr.build_prompt(row["request"], paths, hints)
+        decided = []
+        for run in range(runs):
+            kw = {"cwd": repo, "taxonomy_categories": hints, "prompt": prompt}
+            if timeout_s is not None:
+                kw["timeout_s"] = timeout_s
+            res = cr.classify_headless(row["request"], paths, **kw)
+            ran = res.get("backend") in ("claude", "codex") and not res.get("timed_out")
+            measure = res.get("measure") if isinstance(res.get("measure"), dict) else None
+            try:
+                measure = validate_measure(json.dumps(measure)) if measure is not None else None
+            except ValueError:
+                measure = None
+            if ran:
+                decided.append(res.get("category"))
+            if measure and measure.get("model"):
+                models.add(measure["model"])
+            _append_eval_line(dd, CLAUDE_LABELS_FILE, {
+                "ts": _ts(), "batch": started, "id": row["id"], "run": run + 1,
+                "backend": res.get("backend") if isinstance(res.get("backend"), str) else None,
+                "timed_out": bool(res.get("timed_out")),
+                "category": _label_or_none(res.get("category")) if ran else None,
+                "measure": measure})
+        row["claude_label"] = _majority(decided)
+        labelled += 1 if row["claude_label"] is not None else 0
+    _write_corpus(corpus, rows)
+    if len(models) == 1:
+        _protocol_set_resolved(doc, "claude", next(iter(models)))
+    return {"status": "ok", "rows": len(rows), "labelled": labelled,
+            "results": os.path.join(dd, CLAUDE_LABELS_FILE),
+            "claude_models": sorted(models)}
+
+
+_SHEET_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
+
+
+def eval_merge_human(repo, corpus, sheet):
+    """Read the maintainer's blind sheet into `human_label`. All or nothing.
+
+    Refused (nothing written): a label row without exactly four cells, an id twice or not in the
+    corpus, a code outside `p m M u` (case-sensitive), or a corpus row missing from the sheet. An
+    empty label cell leaves that row's `human_label` null."""
+    rows = _corpus_rows(corpus)
+    by_id = {r["id"]: r for r in rows}
+    seen = {}
+    with open(sheet, encoding="utf-8") as fh:
+        lines = fh.read().splitlines()
+    for line in lines:
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s[1:-1].split("|")] if s.endswith("|") else None
+        first = cells[0] if cells else s[1:].split("|")[0].strip()
+        if not _SHEET_ID_RE.match(first):
+            continue  # a header, a separator or the legend
+        if cells is None or len(cells) != 4:
+            return {"status": "error", "reason": "sheet_row", "id": first}
+        if first not in by_id:
+            return {"status": "error", "reason": "sheet_unknown_id", "id": first}
+        if first in seen:
+            return {"status": "error", "reason": "sheet_duplicate_id", "id": first}
+        code = cells[3].strip("`").strip()
+        if code and code not in HUMAN_CODES:
+            return {"status": "error", "reason": "sheet_unknown_code", "id": first}
+        seen[first] = HUMAN_CODES[code] if code else None
+    missing = [r["id"] for r in rows if r["id"] not in seen]
+    if missing:
+        return {"status": "error", "reason": "sheet_missing_rows", "missing": len(missing), "first_missing": missing[0]}
+    for r in rows:
+        r["human_label"] = seen[r["id"]]
+    _write_corpus(corpus, rows)
+    labelled = sum(1 for r in rows if r["human_label"] is not None)
+    return {"status": "ok", "rows": len(rows), "labelled": labelled}
+
+
+# ----- prepare ------------------------------------------------------------------------------------ #
+def _manifest_path(dd):
+    _eval_dir(dd)
+    return os.path.join(dd, EVAL_MANIFEST)
+
+
+def eval_prepare(repo, corpus=None, pairs=False, protocol=None):
+    """Write every eval request: per row the original wording BASE_REPEATS times and each other
+    variant once. The order is by pass (pass 1: every row's original and variants; passes 2..n:
+    the original again), and `position` (1-based) is the place in that order: position 1 is the
+    batch's cold call, every later one warm, by position and not by any observed cache state."""
+    doc = None
+    if corpus:
+        doc, why = _check_protocol(repo, protocol, corpus)
+        if why:
+            return {"status": "error", "reason": why}
     dd = data_dir(repo)
     prune(dd)
     items = _corpus_items(corpus) if corpus else []
     if pairs:
         items.extend(_pair_items(dd))
+    plan = []
+    for repeat in range(BASE_REPEATS):
+        for item in items:
+            for vname, variant, reverse in VARIANTS:
+                if repeat < VARIANT_REPEATS[vname]:
+                    plan.append((item, vname, variant, reverse, repeat + 1))
     entries, skipped, files = [], [], []
-    for item in items:
-        for vname, variant, reverse in VARIANTS:
-            res = build_request("t3", item["state"], repo, variant, reverse, context="offline", do_prune=False)
-            if res["status"] != "ok":
-                skipped.append({"id": item["id"], "variant": vname, "reason": res["reason"]})
-                continue
-            files.append(res["request_file"])
-            entries.append({"id": item["id"], "source": item["source"], "variant": vname,
-                            "request_file": res["request_file"], "t3_reason": item["t3_reason"],
-                            "labels": item["labels"]})
-    manifest = {"created": _ts(), "point": "t3", "model": MODEL_DEFAULT, "entries": entries, "skipped": skipped}
-    _replace_private(os.path.join(dd, EVAL_MANIFEST), json.dumps(manifest, ensure_ascii=False) + "\n")
-    return {"request_files": files, "skipped": len(skipped)}
+    for item, vname, variant, reverse, repeat in plan:
+        res = build_request("t3", item["state"], repo, variant, reverse, context="offline", do_prune=False,
+                            name_prefix=EVAL_PREFIX)
+        if res["status"] != "ok":
+            skipped.append({"id": item["id"], "variant": vname, "repeat": repeat, "reason": res["reason"]})
+            continue
+        files.append(res["request_file"])
+        entries.append({"id": item["id"], "source": item["source"], "variant": vname, "repeat": repeat,
+                        "position": len(entries) + 1,
+                        "request_id": "%s:%s:%d" % (item["id"], vname, repeat),
+                        "request_file": res["request_file"], "t3_reason": item["t3_reason"],
+                        "labels": item["labels"]})
+    manifest = {"created": _ts(), "point": "t3", "model": MODEL_DEFAULT,
+                "corpus": os.path.realpath(corpus) if corpus else None,
+                "protocol_digest": doc.get("frozen_digest") if doc else None,
+                "entries": entries, "skipped": skipped}
+    _replace_private(_manifest_path(dd), json.dumps(manifest, ensure_ascii=False) + "\n")
+    return {"request_files": files, "skipped": len(skipped), "protocol": "checked" if doc else "none"}
 
 
 def _response_for_request(req_path):
@@ -818,25 +1192,100 @@ def _rate_row(name, k, n):
     return "| %s | %d/%d | %.3f | %.3f - %.3f |" % (name, k, n, k / n, lo, hi)
 
 
-def eval_report(repo, out_path):
+def _lat_line(name, vals, budget=None):
+    v = sorted(x for x in vals if x is not None)
+    if not v:
+        return "- %s: no measured sample." % name
+    line = "- %s: p50 %d ms, p95 %d ms (n = %d)" % (name, _percentile(v, 0.5), _percentile(v, 0.95), len(v))
+    if budget is not None:
+        k = sum(1 for x in v if x <= budget)
+        line += "; %d/%d (%.3f) at or under %d ms" % (k, len(v), k / len(v), budget)
+    return line + "."
+
+
+def _inversions_text(k, n, who):
+    if n == 0:
+        return "%s: no row has both an answer and a human label." % who
+    if k == 0:
+        return "%s: 0/%d observed; 95%% upper bound by the rule of three: 3/%d = %.3f." % (who, n, n, 3.0 / n)
+    lo, hi = wilson(k, n)
+    return "%s: %d/%d observed (Wilson 95%% interval %.3f - %.3f)." % (who, k, n, lo, hi)
+
+
+def _would_decide(answer, t3_reason):
+    """Whether Jev's answer needs no Claude confirmation under the spec 1.5 candidate policy.
+
+    `unknown` falls back to Claude; a demoting answer (`plumbing` or `user-facing-minor` on a
+    `demotion` or `sensitive` consultation) is at best provisional and still costs the Claude call
+    at bind. Anything else Jev decides on its own."""
+    if answer is None or answer == "unknown":
+        return False
+    if (t3_reason or "unbanded") in ("demotion", "sensitive") and answer in ("plumbing", "user-facing-minor"):
+        return False
+    return True
+
+
+def _split(ids, seed):
+    order = sorted(ids, key=lambda i: hashlib.sha256(("%d:%s" % (seed, i)).encode("utf-8")).hexdigest())
+    half = len(order) // 2
+    return set(order[:half]), set(order[half:])
+
+
+def _read_jsonl(path):
+    out = []
+    if not os.path.isfile(path):
+        return out
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(obj, dict):
+                out.append(obj)
+    return out
+
+
+# ----- report ------------------------------------------------------------------------------------- #
+def eval_report(repo, out_path, protocol=None):
     dd = data_dir(repo)
     prune(dd)
     mpath = os.path.join(dd, EVAL_MANIFEST)
     if not os.path.isfile(mpath):
         return {"status": "error", "reason": "no_eval"}
     manifest = _read_json_file(mpath)
-    by_id = {}
+    corpus = manifest.get("corpus")
+    doc = None
+    if corpus and os.path.isfile(corpus):
+        doc, why = _check_protocol(repo, protocol, corpus)
+        if why:
+            return {"status": "error", "reason": why}
+        if doc and manifest.get("protocol_digest") not in (None, doc.get("frozen_digest")):
+            return {"status": "error", "reason": "protocol_mismatch"}
+    elif protocol:
+        return {"status": "error", "reason": "no_corpus"}
+    # Labels are read fresh from the corpus: `--merge-human` may have run after `--prepare`.
+    fresh = {}
+    if corpus and os.path.isfile(corpus):
+        fresh = {it["id"]: it for it in _corpus_items(corpus)}
+
+    answers = {}       # (id, variant, repeat) -> parsed answer
     meta = {}
     outcomes = {}
     ok_answers = []
     models = set()
-    latencies = []
     hashes = set()
+    cold, warm = [], []
     for e in manifest.get("entries", []):
         res = parse_response(_response_for_request(e["request_file"]), e["request_file"])
         key = res["status"] if res["status"] == "ok" else "%s/%s" % (res["status"], res.get("reason"))
         outcomes[key] = outcomes.get(key, 0) + 1
-        meta.setdefault(e["id"], e)
+        if e["id"] not in meta:
+            m = dict(e)
+            if e["id"] in fresh:
+                m["labels"] = fresh[e["id"]]["labels"]
+                m["t3_reason"] = fresh[e["id"]]["t3_reason"]
+            meta[e["id"]] = m
         if e["variant"] == "original" and res.get("catalogue_hash"):
             hashes.add(res["catalogue_hash"])
         if res["status"] != "ok":
@@ -844,55 +1293,76 @@ def eval_report(repo, out_path):
         ans = res["answers"].get("category")
         if ans is None:
             continue
-        by_id.setdefault(e["id"], {})[e["variant"]] = ans["answer"]
+        answers[(e["id"], e["variant"], e.get("repeat", 1))] = ans
         ok_answers.append(ans)
         if res.get("model"):
             models.add(res["model"])
         if res.get("latency_ms") is not None:
-            latencies.append(res["latency_ms"])
+            (cold if e.get("position") == 1 else warm).append(res["latency_ms"])
 
-    originals = {i: v["original"] for i, v in by_id.items() if "original" in v}
-    n = len(originals)
-    agree = {}
-    for ref in ("human", "claude", "draft"):
+    ids = list(meta)
+    base, base_top, consistent = {}, {}, [0, 0]
+    for i in ids:
+        reps = [answers[(i, "original", r)] for r in range(1, BASE_REPEATS + 1) if (i, "original", r) in answers]
+        if not reps:
+            continue
+        base[i] = _majority([a["answer"] for a in reps])
+        tops = [max(a["probs"].values()) for a in reps if a["probs"]]
+        base_top[i] = min(tops) if tops else None
+        if len(reps) == BASE_REPEATS:
+            consistent[1] += 1
+            consistent[0] += 1 if len({a["answer"] for a in reps}) == 1 else 0
+    n = len(base)
+
+    human = {i: meta[i]["labels"].get("human") for i in ids}
+    claude = {i: meta[i]["labels"].get("claude") for i in ids}
+    n_human = sum(1 for i in ids if human[i] is not None)
+    no_human = len(ids) - n_human
+
+    def agree(pred, ref):
         k = m = 0
-        for i, a in originals.items():
-            lab = meta[i]["labels"].get(ref)
-            if lab is None:
+        for i in ids:
+            if pred.get(i) is None or ref.get(i) is None:
                 continue
             m += 1
-            k += 1 if a == lab else 0
-        agree[ref] = (k, m)
-    inv_k = inv_n = 0
-    for i, a in originals.items():
-        labels = meta[i]["labels"]
-        ref = labels.get("human") or labels.get("claude") or labels.get("draft")
-        if ref is None:
-            continue
-        inv_n += 1
-        inv_k += 1 if STRICTNESS[a] < STRICTNESS[ref] else 0
+            k += 1 if pred[i] == ref[i] else 0
+        return k, m
+
+    def inversions(pred):
+        k = m = 0
+        for i in ids:
+            if pred.get(i) is None or human[i] is None:
+                continue
+            m += 1
+            k += 1 if STRICTNESS[pred[i]] < STRICTNESS[human[i]] else 0
+        return k, m
+
+    jev_h, cl_h, jev_cl = agree(base, human), agree(claude, human), agree(base, claude)
+    inv_j, inv_c = inversions(base), inversions(claude)
 
     def flips(variant):
         k = m = 0
-        for v in by_id.values():
-            if "original" in v and variant in v:
-                m += 1
-                k += 1 if v["original"] != v[variant] else 0
+        for i in ids:
+            a = answers.get((i, variant, 1))
+            if a is None or base.get(i) is None:
+                continue
+            m += 1
+            k += 1 if a["answer"] != base[i] else 0
         return k, m
 
     any_k = any_m = 0
-    for v in by_id.values():
-        if "original" in v and "wording1" in v and "wording2" in v:
-            any_m += 1
-            any_k += 1 if (v["wording1"] != v["original"] or v["wording2"] != v["original"]) else 0
+    for i in ids:
+        w1, w2 = answers.get((i, "wording1", 1)), answers.get((i, "wording2", 1))
+        if base.get(i) is None or w1 is None or w2 is None:
+            continue
+        any_m += 1
+        any_k += 1 if (w1["answer"] != base[i] or w2["answer"] != base[i]) else 0
 
-    maxp = [max(a["probs"].values()) if a["probs"] else None for a in ok_answers]
-    maxp = [p for p in maxp if p is not None]
+    maxp = [max(a["probs"].values()) for a in ok_answers if a["probs"]]
     bins = [0] * 10
     for p in maxp:
         bins[min(9, int(p * 10))] += 1
     hard = sum(1 for p in maxp if p in (0.0, 1.0))
-    lat = sorted(latencies)
     usable = len(models) == 1 and n > 0
     if not models:
         gate_line = "Not usable for gating: no successful response carried a model id."
@@ -902,41 +1372,94 @@ def eval_report(repo, out_path):
         gate_line = "Not usable for gating: no original request has an answer."
     else:
         gate_line = "One resolved model id across all responses; usable for gating on that id only."
+    if doc and len(models) == 1:
+        _protocol_set_resolved(doc, "jev", next(iter(models)))
 
+    th = (doc or {}).get("thresholds") or {}
+    seed = (doc or {}).get("split_seed", SPLIT_SEED)
+    grid = th.get("risk_coverage_grid") or list(RISK_GRID)
+    share_min = th.get("skippable_share_min", SKIPPABLE_SHARE_MIN)
+    min_labels = th.get("min_human_labels", MIN_HUMAN_LABELS)
+    hook_budget = th.get("hook_budget_ms", TIMEOUT_MS["hook"])
+
+    labelled = [i for i in ids if base.get(i) is not None and human[i] is not None and base_top.get(i) is not None]
+    fit, rep = _split(labelled, seed)
+
+    def curve(rows, t):
+        cov = [i for i in rows if base_top[i] >= t]
+        err = sum(1 for i in cov if base[i] != human[i])
+        return len(cov), err
+
+    theta = None
+    for t in sorted(grid):
+        c, err = curve(fit, t)
+        if c > 0 and err == 0:
+            theta = t
+            break
+
+    sk_k = sum(1 for i in base if _would_decide(base[i], meta[i].get("t3_reason")))
+
+    shadow_calls = [c for c in _read_jsonl(os.path.join(dd, CALLS_FILE))
+                    if c.get("mode") == "shadow" and c.get("point") == "t3"]
+    shadow_ok = [c.get("latency_ms") for c in shadow_calls if c.get("status") == "ok"]
+    pairs_measures = []
+    for p in _read_jsonl(os.path.join(dd, PAIRS_FILE)):
+        try:
+            pairs_measures.append(validate_measure(json.dumps(p.get("claude_measure"))))
+        except (ValueError, TypeError):
+            continue
+    label_runs = []
+    for r in _read_jsonl(os.path.join(dd, CLAUDE_LABELS_FILE)):
+        try:
+            label_runs.append(validate_measure(json.dumps(r.get("measure"))))
+        except (ValueError, TypeError):
+            continue
+    trusted_runs = [m for m in label_runs if m["wall_ms"] is not None]
+
+    pm = (doc or {}).get("models") or {}
     lines = [
         "# Jev T3 eval",
         "",
         "- Generated: %s by `scripts/compound-v-jev.py eval --t3 --report`." % _ts(),
+        "- Frozen protocol: %s." % ("`%s` (%s)" % (_repo_rel(repo, doc["_path"]), doc.get("frozen_digest"))
+                                   if doc else "none; the decision rule below is not applied"),
         "- Requests prepared: %s. Requested model: `%s`." % (manifest.get("created"), manifest.get("model")),
-        "- Resolved model id(s): %s." % (", ".join("`%s`" % m for m in sorted(models)) or "none"),
+        "- Resolved Jev model id(s) in the responses: %s." % (", ".join("`%s`" % m for m in sorted(models)) or "none"),
+        "- Models pinned by the protocol: Jev %s, Claude %s." % (
+            json.dumps((pm.get("jev") or {}).get("resolved")), json.dumps((pm.get("claude") or {}).get("resolved"))),
         "- Catalogue hash (original wording): %s." % (", ".join("`%s`" % h for h in sorted(hashes)) or "none"),
-        "- Items with an answer to the original request (n): %d. Items prepared: %d." % (n, len(meta)),
+        "- Items with an answer to the original wording (n): %d. Items prepared: %d." % (n, len(ids)),
+        "- Rows with a human label: %d; rows without one, excluded from agreement and inversions: %d." % (n_human, no_human),
         "- Response outcomes: %s." % (", ".join("%s %d" % (k, outcomes[k]) for k in sorted(outcomes)) or "none"),
         "- Requests skipped at prepare: %d." % len(manifest.get("skipped", [])),
         "",
-        "## Agreement (Wilson 95% interval)",
+        "## Agreement with the human label (Wilson 95% interval)",
         "",
-        "| Reference | k/n | rate | 95% Wilson interval |",
+        "Jev's answer is the majority of its %d answers to the original wording (a tie goes to the stricter "
+        "label). Claude's is `claude_label`, the majority of %d headless runs." % (BASE_REPEATS, CLAUDE_LABEL_RUNS),
+        "",
+        "| Pair | k/n | rate | 95% Wilson interval |",
         "|---|---|---|---|",
-        _rate_row("human label", *agree["human"]),
-        _rate_row("Claude classifier label", *agree["claude"]),
-        _rate_row("implementer draft label", *agree["draft"]),
+        _rate_row("Jev vs human", *jev_h),
+        _rate_row("Claude vs human", *cl_h),
+        _rate_row("Jev vs Claude", *jev_cl),
         "",
         "## Strictness inversions",
         "",
-        "Jev's answer is less strict than the reference label (human, else Claude, else draft).",
+        "An answer less strict than the human label. Rows without a human label are not counted.",
         "",
-    ]
-    if inv_n == 0:
-        lines.append("No item has a reference label.")
-    elif inv_k == 0:
-        lines.append("0/%d observed; 95%% upper bound by the rule of three: 3/%d = %.3f." % (inv_n, inv_n, 3.0 / inv_n))
-    else:
-        lo, hi = wilson(inv_k, inv_n)
-        lines.append("%d/%d observed (Wilson 95%% interval %.3f - %.3f)." % (inv_k, inv_n, lo, hi))
-    lines += [
+        "- " + _inversions_text(inv_j[0], inv_j[1], "Jev"),
+        "- " + _inversions_text(inv_c[0], inv_c[1], "Claude"),
+        "",
+        "## Self-consistency over %d repeats" % BASE_REPEATS,
+        "",
+        "| Rows | k/n | rate | 95% Wilson interval |",
+        "|---|---|---|---|",
+        _rate_row("all %d answers give the same label" % BASE_REPEATS, *consistent),
         "",
         "## Order and wording stability (Wilson 95% interval)",
+        "",
+        "Each variant's label against the majority label of the original wording, compared by label.",
         "",
         "| Flip | k/n | rate | 95% Wilson interval |",
         "|---|---|---|---|",
@@ -945,18 +1468,9 @@ def eval_report(repo, out_path):
         _rate_row("alternate wording 2", *flips("wording2")),
         _rate_row("either alternate wording", any_k, any_m),
         "",
-        "## Latency (measured by the vault)",
-        "",
-    ]
-    if lat:
-        lines.append("p50 %d ms, p95 %d ms over %d responses." % (_percentile(lat, 0.5), _percentile(lat, 0.95), len(lat)))
-    else:
-        lines.append("No measured latency.")
-    lines += [
-        "",
         "## Probability histogram",
         "",
-        "Maximum probability per answer, all variants, 10 bins.",
+        "Maximum probability per answer, all variants and repeats, 10 bins.",
         "",
         "| Bin | Answers |",
         "|---|---|",
@@ -964,22 +1478,103 @@ def eval_report(repo, out_path):
     for b in range(10):
         hi_edge = "1.0]" if b == 9 else "%.1f)" % ((b + 1) / 10.0)
         lines.append("| [%.1f, %s | %d |" % (b / 10.0, hi_edge, bins[b]))
-    lines += [
-        "",
-        "## Hard answers",
-        "",
-    ]
+    lines += ["", "## Hard answers", ""]
     if maxp:
         lines.append("%d/%d answers (%.3f) have a maximum probability of exactly 0 or 1." % (hard, len(maxp), hard / len(maxp)))
     else:
         lines.append("No answers.")
+    lines += [
+        "",
+        "## Risk and coverage",
+        "",
+        "A row is covered at threshold t when the lowest of its original-wording top probabilities is at least t. "
+        "Rows with a human label are split in two halves by a fixed seed (%d): the threshold is fitted on the "
+        "first (the lowest grid value with zero disagreements) and reported on the second." % seed,
+        "",
+        "| t | fit half: covered | fit half: disagreements | report half: covered | report half: disagreements |",
+        "|---|---|---|---|---|",
+    ]
+    for t in grid:
+        fc, fe = curve(fit, t)
+        rc, re_ = curve(rep, t)
+        lines.append("| %.2f | %d/%d | %d/%d | %d/%d | %d/%d |" % (t, fc, len(fit), fe, fc, rc, len(rep), re_, rc))
+    lines.append("")
+    if theta is None:
+        lines.append("No grid threshold has zero disagreements on the fit half (n = %d)." % len(fit))
+    else:
+        rc, re_ = curve(rep, theta)
+        lines += ["Fitted threshold %.2f, on the report half:" % theta, "",
+                  "| Report half | k/n | rate | 95% Wilson interval |", "|---|---|---|---|",
+                  _rate_row("covered", rc, len(rep)), _rate_row("disagreements among covered", re_, rc)]
+    lines += [
+        "",
+        "## Calls Jev would decide",
+        "",
+        "Under the spec 1.5 candidate policy Jev decides on its own unless it answers `unknown` or demotes "
+        "(`plumbing` or `user-facing-minor` on a `demotion` or `sensitive` consultation, which stays provisional "
+        "until Claude confirms it). This share is of the Claude classify calls spec 1.5 could actually skip.",
+        "",
+        "| Share | k/n | rate | 95% Wilson interval |",
+        "|---|---|---|---|",
+        _rate_row("Jev decides alone", sk_k, len(base)),
+        "",
+        "## Latency",
+        "",
+        "Jev, from the vault's own `latency_ms`; only `ok` responses are samples. The eval's requests run in "
+        "the offline context (cap %d ms); a hook call has %d ms. A 429 retry inside the vault is part of the "
+        "latency it reports. Cold and warm are by position in the batch, not by an observed cache state."
+        % (TIMEOUT_MS["offline"], hook_budget),
+        "",
+        _lat_line("Jev, eval batch, first call (cold)", cold, hook_budget),
+        _lat_line("Jev, eval batch, later calls (warm)", warm, hook_budget),
+        "- Jev, eval batch, non-ok responses: %d." % sum(v for k, v in outcomes.items() if k != "ok"),
+        _lat_line("Jev, live shadow calls (the hook path, cold)", shadow_ok, hook_budget),
+        "- Jev, live shadow calls, non-ok: %d." % sum(1 for c in shadow_calls if c.get("status") != "ok"),
+        "",
+        "Claude, the headless classify: `wall_ms` is the whole process (what the hook waits for), "
+        "`duration_api_ms` the API time. Token counts are `usage`, the main loop only. A run whose result "
+        "was not trusted is not a sample.",
+        "",
+        _lat_line("Claude wall_ms, label runs", [m["wall_ms"] for m in trusted_runs]),
+        _lat_line("Claude duration_api_ms, label runs", [m["duration_api_ms"] for m in trusted_runs]),
+        _lat_line("Claude wall_ms, live shadow pairs", [m["wall_ms"] for m in pairs_measures]),
+        "- Claude label runs not measured (untrusted, failed or timed out): %d." % (len(label_runs) - len(trusted_runs)),
+    ]
+    for f in MEASURE_TOKEN_FIELDS:
+        v = sorted(m["tokens"][f] for m in trusted_runs if m["tokens"][f] is not None)
+        lines.append("- Claude %s per call: %s." % (
+            f, "p50 %d, p95 %d (n = %d)" % (_percentile(v, 0.5), _percentile(v, 0.95), len(v)) if v else "no sample"))
+
+    lines += ["", "## Decision", "", DECISION_RULE, ""]
+    decidable = False
+    if doc is None:
+        lines.append("Not decidable: no frozen protocol.")
+    elif n_human < min_labels:
+        lines.append("Not decidable: %d human labels; the rule needs %d." % (n_human, min_labels))
+    else:
+        decidable = True
+        a = inv_j[1] > 0 and inv_j[0] == 0
+        jl, jh = wilson(*jev_h) if jev_h[1] else (0.0, 0.0)
+        cl, ch = wilson(*cl_h) if cl_h[1] else (0.0, 0.0)
+        b = jev_h[1] > 0 and cl_h[1] > 0 and (jl <= ch and cl <= jh or jev_h[0] / jev_h[1] > cl_h[0] / cl_h[1])
+        share = sk_k / len(base) if base else 0.0
+        c = share >= share_min
+        lines += [
+            "- (a) zero strictness inversions for Jev: %s." % ("met" if a else "not met"),
+            "- (b) Jev's agreement not worse than Claude's: %s." % ("met" if b else "not met"),
+            "- (c) share Jev decides alone %.3f against the pinned minimum %.2f: %s." % (
+                share, share_min, "material" if c else "not material"),
+            "",
+            "Verdict: %s" % ("build spec 1.5." if (a and b and c) else "do not build spec 1.5; the next step is spec 2."),
+        ]
     lines += ["", "## Gating", "", gate_line, ""]
     text = "\n".join(lines)
     out_dir = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(out_dir, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as fh:
         fh.write(text)
-    return {"status": "ok", "report": out_path, "n": n, "usable_for_gating": usable}
+    return {"status": "ok", "report": out_path, "n": n, "usable_for_gating": usable, "decidable": decidable,
+            "human_labels": n_human}
 
 
 # --------------------------------------------------------------------------- #
@@ -1036,13 +1631,21 @@ def _parser():
     pa.add_argument("--backend", required=True, type=_token_arg)
     pa.add_argument("--t3-reason", required=True, type=_token_arg)
     pa.add_argument("--repo", required=True)
-    ev = sub.add_parser("eval")
+    # Optional: the headless Claude classify's measure as compact JSON (numbers, null and a model id;
+    # never request text). The Task route has none and omits it.
+    pa.add_argument("--claude-measure-json", metavar="JSON")
+    ev = sub.add_parser("eval", allow_abbrev=False)
     ev.add_argument("--t3", action="store_true", required=True)
     g = ev.add_mutually_exclusive_group(required=True)
+    g.add_argument("--freeze", action="store_true", help="write the frozen protocol before any call")
+    g.add_argument("--label-claude", action="store_true", help="headless Claude labels (live calls)")
+    g.add_argument("--merge-human", nargs="?", const=DEFAULT_SHEET, metavar="SHEET",
+                   help="read the blind labelling sheet into human_label")
     g.add_argument("--prepare", action="store_true")
     g.add_argument("--report", metavar="OUT")
     ev.add_argument("--corpus")
     ev.add_argument("--pairs", action="store_true")
+    ev.add_argument("--protocol", help="frozen protocol path (default: %s under --repo)" % DEFAULT_PROTOCOL)
     ev.add_argument("--repo", required=True)
     dd = sub.add_parser("data-dir")
     dd.add_argument("--repo", required=True)
@@ -1090,23 +1693,38 @@ def main(argv=None):
             if not _inside(rf, os.path.realpath(os.path.join(dd, "req"))):
                 _emit({"status": "error", "reason": "bad_input"})
                 return 0
-            _append_jsonl(dd, PAIRS_FILE, {"ts": _ts(), "request_file": rf, "claude_category": args.claude_category,
-                                           "backend": args.backend, "t3_reason": args.t3_reason})
+            line = {"ts": _ts(), "request_file": rf, "claude_category": args.claude_category,
+                    "backend": args.backend, "t3_reason": args.t3_reason}
+            if args.claude_measure_json is not None:
+                # Validated whole; a malformed measure refuses the line rather than storing junk.
+                line["claude_measure"] = validate_measure(args.claude_measure_json)
+            _append_jsonl(dd, PAIRS_FILE, line)
             _emit({"status": "ok"})
         except Exception:  # noqa: BLE001
             _emit({"status": "error", "reason": "bad_input"})
         return 0
     if args.cmd == "eval":
-        if args.prepare:
-            if not args.corpus and not args.pairs:
-                parser.error("eval --prepare needs --corpus, --pairs or both")
-            try:
-                _emit(eval_prepare(args.repo, args.corpus, args.pairs))
-            except Exception:  # noqa: BLE001
-                _emit({"status": "error", "reason": "bad_input"})
-            return 0
+        needs_corpus = args.freeze or args.label_claude or args.merge_human is not None
+        if needs_corpus and not args.corpus:
+            parser.error("this eval mode needs --corpus")
         try:
-            _emit(eval_report(args.repo, args.report))
+            if args.freeze:
+                _emit(eval_freeze(args.repo, args.corpus, args.protocol))
+            elif args.label_claude:
+                _emit(eval_label_claude(args.repo, args.corpus, args.protocol))
+            elif args.merge_human is not None:
+                sheet = args.merge_human
+                if not os.path.isabs(sheet) and not os.path.isfile(sheet):
+                    sheet = os.path.join(args.repo, sheet)
+                _emit(eval_merge_human(args.repo, args.corpus, sheet))
+            elif args.prepare:
+                if not args.corpus and not args.pairs:
+                    parser.error("eval --prepare needs --corpus, --pairs or both")
+                _emit(eval_prepare(args.repo, args.corpus, args.pairs, args.protocol))
+            else:
+                _emit(eval_report(args.repo, args.report, args.protocol))
+        except SystemExit:
+            raise
         except Exception:  # noqa: BLE001
             _emit({"status": "error", "reason": "bad_input"})
         return 0
@@ -1329,6 +1947,66 @@ def _selftest():
                                  "--t3-reason", "demotion", "--repo", repo])
         check("pair refuses a request file outside req/", out == {"status": "error", "reason": "bad_input"})
 
+        # -- pair with the Claude-side measure (optional, validated, never request text).
+        measure = {"wall_ms": 9900, "duration_ms": 6168, "duration_api_ms": 2360,
+                   "tokens": {"input_tokens": 2, "output_tokens": 6, "cache_read_input_tokens": 0,
+                              "cache_creation_input_tokens": 53136},
+                   "model": "claude-sonnet-4-5-20250929"}
+        rc, out, raw = _run_cli(["pair", "--request-file", rf, "--claude-category", "plumbing", "--backend", "claude",
+                                 "--t3-reason", "demotion", "--repo", repo,
+                                 "--claude-measure-json", json.dumps(measure, separators=(",", ":"))])
+        with open(os.path.join(dd, PAIRS_FILE)) as fh:
+            plines = [json.loads(x) for x in fh.read().splitlines()]
+        check("pair with a measure ok", out == {"status": "ok"})
+        check("pair with a measure: six keys, the measure stored beside the Claude category",
+              list(plines[-1]) == ["ts", "request_file", "claude_category", "backend", "t3_reason", "claude_measure"]
+              and plines[-1]["claude_measure"] == measure)
+        rc, out, raw = _run_cli(["pair", "--request-file", rf, "--claude-category", "plumbing", "--backend", "codex",
+                                 "--t3-reason", "demotion", "--repo", repo,
+                                 "--claude-measure-json", json.dumps({"wall_ms": 4100})])
+        with open(os.path.join(dd, PAIRS_FILE)) as fh:
+            last = json.loads(fh.read().splitlines()[-1])
+        check("pair: a partial measure (codex: wall_ms only) is stored with every other field null",
+              last["claude_measure"]["wall_ms"] == 4100 and last["claude_measure"]["model"] is None
+              and all(v is None for v in last["claude_measure"]["tokens"].values()))
+        n_before = len(plines) + 1
+        bad_measures = [
+            "not json", json.dumps([1]), json.dumps({"wall_ms": -1}), json.dumps({"wall_ms": 1.5}),
+            json.dumps({"wall_ms": "12"}), json.dumps({"wall_ms": True}), json.dumps({"cost": 1}),
+            json.dumps({"total_cost_usd": 0.1}), json.dumps({"tokens": {"input_tokens": 1, "x": 2}}),
+            json.dumps({"model": "has space"}), json.dumps({"model": "x" * 2000}),
+            json.dumps({"tokens": "lots"})]
+        refused = []
+        for bm in bad_measures:
+            rc, out, raw = _run_cli(["pair", "--request-file", rf, "--claude-category", "plumbing", "--backend",
+                                     "claude", "--t3-reason", "demotion", "--repo", repo, "--claude-measure-json", bm])
+            refused.append(out == {"status": "error", "reason": "bad_input"})
+        with open(os.path.join(dd, PAIRS_FILE)) as fh:
+            n_after = len(fh.read().splitlines())
+        check("pair refuses every malformed measure as bad_input", all(refused))
+        check("...and a refused measure writes no pair line", n_after == n_before)
+        with open(os.path.join(dd, PAIRS_FILE)) as fh:
+            ptext = fh.read()
+        check("no request text in any pair line", "lint config" not in ptext and "hunter2" not in ptext)
+
+        # -- the prune leaves the eval's own files alone.
+        ev_req = os.path.join(dd, "req", EVAL_PREFIX + "old.req.json")
+        ev_resp = os.path.join(dd, "resp", EVAL_PREFIX + "old.resp.json")
+        plain_req = os.path.join(dd, "req", "plainold.req.json")
+        os.makedirs(os.path.join(dd, EVAL_DIR), exist_ok=True)
+        ev_man = os.path.join(dd, EVAL_MANIFEST)
+        for p in (ev_req, ev_resp, plain_req, ev_man):
+            with open(p, "w") as fh:
+                fh.write("{}")
+            os.utime(p, (old, old))
+        prune(dd)
+        check("prune keeps a 31-day-old eval-* request and response file",
+              os.path.exists(ev_req) and os.path.exists(ev_resp))
+        check("prune keeps a 31-day-old file under eval/", os.path.exists(ev_man))
+        check("prune still removes a 31-day-old ordinary request file", not os.path.exists(plain_req))
+        for p in (ev_req, ev_resp, ev_man):
+            os.unlink(p)
+
         # -- pruning stale T3 descriptors (pending-*.json) in the data dir root.
         old_p = os.path.join(dd, "pending-old.json")
         new_p = os.path.join(dd, "pending-new.json")
@@ -1369,53 +2047,8 @@ def _selftest():
         check("wilson 0/10", (round(lo, 4), round(hi, 4)) == (0.0, 0.2775))
         lo, hi = wilson(10, 10)
         check("wilson 10/10", (round(lo, 4), round(hi, 4)) == (0.7225, 1.0))
-        corpus = os.path.join(tmp, "corpus.jsonl")
-        with open(corpus, "w") as fh:
-            for i, lab in enumerate(("plumbing", "user-facing-major", "unknown")):
-                fh.write(json.dumps({"id": "c%d" % i, "request": "request %d" % i, "paths": [], "hints": [],
-                                     "t3_reason": "demotion", "label_draft": lab, "label_source": "implementer-draft",
-                                     "human_label": None, "claude_label": None}) + "\n")
-        rc, out, raw = _run_cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--repo", repo])
-        check("eval prepare writes four requests per item", rc == 0 and len(out["request_files"]) == 12)
-        manifest = json.load(open(os.path.join(dd, EVAL_MANIFEST)))
-        rev = [e for e in manifest["entries"] if e["variant"] == "reversed"][0]
-        rtext = open(rev["request_file"]).read()
-        ridx = [rtext.find('"%s":' % k) for k in reversed(T3_ORDER)]
-        check("eval reversed variant reverses the options", -1 not in ridx and ridx == sorted(ridx))
-        labels_of = {"c0": "plumbing", "c1": "user-facing-major", "c2": "unknown"}
-        for e in manifest["entries"]:
-            ans = labels_of[e["id"]]
-            mdl = "typesafe/jev-1.13-20260917"
-            if e["id"] == "c1" and e["variant"] == "wording2":
-                mdl = "typesafe/jev-1.13-20261001"
-            probs = {k: (1.0 if k == ans else 0.0) for k in T3_ORDER}
-            if e["id"] == "c2":
-                probs = {"unknown": 0.55, "user-facing-major": 0.25, "user-facing-minor": 0.1, "plumbing": 0.1}
-            with open(_response_for_request(e["request_file"]), "w") as fh:
-                json.dump({"status": "ok", "latency_ms": 300 + len(e["id"]),
-                           "body": {"model": mdl, "answers": {"category": {"type": "choice", "choice": ans,
-                                                                           "probabilities": probs}}}}, fh)
-        report = os.path.join(tmp, "out", "report.md")
-        rc, out, raw = _run_cli(["eval", "--t3", "--report", report, "--repo", repo])
-        rtext = open(report).read()
-        printed.append(raw)
-        printed.append(rtext)
-        check("eval report ok", out.get("status") == "ok" and out.get("n") == 3)
-        check("eval zero inversions reports 3/n", "3/3 = 1.000" in rtext)
-        check("eval mixed model ids are not usable for gating",
-              "Not usable for gating" in rtext and out.get("usable_for_gating") is False)
-        check("eval histogram has 10 bins", "## Probability histogram" in rtext and rtext.count("| [0.") == 10
-              and "| [0.9, 1.0] |" in rtext)
-        check("eval hard-answer share", "8/12 answers" in rtext)
-        check("eval Wilson rows", "Wilson" in rtext and "| implementer draft label | 3/3 |" in rtext)
-        # The CI anti-ruflo patterns (validate.yml:194), joined from pieces: that gate greps this
-        # file too, and a literal copy of its own patterns would match it.
-        anti = re.compile("|".join((
-            r"tokens? " + "saved", r"token-cost (saved|savings)", "cost " + "savings:", r"saved [0-9]+ tokens",
-            r"baseline ?= ?" + "1000", r"\$[0-9]+\.[0-9]+ " + "saved")), re.I)
-        check("eval report has no anti-ruflo phrase", not anti.search(rtext))
-        one = eval_report_single_model_check(repo, tmp)
-        check("eval one model id is usable for gating", one)
+        for name, cond in _eval_rows(tmp, repo, printed):
+            check(name, cond)
 
         # -- nothing under the repository; no key-shaped string anywhere.
         check("nothing written under the repository", os.listdir(repo) == [])
@@ -1616,6 +2249,280 @@ def _t3_request_rows(tmp, repo, printed):
     return rows
 
 
+def _eval_rows(tmp, repo, printed):
+    """Selftest rows for the T3 eval: freeze, label-claude, merge-human, prepare, report."""
+    global MIN_HUMAN_LABELS
+    rows = []
+    ok = rows.append
+    dd = data_dir(repo)
+    corpus = os.path.join(tmp, "corpus.jsonl")
+    proto = os.path.join(tmp, "protocol.json")
+    reqs = {"c0": "Bump the lint rule config REQTEXT0", "c1": "Change the checkout payment flow REQTEXT1",
+            "c2": "Change how the modal closes REQTEXT2", "c3": "Reword the empty state REQTEXT3"}
+    # c3 has no human label, and its draft label is stricter than Jev's answer: under the old
+    # `human or claude or draft` fallback that row was an inversion; against the human label only
+    # it is excluded and counted.
+    spec = (("c0", "demotion", "plumbing", "plumbing", "plumbing"),
+            ("c1", "sensitive", "user-facing-major", "user-facing-major", "user-facing-major"),
+            ("c2", "unbanded", "unknown", "unknown", "user-facing-major"),
+            ("c3", "unbanded", "user-facing-major", None, None))
+
+    def write_corpus():
+        with open(corpus, "w") as fh:
+            for cid, reason, draft, human, claude in spec:
+                fh.write(json.dumps({"id": cid, "request": reqs[cid], "paths": ["src/%s.py" % cid],
+                                     "hints": ["legal_copy"], "t3_reason": reason, "label_draft": draft,
+                                     "label_source": "implementer-draft", "human_label": human,
+                                     "claude_label": claude}) + "\n")
+
+    write_corpus()
+
+    def cli(argv):
+        with contextlib.redirect_stderr(io.StringIO()):
+            rc, out, raw = _run_cli(argv)
+        printed.append(raw)
+        return rc, out
+
+    # -- freeze: before any call, refuses to overwrite, digest over the four immutable fields.
+    rc, out = cli(["eval", "--t3", "--freeze", "--corpus", corpus, "--protocol", proto, "--repo", repo])
+    pdoc = json.load(open(proto)) if os.path.isfile(proto) else {}
+    ok(("eval --freeze writes the protocol", rc == 0 and out.get("status") == "ok" and bool(pdoc)))
+    ok(("protocol pins corpus digest, catalogue hashes, variants, repeats, seed and thresholds",
+        pdoc.get("corpus_digest") == corpus_digest(corpus)
+        and sorted(pdoc.get("catalogue_hashes", {})) == sorted(v[0] for v in VARIANTS)
+        and pdoc.get("variants", [{}])[0] == {"name": "original", "repeats": 3}
+        and pdoc.get("split_seed") == SPLIT_SEED
+        and pdoc.get("thresholds", {}).get("min_human_labels") == MIN_HUMAN_LABELS
+        and pdoc.get("digest_fields") == ["id", "request", "paths", "hints"]))
+    ok(("protocol records both models, resolved ids unknown before any call",
+        pdoc.get("models", {}).get("jev") == {"requested": MODEL_DEFAULT, "resolved": None}
+        and set(pdoc.get("models", {}).get("claude", {})) == {"requested", "resolved"}))
+    rc, out = cli(["eval", "--t3", "--freeze", "--corpus", corpus, "--protocol", proto, "--repo", repo])
+    ok(("eval --freeze refuses to overwrite a frozen protocol", out.get("reason") == "already_frozen"))
+    base_digest = corpus_digest(corpus)
+    rows_now = _corpus_rows(corpus)
+    rows_now[0]["human_label"], rows_now[0]["claude_label"] = "unknown", "unknown"
+    _write_corpus(corpus, rows_now)
+    ok(("corpus digest ignores the label fields", corpus_digest(corpus) == base_digest))
+    write_corpus()
+    changed = _corpus_rows(corpus)
+    changed[1]["request"] = changed[1]["request"] + " and the refund flow"
+    _write_corpus(corpus, changed)
+    rc, out = cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--protocol", proto, "--repo", repo])
+    ok(("eval --prepare refuses a corpus that no longer matches the protocol", out.get("reason") == "corpus_changed"))
+    write_corpus()
+    edited = dict(pdoc)
+    edited["split_seed"] = 1
+    with open(proto, "w") as fh:
+        json.dump(edited, fh)
+    rc, out = cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--protocol", proto, "--repo", repo])
+    ok(("eval --prepare refuses a protocol edited after the freeze", out.get("reason") == "protocol_edited"))
+    with open(proto, "w") as fh:
+        json.dump(pdoc, fh)
+    rc, out = cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--protocol", os.path.join(tmp, "absent.json"),
+                   "--repo", repo])
+    ok(("an explicit --protocol that does not exist is refused", out.get("reason") == "no_protocol"))
+
+    # -- label-claude, through a fake `claude` that prints the JSON result object.
+    fake = os.path.join(tmp, "fake-claude.py")
+    with open(fake, "w") as fh:
+        fh.write("#!%s\n" % sys.executable + r'''import json, os, sys
+c = os.environ["FAKE_LC_COUNTER"]
+n = int(open(c).read()) if os.path.exists(c) else 0
+open(c, "w").write(str(n + 1))
+seq = os.environ["FAKE_LC_SEQ"].split(",")
+ans = seq[n % len(seq)]
+if ans == "TEXT":
+    sys.stdout.write("plumbing\n")
+    sys.exit(0)
+sys.stdout.write(json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": ans,
+    "duration_ms": 5000 + n, "duration_api_ms": 2000 + n, "total_cost_usd": 0.5,
+    "usage": {"input_tokens": 2, "output_tokens": 6, "cache_read_input_tokens": 0,
+              "cache_creation_input_tokens": 53136},
+    "modelUsage": {"claude-sonnet-4-5-20250929": {"costUSD": 0.5}}}) + "\n")
+''')
+    os.chmod(fake, 0o755)
+    saved_env = {k: os.environ.get(k) for k in ("CV_CLASSIFY_CLAUDE_BIN", "CV_CLASSIFY_CODEX_BIN",
+                                                "FAKE_LC_COUNTER", "FAKE_LC_SEQ")}
+    os.environ.update({"CV_CLASSIFY_CLAUDE_BIN": fake, "CV_CLASSIFY_CODEX_BIN": "",
+                       "FAKE_LC_COUNTER": os.path.join(tmp, "lc-counter"),
+                       # c0: plumbing x2 + minor; c1: major, minor, plain text (untrusted -> plumbing);
+                       # c2: a three-way tie -> the stricter (unknown); c3: minor x3.
+                       "FAKE_LC_SEQ": ",".join(["plumbing", "user-facing-minor", "plumbing",
+                                                "user-facing-major", "user-facing-minor", "TEXT",
+                                                "plumbing", "unknown", "user-facing-minor",
+                                                "user-facing-minor", "user-facing-minor", "user-facing-minor"])})
+    try:
+        before = [list(r) for r in _corpus_rows(corpus)]
+        res = eval_label_claude(repo, corpus, proto, timeout_s=10)
+    finally:
+        for k, v in saved_env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    after = _corpus_rows(corpus)
+    ok(("eval --label-claude runs %d headless classifies per row" % CLAUDE_LABEL_RUNS,
+        res.get("status") == "ok" and open(os.path.join(tmp, "lc-counter")).read() == "12"))
+    # c1's plain-text run is untrusted for the measure but still an answer (today's parse), so
+    # c1 is a three-way tie like c2, and both go to the stricter label.
+    ok(("claude_label is the majority, a tie going to the stricter label",
+        [r["claude_label"] for r in after] == ["plumbing", "user-facing-major", "unknown", "user-facing-minor"]))
+    ok(("label-claude keeps every row's key order", [list(r) for r in after] == before))
+    results = _read_jsonl(os.path.join(dd, CLAUDE_LABELS_FILE))
+    rtext = open(os.path.join(dd, CLAUDE_LABELS_FILE)).read()
+    ok(("label-claude writes one results line per run under eval/, with its measure",
+        len(results) == 12 and results[0]["measure"]["duration_api_ms"] == 2000
+        and results[0]["measure"]["model"] == "claude-sonnet-4-5-20250929"))
+    ok(("an untrusted run is recorded with a null measure", results[5]["measure"]["wall_ms"] is None))
+    ok(("no request text and no money field in any results line",
+        "REQTEXT" not in rtext and "cost" not in rtext.lower()))
+    ok(("label-claude fills the protocol's resolved Claude id; the freeze still holds",
+        json.load(open(proto))["models"]["claude"]["resolved"] == "claude-sonnet-4-5-20250929"
+        and _check_protocol(repo, proto, corpus)[1] is None))
+
+    # -- merge-human: codes p m M u, all or nothing.
+    sheet = os.path.join(tmp, "sheet.md")
+
+    def write_sheet(rows_):
+        with open(sheet, "w") as fh:
+            fh.write("# sheet\n\n| Code | Category | Meaning |\n|---|---|---|\n| `p` | plumbing | x |\n\n"
+                     "| # | Request | Paths | Label |\n|---|---|---|---|\n")
+            for r in rows_:
+                fh.write(r + "\n")
+
+    good = ["| c0 | a | `p` | p |", "| c1 | b | `q` | M |", "| c2 | c | `r` | u |", "| c3 | d | `s` |  |"]
+    snapshot = open(corpus).read()
+    for name, bad, reason in (
+            ("an unknown code", good[:3] + ["| c3 | d | `s` | x |"], "sheet_unknown_code"),
+            ("an upper-case P (codes are case-sensitive)", ["| c0 | a | `p` | P |"] + good[1:], "sheet_unknown_code"),
+            ("a missing row", good[:3], "sheet_missing_rows"),
+            ("an id not in the corpus", good + ["| c9 | z | `z` | p |"], "sheet_unknown_id"),
+            ("a row without four cells", good[:3] + ["| c3 | d | m |"], "sheet_row"),
+            ("a duplicate id", good + ["| c0 | a | `p` | p |"], "sheet_duplicate_id")):
+        write_sheet(bad)
+        rc, out = cli(["eval", "--t3", "--merge-human", sheet, "--corpus", corpus, "--repo", repo])
+        ok(("eval --merge-human refuses %s and writes nothing" % name,
+            out.get("reason") == reason and open(corpus).read() == snapshot))
+    write_sheet(good)
+    rc, out = cli(["eval", "--t3", "--merge-human", sheet, "--corpus", corpus, "--repo", repo])
+    merged = {r["id"]: r["human_label"] for r in _corpus_rows(corpus)}
+    ok(("eval --merge-human maps p/M/u and leaves an empty cell null",
+        out.get("status") == "ok" and out.get("labelled") == 3
+        and merged == {"c0": "plumbing", "c1": "user-facing-major", "c2": "unknown", "c3": None}))
+    ok(("merge-human keeps every row's key order and the frozen digest",
+        [list(r) for r in _corpus_rows(corpus)] == before and corpus_digest(corpus) == base_digest))
+
+    # -- prepare: 6 requests per row (original x3, three variants x1), keyed by repeat, positioned.
+    rc, out = cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--protocol", proto, "--repo", repo])
+    man = json.load(open(os.path.join(dd, EVAL_MANIFEST)))
+    ents = man["entries"]
+    ok(("eval --prepare writes 6 requests per row", rc == 0 and len(out.get("request_files", [])) == 24
+        and out.get("protocol") == "checked"))
+    per = {}
+    for e in ents:
+        per.setdefault(e["id"], []).append((e["variant"], e["repeat"]))
+    ok(("each row: the original wording 3 times, each variant once",
+        all(sorted(v) == [("original", 1), ("original", 2), ("original", 3), ("reversed", 1), ("wording1", 1),
+                          ("wording2", 1)] for v in per.values())))
+    ok(("request ids carry the repeat index and are unique",
+        len({e["request_id"] for e in ents}) == 24 and ents[0]["request_id"] == "c0:original:1"))
+    ok(("positions run 1..n in send order; position 1 is the batch's cold call",
+        [e["position"] for e in ents] == list(range(1, 25))))
+    ok(("eval requests are named eval-* (skipped by the prune) and sit in req/ for the vault",
+        all(os.path.basename(e["request_file"]).startswith(EVAL_PREFIX)
+            and os.path.dirname(e["request_file"]) == os.path.join(dd, "req") for e in ents)))
+    rev = [e for e in ents if e["variant"] == "reversed"][0]
+    rtext2 = open(rev["request_file"]).read()
+    ridx = [rtext2.find('"%s":' % k) for k in reversed(T3_ORDER)]
+    ok(("eval reversed variant reverses the options", -1 not in ridx and ridx == sorted(ridx)))
+
+    # Fake answers. c0's third original answer differs: the majority keeps `plumbing`, where the old
+    # overwrite-by-variant aggregation kept the LAST answer. c1's wording2 names another model.
+    jev = {"c0": "plumbing", "c1": "user-facing-major", "c2": "unknown", "c3": "user-facing-minor"}
+    for e in ents:
+        ans = jev[e["id"]]
+        if e["id"] == "c0" and e["variant"] == "original" and e["repeat"] == 3:
+            ans = "user-facing-minor"
+        mdl = "typesafe/jev-1.13-20261001" if (e["id"] == "c1" and e["variant"] == "wording2") \
+            else "typesafe/jev-1.13-20260917"
+        probs = {k: (1.0 if k == ans else 0.0) for k in T3_ORDER}
+        if e["id"] == "c2":
+            probs = {"unknown": 0.55, "user-facing-major": 0.25, "user-facing-minor": 0.1, "plumbing": 0.1}
+        with open(_response_for_request(e["request_file"]), "w") as fh:
+            json.dump({"status": "ok", "latency_ms": 900 if e["position"] == 1 else 300,
+                       "body": {"model": mdl, "answers": {"category": {"type": "choice", "choice": ans,
+                                                                       "probabilities": probs}}}}, fh)
+    report = os.path.join(tmp, "out", "report.md")
+    rc, out = cli(["eval", "--t3", "--report", report, "--protocol", proto, "--repo", repo])
+    rt = open(report).read() if os.path.isfile(report) else ""
+    printed.append(rt)
+    ok(("eval report ok", out.get("status") == "ok" and out.get("n") == 4))
+    ok(("report aggregates by (id, variant, repeat): Jev's majority agrees 3/3 with the human label",
+        "| Jev vs human | 3/3 |" in rt))
+    ok(("report: Claude vs human and Jev vs Claude rows",
+        "| Claude vs human | 3/3 |" in rt and "| Jev vs Claude | 4/4 |" in rt))
+    ok(("report: inversions against the human label only, rule of three at zero",
+        "Jev: 0/3 observed; 95% upper bound by the rule of three: 3/3 = 1.000." in rt))
+    ok(("report: rows without a human label are excluded and counted",
+        "rows without one, excluded from agreement and inversions: 1." in rt))
+    ok(("report: self-consistency over the 3 repeats", "| all 3 answers give the same label | 3/4 |" in rt))
+    ok(("report: flips compared by label against the majority", "| options reversed | 0/4 |" in rt))
+    ok(("report: the share of calls Jev would decide (no demotion, not unknown)",
+        "| Jev decides alone | 2/4 |" in rt))
+    ok(("report: risk-coverage with a fixed-seed split", "## Risk and coverage" in rt and "| 0.50 |" in rt
+        and ("Fitted threshold" in rt or "No grid threshold" in rt)))
+    ok(("report: cold and warm latency separately, with the hook budget share",
+        "first call (cold): p50 900 ms, p95 900 ms (n = 1); 1/1 (1.000) at or under 1500 ms." in rt
+        and "later calls (warm): p50 300 ms" in rt))
+    ok(("report: Claude wall_ms and duration_api_ms from the label runs, tokens per call",
+        "Claude duration_api_ms, label runs: p50" in rt and "Claude cache_creation_input_tokens per call: p50 53136" in rt))
+    ok(("report: not decidable below the pinned number of human labels",
+        "Not decidable: 3 human labels; the rule needs %d." % MIN_HUMAN_LABELS in rt
+        and out.get("decidable") is False))
+    ok(("eval hard-answer share", "18/24 answers" in rt))
+    ok(("eval histogram has 10 bins", "## Probability histogram" in rt and rt.count("| [0.") == 10
+        and "| [0.9, 1.0] |" in rt))
+    ok(("eval mixed model ids are not usable for gating",
+        "Not usable for gating" in rt and out.get("usable_for_gating") is False))
+    anti = re.compile("|".join((
+        r"tokens? " + "saved", r"token-cost (saved|savings)", "cost " + "savings:", r"saved [0-9]+ tokens",
+        r"baseline ?= ?" + "1000", r"\$[0-9]+\.[0-9]+ " + "saved")), re.I)
+    ok(("eval report has no anti-ruflo phrase", not anti.search(rt)))
+    ok(("eval report holds no request text and no money field", "REQTEXT" not in rt and "cost_usd" not in rt))
+    ok(("eval one model id is usable for gating", eval_report_single_model_check(repo, tmp)))
+    ok(("the report fills the protocol's resolved Jev id once one id is seen",
+        json.load(open(proto))["models"]["jev"]["resolved"] == "typesafe/jev-1.13-20260917"))
+
+    # -- the decision rule applied, in a repo of its own with the label minimum pinned at 3.
+    saved_min = MIN_HUMAN_LABELS
+    MIN_HUMAN_LABELS = 3
+    try:
+        repo2 = os.path.join(tmp, "repo2")
+        os.makedirs(repo2)
+        proto2 = os.path.join(tmp, "protocol2.json")
+        cli(["eval", "--t3", "--freeze", "--corpus", corpus, "--protocol", proto2, "--repo", repo2])
+        rc, out = cli(["eval", "--t3", "--prepare", "--corpus", corpus, "--protocol", proto2, "--repo", repo2])
+        dd2 = data_dir(repo2)
+        for e in json.load(open(os.path.join(dd2, EVAL_MANIFEST)))["entries"]:
+            ans = jev[e["id"]]
+            with open(_response_for_request(e["request_file"]), "w") as fh:
+                json.dump({"status": "ok", "latency_ms": 300, "body": {"model": "typesafe/jev-1.13-20260917",
+                           "answers": {"category": {"type": "choice", "choice": ans,
+                                                    "probabilities": {ans: 1.0}}}}}, fh)
+        report2 = os.path.join(tmp, "out", "report2.md")
+        rc, out = cli(["eval", "--t3", "--report", report2, "--protocol", proto2, "--repo", repo2])
+        r2 = open(report2).read() if os.path.isfile(report2) else ""
+        ok(("with enough human labels the rule is applied: (a), (b), (c) and a verdict",
+            out.get("decidable") is True and "- (a) zero strictness inversions for Jev: met." in r2
+            and "- (b) Jev's agreement not worse than Claude's: met." in r2
+            and "(c) share Jev decides alone 0.500 against the pinned minimum 0.25: material." in r2
+            and "Verdict: build spec 1.5." in r2))
+    finally:
+        MIN_HUMAN_LABELS = saved_min
+    return rows
+
+
 def eval_report_single_model_check(repo, tmp):
     """Re-point every eval response at one model id and confirm the report says it is usable."""
     dd = data_dir(repo)
@@ -1627,7 +2534,7 @@ def eval_report_single_model_check(repo, tmp):
         obj["body"]["model"] = "typesafe/jev-1.13-20260917"
         with open(path, "w") as fh:
             json.dump(obj, fh)
-    res = eval_report(repo, os.path.join(tmp, "out", "report-one.md"))
+    res = eval_report(repo, os.path.join(tmp, "out", "report-one.md"), os.path.join(tmp, "protocol.json"))
     return res.get("usable_for_gating") is True
 
 

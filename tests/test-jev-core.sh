@@ -149,15 +149,41 @@ n="$(wc -l <"$DD/shadow-pairs.jsonl" | tr -d ' ')"
 if [ "$n" = "1" ]; then pass "old pair pruned"; else fail "pairs file has $n lines"; fi
 keys="$("$PY" -B -c 'import json,sys; print(",".join(sorted(json.loads(open(sys.argv[1]).readline()))))' "$DD/shadow-pairs.jsonl")"
 if [ "$keys" = "backend,claude_category,request_file,t3_reason,ts" ]; then pass "pair keys exact"; else fail "pair keys: $keys"; fi
+# 8b. pair with the headless classify's measure: one more key, the measure validated; a malformed one
+# is refused and writes nothing; no request text in any pair line.
+M='{"wall_ms":9900,"duration_ms":6168,"duration_api_ms":2360,"tokens":{"input_tokens":2,"output_tokens":6,"cache_read_input_tokens":0,"cache_creation_input_tokens":53136},"model":"claude-sonnet-4-5-20250929"}'
+out="$("$PY" -B "$SCRIPT" pair --request-file "$REQ" --claude-category plumbing --backend claude --t3-reason demotion --repo "$REPO" --claude-measure-json "$M")"
+keys="$("$PY" -B -c 'import json,sys; print(",".join(sorted(json.loads(open(sys.argv[1]).readlines()[-1]))))' "$DD/shadow-pairs.jsonl")"
+wall="$("$PY" -B -c 'import json,sys; print(json.loads(open(sys.argv[1]).readlines()[-1])["claude_measure"]["duration_api_ms"])' "$DD/shadow-pairs.jsonl")"
+if [ "$(jget "$out" 'd["status"]')" = "ok" ] && [ "$keys" = "backend,claude_category,claude_measure,request_file,t3_reason,ts" ] && [ "$wall" = "2360" ]; then
+  pass "pair with --claude-measure-json stores the measure"
+else
+  fail "pair with a measure: $out keys=$keys"
+fi
+n_before="$(wc -l <"$DD/shadow-pairs.jsonl" | tr -d ' ')"
+out="$("$PY" -B "$SCRIPT" pair --request-file "$REQ" --claude-category plumbing --backend claude --t3-reason demotion --repo "$REPO" --claude-measure-json '{"total_cost_usd": 0.1}')"
+n_after="$(wc -l <"$DD/shadow-pairs.jsonl" | tr -d ' ')"
+if [ "$(jget "$out" 'd["reason"]')" = "bad_input" ] && [ "$n_before" = "$n_after" ]; then pass "a malformed measure is refused and writes nothing"; else fail "malformed measure: $out ($n_before -> $n_after)"; fi
+if grep -q 'Rename the build flag' "$DD/shadow-pairs.jsonl"; then fail "request text in a pair line"; else pass "no request text in any pair line"; fi
 
-# 9. eval: prepare four requests per corpus item, fake answers, report.
+# 9. eval: prepare six requests per corpus item (the original x3, three variants x1), fake answers, report.
 cat >"$T/work/corpus.jsonl" <<'EOF'
 {"id": "c1", "request": "Bump the lint rule config", "paths": [".eslintrc"], "hints": [], "t3_reason": "demotion", "label_draft": "plumbing", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
 {"id": "c2", "request": "Change the checkout payment flow", "paths": ["src/pay.ts"], "hints": [], "t3_reason": "sensitive", "label_draft": "user-facing-major", "label_source": "implementer-draft", "human_label": null, "claude_label": null}
 EOF
 out="$("$PY" -B "$SCRIPT" eval --t3 --prepare --corpus "$T/work/corpus.jsonl" --repo "$REPO")"
 cnt="$(jget "$out" 'len(d["request_files"])')"
-if [ "$cnt" = "8" ]; then pass "eval prepare: 4 requests per item"; else fail "eval prepare: $out"; fi
+if [ "$cnt" = "12" ]; then pass "eval prepare: 6 requests per item"; else fail "eval prepare: $out"; fi
+MAN="$DD/eval/eval-t3.json"
+shape="$("$PY" -B -c '
+import json, sys
+es = json.load(open(sys.argv[1]))["entries"]
+ok = (sorted((e["variant"], e["repeat"]) for e in es if e["id"] == "c1")
+      == [("original", 1), ("original", 2), ("original", 3), ("reversed", 1), ("wording1", 1), ("wording2", 1)]
+      and [e["position"] for e in es] == list(range(1, len(es) + 1))
+      and len({e["request_id"] for e in es}) == len(es))
+print("ok" if ok else "bad")' "$MAN" 2>/dev/null)"
+if [ "$shape" = "ok" ]; then pass "eval manifest under eval/: repeat index, request id and position per request"; else fail "eval manifest shape: $shape"; fi
 printf '%s' "$out" | "$PY" -B -c '
 import json, os, sys
 for f in json.load(sys.stdin)["request_files"]:
@@ -205,6 +231,9 @@ need = [
     ("jev_classify loaded with ToolSearch", "mcp__compound-v-vault__jev_classify" in step and "ToolSearch" in step),
     ("parse --mode shadow --request-file", "parse --mode shadow --request-file" in step),
     ("pair", re.search(r'compound-v-jev\.py" pair --request-file', step) is not None),
+    ("pair passes the measure, dropped on the Task route",
+     "--claude-measure-json '<measure_json>'" in step and "Task route" in step),
+    ("T2 keeps the classify's measure", "**Keep `measure`**" in text),
     ("no_key/egress/disabled write no pair", all(r in step for r in ("no_key", "egress", "disabled"))
      and "write no pair" in step),
     ("never skips T3", "never skips T3" in step),
@@ -216,7 +245,7 @@ PYEOF
 }
 got="$(prose_check "$TRIAGE_MD")"
 if [ "$got" = "ok" ]; then pass "v-triage prose: --t3-engine and the Jev step"; else fail "v-triage prose: $got"; fi
-for tok in '--t3-engine' 't3-request' 'jev_classify' 'parse --mode shadow' '" pair --request-file'; do
+for tok in '--t3-engine' 't3-request' 'jev_classify' 'parse --mode shadow' '" pair --request-file' '--claude-measure-json'; do
   "$PY" -B - "$TRIAGE_MD" "$T/work/triage-mut.md" "$tok" <<'PYEOF'
 import sys
 src, dst, tok = sys.argv[1:4]
@@ -249,7 +278,8 @@ if len(found) != 1:
 b = found[0]
 for ph, var in (("<the request text>", "FILL_REQUEST"), ("<category>", "FILL_CATEGORY"),
                 ("<engine>", "FILL_ENGINE"), ("<t3_reason>", "FILL_REASON"),
-                ("<request_file>", "FILL_REQ_FILE"), ("<response_file>", "FILL_RESP_FILE")):
+                ("<request_file>", "FILL_REQ_FILE"), ("<response_file>", "FILL_RESP_FILE"),
+                ("<measure_json>", "FILL_MEASURE")):
     if ph in b:
         b = b.replace(ph, os.environ[var])
 open(out, "w", encoding="utf-8").write(b)
@@ -323,13 +353,15 @@ fi
 JRESP="$(dirname "$(dirname "$JREQ")")/resp/$(basename "$JREQ" .req.json).resp.json"
 printf '%s' '{"status": "ok", "latency_ms": 900, "body": {"model": "typesafe/jev-1.13-20260917", "answers": {"category": {"type": "choice", "choice": "user-facing-minor", "probabilities": {"user-facing-minor": 0.8, "unknown": 0.1, "user-facing-major": 0.05, "plumbing": 0.05}}}}}' >"$JRESP"
 export FILL_REQ_FILE="$JREQ" FILL_RESP_FILE="$JRESP"
+export FILL_MEASURE='{"wall_ms":8000,"duration_ms":5000,"duration_api_ms":2100,"tokens":{"input_tokens":2,"output_tokens":6,"cache_read_input_tokens":null,"cache_creation_input_tokens":null},"model":null}'
 block "$TRIAGE_MD" parse "$T/work/parse.sh" && pr="$(cd "$P" && bash "$T/work/parse.sh" 2>/dev/null)"
 if [ "$(jget "${pr:-null}" 'd["answers"]["category"]["answer"]')" = "user-facing-minor" ]; then pass "prose parse reads the answer"; else fail "prose parse: ${pr:-no output}"; fi
 block "$TRIAGE_MD" pair "$T/work/pair.sh" && pa="$(cd "$P" && bash "$T/work/pair.sh" 2>/dev/null)"
 last="$(tail -n 1 "$(dirname "$(dirname "$JREQ")")/shadow-pairs.jsonl" 2>/dev/null)"
 if [ "$(jget "${pa:-null}" 'd.get("status")')" = "ok" ] \
-   && [ "$(jget "${last:-null}" 'd["backend"] + "/" + d["claude_category"] + "/" + d["t3_reason"]')" = "parent/user-facing-minor/$FILL_REASON" ]; then
-  pass "prose pair writes the carried category, engine and reason"
+   && [ "$(jget "${last:-null}" 'd["backend"] + "/" + d["claude_category"] + "/" + d["t3_reason"]')" = "parent/user-facing-minor/$FILL_REASON" ] \
+   && [ "$(jget "${last:-null}" 'd["claude_measure"]["duration_api_ms"]')" = "2100" ]; then
+  pass "prose pair writes the carried category, engine, reason and measure"
 else
   fail "prose pair: ${pa:-no output} ${last:-no line}"
 fi

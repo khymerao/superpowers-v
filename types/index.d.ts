@@ -68,6 +68,25 @@ export type JevT3Descriptor = {
   backend: string
   proj: string
   sid: string
+  /**
+   * The headless classify's measure as compact JSON (`JevT3ClaudeMeasure`), or "" when none was read.
+   * Optional so a descriptor written before the key existed still pairs.
+   */
+  claude_measure?: string
+}
+
+/** The Claude-side measure `pair --claude-measure-json` stores: milliseconds and tokens, never money. */
+export type JevT3ClaudeMeasure = {
+  wall_ms: number | null
+  duration_ms: number | null
+  duration_api_ms: number | null
+  tokens: {
+    input_tokens: number | null
+    output_tokens: number | null
+    cache_read_input_tokens: number | null
+    cache_creation_input_tokens: number | null
+  }
+  model: string | null
 }
 
 declare module 'claude-code' {

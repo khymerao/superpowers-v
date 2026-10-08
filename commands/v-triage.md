@@ -166,10 +166,14 @@ taxonomy.
     --prompt-file "$PROMPT_FILE" --cwd . --timeout 15
   ```
 
-  It prints `{"category", "backend", "timed_out", "exit_code", "model"}`: one nested
-  `claude -p --tools ""` on the resolved `claude`/`light` model (never Haiku), falling back to the
-  read-only `codex` route, both under `compound-v-run-with-timeout.py` with stdin closed. Pass the
-  `category` straight back as `--t3-category`. Prefer it because it is the same route
+  It prints `{"category", "backend", "timed_out", "exit_code", "model", "measure"}`: one nested
+  `claude -p --output-format json --tools ""` on the resolved `claude`/`light` model (never Haiku),
+  falling back to the read-only `codex` route, both under `compound-v-run-with-timeout.py` with
+  stdin closed. Pass the `category` straight back as `--t3-category`. **Keep `measure`** for the
+  Jev step (T2b), as the compact JSON object it is: `wall_ms` (the whole process), `duration_ms`,
+  `duration_api_ms`, the four `tokens` counts and the resolved `model` id. Fields that were not
+  measured are `null`, never `0`; a codex answer carries `wall_ms` only. It holds no money figure
+  and no request text. Prefer it because it is the same route
   `hooks/triage-prompt-nudge.sh` takes, so an attended `/v:triage` and the hook that fires without
   anyone asking reach the same answer by the same path.
 
@@ -245,11 +249,15 @@ from the repo root. Never print or `cat` the response file, and never print a ke
 
    ```bash
    python3 "$CV/scripts/compound-v-jev.py" pair --request-file "<request_file>" \
-     --claude-category <category> --backend <engine> --t3-reason <t3_reason> --repo .
+     --claude-category <category> --backend <engine> --t3-reason <t3_reason> --repo . \
+     --claude-measure-json '<measure_json>'
    ```
 
    `<category>` and `<engine>` are the values the re-invocation passed; `<t3_reason>` is the value
-   kept from the first `needs_t3` result.
+   kept from the first `needs_t3` result; `<measure_json>` is the headless classify's `measure`,
+   as compact JSON. **On the Task route (engine `parent`) there is no measure: drop the
+   `--claude-measure-json` line** rather than inventing one. `pair` refuses a malformed measure
+   with `bad_input`; if it does, run it again without that line, so the pair is kept.
 
 However the step ends, and also when it is skipped, `rm -f "$PROMPT_FILE"`. Report the step in
 **one line**: what Jev answered (from `parse`'s `status` and `answers`) or why the step ended, and

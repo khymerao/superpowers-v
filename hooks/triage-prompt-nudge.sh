@@ -390,8 +390,14 @@ _classify_timeout() {
 # file rather than argv: it already carries the resolved paths and the taxonomy
 # hints, so rebuilding it here from the request text would be a second, slightly
 # different prompt for the same decision.
+#
+# THE MEASURE travels separately, never as a third tab field (a third field would
+# land inside `backend`, fail its `case` and silently stop every descriptor). The
+# function runs in a command substitution, so a variable set here never reaches the
+# caller: when a third argument names a file, the classify's `measure` object is
+# written there as compact JSON (numbers, null and a model id; no request text).
 _classify_headless() {
-  local proj="$1" prompt="$2" script py tmpf out rc backend timed cat
+  local proj="$1" prompt="$2" measuref="${3:-}" script py tmpf out rc backend timed cat
   script="$(_locate_script compound-v-classify-request.py)" || return 1
   py="$(_python)" || return 1
   tmpf="$(mktemp "${TMPDIR:-/tmp}/cv-t3-prompt.XXXXXX" 2>/dev/null)" || return 1
@@ -424,6 +430,10 @@ _classify_headless() {
   case "$cat" in
     plumbing | user-facing-minor | user-facing-major | unknown)
       _log "headless T3 classify: ${cat} (backend=${backend})"
+      if [ -n "$measuref" ]; then
+        printf '%s' "$out" | jq -c 'if (.measure | type) == "object" then .measure else empty end' \
+          >"$measuref" 2>/dev/null || : >"$measuref" 2>/dev/null || true
+      fi
       printf '%s\t%s' "$cat" "$backend"
       ;;
     *)
@@ -441,7 +451,11 @@ _classify_headless() {
 # reaches stdout, so the hook's output is byte-identical with the flag set or not.
 #
 #   <data_dir>/pending-<sha256(proj|sid)>.json =
-#     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid}
+#     {pre_eval_id, request_file, t3_reason, claude_category, backend, proj, sid,
+#      claude_measure}
+#
+# `claude_measure` is a STRING holding the classify's measure as compact JSON, or
+# "" when none was read; the module validates it before it reaches `pair`.
 #
 # `<data_dir>` is `compound-v-jev.py`'s per-user directory, outside the repository.
 # The request file is built by `compound-v-jev.py t3-request --context hook`, the
@@ -455,7 +469,7 @@ _classify_headless() {
 # Returns non-zero on any failure, having written no descriptor.
 _write_t3_descriptor() (
   proj="$1" sid="$2" key="$3" pid="$4" request="$5" prompt="$6"
-  reason="$7" cat="$8" backend="$9"
+  reason="$7" cat="$8" backend="$9" measure="${10:-}"
   [ -n "$pid" ] && [ -n "$key" ] && [ -n "$sid" ] || exit 1
   script="$(_locate_script compound-v-jev.py)" || exit 1
   py="$(_python)" || exit 1
@@ -481,8 +495,10 @@ _write_t3_descriptor() (
   tmpd="$(mktemp "${dd}/.pending.XXXXXX" 2>/dev/null)" || exit 1
   if jq -n --arg pid "$pid" --arg rf "$rf" --arg reason "$reason" --arg cat "$cat" \
         --arg backend "$backend" --arg proj "$proj" --arg sid "$sid" \
+        --arg measure "$measure" \
         '{pre_eval_id: $pid, request_file: $rf, t3_reason: $reason,
-          claude_category: $cat, backend: $backend, proj: $proj, sid: $sid}' \
+          claude_category: $cat, backend: $backend, proj: $proj, sid: $sid,
+          claude_measure: $measure}' \
         >"$tmpd" 2>/dev/null \
      && chmod 600 "$tmpd" 2>/dev/null \
      && mv -f "$tmpd" "${dd}/pending-${key}.json" 2>/dev/null; then
@@ -672,9 +688,9 @@ EOF
   # T1 had banded. Only a classifier that never reported degrades to the
   # reminder; see the header.
   # Set only when the headless classify decided; it gates the shadow descriptor.
-  local t3_backend=""
+  local t3_backend="" t3_measure=""
   if [ "$needs_t3" = "true" ]; then
-    local t3_prompt t3_reason t3_cat t3_out
+    local t3_prompt t3_reason t3_cat t3_out t3_measuref
     t3_prompt="$(printf '%s' "$res" | jq -r '.t3_prompt // ""' 2>/dev/null)"
     # `t3_reason` (unbanded | demotion | sensitive) is for THIS LOG only. The
     # re-entry is identical whichever way the engine got here, so the hook must
@@ -688,11 +704,18 @@ EOF
     fi
 
     _log "the request needs T3 (reason=${t3_reason}) — running the headless classify"
-    t3_out="$(_classify_headless "$proj" "$t3_prompt")" || {
+    # The measure's channel: a temp file this function owns and removes on every path.
+    t3_measuref="$(mktemp "${TMPDIR:-/tmp}/cv-t3-measure.XXXXXX" 2>/dev/null)" || t3_measuref=""
+    t3_out="$(_classify_headless "$proj" "$t3_prompt" "$t3_measuref")" || {
+      [ -z "$t3_measuref" ] || rm -f "$t3_measuref" 2>/dev/null || true
       _log "nothing classified this request — degrading to the reminder"
       _emit "$(_reminder_text)"
       return $?
     }
+    if [ -n "$t3_measuref" ]; then
+      t3_measure="$(cat "$t3_measuref" 2>/dev/null)" || t3_measure=""
+      rm -f "$t3_measuref" 2>/dev/null || true
+    fi
     t3_cat="${t3_out%%$'\t'*}"
     t3_backend="${t3_out#*$'\t'}"
     case "$t3_backend" in
@@ -736,7 +759,7 @@ EOF
   # with stdout discarded: whatever happens here, the hook's output is unchanged.
   if [ -n "$t3_backend" ] && [ "${CV_JEV_T3:-}" = "1" ]; then
     _write_t3_descriptor "$proj" "$sid" "$key" "$pid" "$request" "$t3_prompt" \
-      "$t3_reason" "$t3_cat" "$t3_backend" >/dev/null 2>&1 \
+      "$t3_reason" "$t3_cat" "$t3_backend" "$t3_measure" >/dev/null 2>&1 \
       || _log "no T3 shadow descriptor was written (shadow only; the decision stands)"
   fi
 

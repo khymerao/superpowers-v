@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { JevT3Descriptor, JevT3Noun, JevT3Response } from '../types'
+import type { JevT3ClaudeMeasure, JevT3Descriptor, JevT3Noun, JevT3Response } from '../types'
 import { register as registerRunBand } from './run-band'
 
 // Compound V T3 shadow (spec 1): after the triage hook has decided, ask Jev the same T3 question
@@ -17,7 +17,9 @@ import { register as registerRunBand } from './run-band'
 //   the response file, run `compound-v-jev.py parse` then `pair`, and delete the descriptor.
 //
 // The key never reaches this module: the vault is the only HTTP client. Every process is a fixed
-// argv of file paths and short tokens (never request text), capped at 30 s.
+// argv of file paths and short tokens (never request text), capped at 30 s. The one exception to
+// "short tokens" is `pair --claude-measure-json`: compact JSON this module rebuilds itself from
+// validated integers, null and a model id, so it carries no text it did not construct.
 
 const PROCESS_TIMEOUT_MS = 30_000
 // The UserPromptSubmit registration's `timeout: 25` in hooks.json: what is left of it when Jev has
@@ -161,8 +163,78 @@ function asDescriptor(v: unknown): JevT3Descriptor | null {
       return null
     }
   }
+  // The eighth key is optional, and a string when present.
+  if (v.claude_measure !== undefined && typeof v.claude_measure !== 'string') {
+    return null
+  }
 
   return v as unknown as JevT3Descriptor
+}
+
+const MEASURE_INTS = ['wall_ms', 'duration_ms', 'duration_api_ms'] as const
+const MEASURE_TOKENS = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'] as const
+const MEASURE_MODEL = /^[A-Za-z0-9._/:[\]~-]{1,80}$/
+const MEASURE_MAX_CHARS = 1024
+
+function measureInt(v: unknown): number | null | undefined {
+  if (v === undefined || v === null) {
+    return null
+  }
+
+  return typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : undefined
+}
+
+/**
+ * The descriptor's measure, rebuilt from validated numbers and re-serialised, or null. Only what
+ * this returns reaches `pair`'s argv: a closed key set of non-negative integers or null and a model
+ * id. A malformed or absent measure never drops the pair; the pair is written without it.
+ */
+function measureArg(text: string | undefined): string | null {
+  if (typeof text !== 'string' || text === '' || text.length > MEASURE_MAX_CHARS) {
+    return null
+  }
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!isRecord(raw) || !Object.keys(raw).every(k => ['wall_ms', 'duration_ms', 'duration_api_ms', 'tokens', 'model'].includes(k))) {
+    return null
+  }
+  const tokensRaw = raw.tokens === undefined || raw.tokens === null ? {} : raw.tokens
+  if (!isRecord(tokensRaw) || !Object.keys(tokensRaw).every(k => (MEASURE_TOKENS as readonly string[]).includes(k))) {
+    return null
+  }
+  const out: JevT3ClaudeMeasure = {
+    wall_ms: null,
+    duration_ms: null,
+    duration_api_ms: null,
+    tokens: { input_tokens: null, output_tokens: null, cache_read_input_tokens: null, cache_creation_input_tokens: null },
+    model: null,
+  }
+  for (const k of MEASURE_INTS) {
+    const n = measureInt(raw[k])
+    if (n === undefined) {
+      return null
+    }
+    out[k] = n
+  }
+  for (const k of MEASURE_TOKENS) {
+    const n = measureInt(tokensRaw[k])
+    if (n === undefined) {
+      return null
+    }
+    out.tokens[k] = n
+  }
+  if (raw.model !== undefined && raw.model !== null) {
+    if (typeof raw.model !== 'string' || !MEASURE_MODEL.test(raw.model)) {
+      return null
+    }
+    out.model = raw.model
+  }
+
+  return JSON.stringify(out)
 }
 
 /** The descriptor the triage hook left for this (project, session), and its path; matched by content. */
@@ -239,6 +311,7 @@ async function runShadow($: JevT3Engine, dd: string, proj: string, desc: JevT3De
     '--hook-budget-left-ms',
     String(left),
   ])
+  const measure = measureArg(desc.claude_measure)
   await python($, 'compound-v-jev.py', [
     'pair',
     '--request-file',
@@ -251,6 +324,7 @@ async function runShadow($: JevT3Engine, dd: string, proj: string, desc: JevT3De
     desc.t3_reason,
     '--repo',
     proj,
+    ...(measure === null ? [] : ['--claude-measure-json', measure]),
   ])
 }
 

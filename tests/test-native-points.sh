@@ -503,7 +503,16 @@ cat >"$FAKE_CLAUDE" <<'FAKE'
 if [ -n "${FAKE_CLAUDE_ARGV:-}" ]; then printf '%s\n' "$@" >"$FAKE_CLAUDE_ARGV"; fi
 if [ -n "${FAKE_CLAUDE_STDIN:-}" ]; then wc -c >"$FAKE_CLAUDE_STDIN" 2>/dev/null; fi
 [ -n "${FAKE_CLAUDE_SLEEP:-}" ] && sleep "$FAKE_CLAUDE_SLEEP"
-printf '%s\n' "${FAKE_CLAUDE_REPLY:-plumbing}"
+# `--output-format json` answers with the one result object a live probe returned; FAKE_CLAUDE_FORMAT=text
+# answers with plain text, which the classify must still read exactly as before (the fallback).
+if [ "${FAKE_CLAUDE_FORMAT:-json}" = "json" ]; then
+  jq -cn --arg r "${FAKE_CLAUDE_REPLY:-plumbing}" '{type: "result", subtype: "success", is_error: false,
+    result: $r, duration_ms: 6168, duration_api_ms: 2360, num_turns: 1, total_cost_usd: 0.1234,
+    usage: {input_tokens: 2, output_tokens: 6, cache_creation_input_tokens: 53136, cache_read_input_tokens: 0},
+    modelUsage: {"claude-sonnet-4-5-20250929": {inputTokens: 2}}}'
+else
+  printf '%s\n' "${FAKE_CLAUDE_REPLY:-plumbing}"
+fi
 FAKE
 chmod +x "$FAKE_CLAUDE"
 
@@ -575,8 +584,9 @@ check "T3 ARGV: the classify NEVER passes --bare (it skips the login too)" \
 check "T3 ARGV: it is a print run with the prompt immediately after -p" \
   "$([ -f "$ARGV_LOG" ] && [ "$(head -1 "$ARGV_LOG")" = "-p" ] \
      && [ -n "$(sed -n '2p' "$ARGV_LOG")" ] && echo 1 || echo 0)"
-check "T3 ARGV: it asks for text output" \
-  "$([ -f "$ARGV_LOG" ] && grep -qx -- '--output-format' "$ARGV_LOG" && echo 1 || echo 0)"
+check "T3 ARGV: it asks for JSON output (the result object carries the measure)" \
+  "$([ -f "$ARGV_LOG" ] && [ "$(awk '$0=="--output-format"{getline; print; exit}' "$ARGV_LOG")" = "json" ] \
+     && echo 1 || echo 0)"
 check "T3 ARGV: it disables tools" \
   "$([ -f "$ARGV_LOG" ] && grep -qx -- '--tools' "$ARGV_LOG" && echo 1 || echo 0)"
 t3_model="$([ -f "$ARGV_LOG" ] && awk '$0=="--model"{getline; print; exit}' "$ARGV_LOG" || printf '')"
@@ -587,7 +597,9 @@ check "T3: the classify ran with stdin closed (0 bytes readable)" \
      && [ "$(tr -d ' \n' <"$WORK/fake-claude-stdin")" = "0" ] && echo 1 || echo 0)"
 
 # --- case 2: garbage reply -> `unknown` is a REAL answer -> FULL, with a record #
+# Plain text, not the JSON result object: the classify's fallback reads it as before.
 export FAKE_CLAUDE_REPLY="Well, I would probably call this plumbing of some sort."
+export FAKE_CLAUDE_FORMAT=text
 o="$(run_nudge "${T3_SIDS[2]}" "${T3_REQS[2]}" "$T3PROJ")"
 T3_OUTS[2]="$o"
 rec_T3B="$(t3_records_for sess-T3B | head -1)"
@@ -606,6 +618,7 @@ check "T3: ...and the model was NOT asked to route it by hand" \
 # The cap is CV_CLASSIFY_TIMEOUT_S here so the suite does not sit for 18 s; the
 # constant that ships is asserted separately below.
 export FAKE_CLAUDE_REPLY="plumbing"
+unset FAKE_CLAUDE_FORMAT
 export FAKE_CLAUDE_SLEEP=20
 export CV_CLASSIFY_TIMEOUT_S=3
 t0=$(date +%s)
@@ -659,10 +672,10 @@ check "JEV SHADOW: without CV_JEV_T3, cases 1-4 wrote no descriptor and no Jev d
 t3_case_env() { # case number -> the classify environment that case ran with
   export CV_CLASSIFY_CLAUDE_BIN="$FAKE_CLAUDE"
   export CV_CLASSIFY_CODEX_BIN=""
-  unset FAKE_CLAUDE_SLEEP CV_CLASSIFY_TIMEOUT_S 2>/dev/null || true
+  unset FAKE_CLAUDE_SLEEP CV_CLASSIFY_TIMEOUT_S FAKE_CLAUDE_FORMAT 2>/dev/null || true
   case "$1" in
     1) export FAKE_CLAUDE_REPLY="user-facing-minor" ;;
-    2) export FAKE_CLAUDE_REPLY="Well, I would probably call this plumbing of some sort." ;;
+    2) export FAKE_CLAUDE_REPLY="Well, I would probably call this plumbing of some sort." FAKE_CLAUDE_FORMAT=text ;;
     3) export FAKE_CLAUDE_REPLY="plumbing" FAKE_CLAUDE_SLEEP=20 CV_CLASSIFY_TIMEOUT_S=3 ;;
     4) export CV_CLASSIFY_CLAUDE_BIN="" ;;
   esac
@@ -728,7 +741,18 @@ desc_path, rec_path, proj, request = sys.argv[1:5]
 d = json.load(open(desc_path))
 rec = json.load(open(rec_path))
 assert sorted(d) == sorted(["pre_eval_id", "request_file", "t3_reason", "claude_category",
-                            "backend", "proj", "sid"]), d
+                            "backend", "proj", "sid", "claude_measure"]), d
+assert all(isinstance(v, str) for v in d.values()), d
+# The measure the fake's JSON result carried, as compact JSON: numbers, null and the resolved
+# model id; never a money field, never the request.
+m = json.loads(d["claude_measure"])
+assert sorted(m) == ["duration_api_ms", "duration_ms", "model", "tokens", "wall_ms"], m
+assert m["duration_ms"] == 6168 and m["duration_api_ms"] == 2360, m
+assert isinstance(m["wall_ms"], int) and m["wall_ms"] >= 0, m
+assert m["tokens"] == {"input_tokens": 2, "output_tokens": 6, "cache_read_input_tokens": 0,
+                       "cache_creation_input_tokens": 53136}, m
+assert m["model"] == "claude-sonnet-4-5-20250929", m
+assert "cost" not in d["claude_measure"] and request not in d["claude_measure"]
 assert stat.S_IMODE(os.stat(desc_path).st_mode) == 0o600
 assert d["claude_category"] == "user-facing-minor" and d["backend"] == "claude"
 assert d["proj"] == proj and d["sid"] == "sess-T3A"
@@ -753,8 +777,15 @@ assert "src/uploader.py" in state["paths"], state
 assert not os.path.realpath(dd).startswith(os.path.realpath(proj) + os.sep)
 PYEOF
 fi
-check "JEV SHADOW: the descriptor has the seven contract keys, 0600, and a t3 request file in <dd>/req" \
+check "JEV SHADOW: the descriptor has the eight contract keys (claude_measure validated), 0600, and a t3 request file in <dd>/req" \
   "$desc_ok"
+# Case 2's classifier answered in plain text: still a decision, but not a latency sample.
+check "JEV SHADOW: an untrusted (plain-text) classify carries an all-null measure, never zeros" \
+  "$([ -n "$desc2" ] && jq -e '(.claude_measure | fromjson) as $m
+       | $m.wall_ms == null and $m.duration_api_ms == null and $m.model == null
+         and ([$m.tokens[]] | all(. == null))' "$desc2" >/dev/null 2>&1 && echo 1 || echo 0)"
+check "JEV SHADOW: the measure temp file is deleted after the classify" \
+  "$([ -z "$(find "$TMPDIR" -name 'cv-t3-measure.*' 2>/dev/null)" ] && echo 1 || echo 0)"
 [ "$desc_ok" = 1 ] || tail -n 3 "$WORK/desc-check.log" 2>/dev/null | sed 's/^/    /'
 # The prompt temp file `t3-request` reads replaced the old jq state file. Both held the
 # request text, so the assert moved with the file rather than going away.

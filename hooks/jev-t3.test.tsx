@@ -235,12 +235,60 @@ test('descriptor present: one classify, then parse and pair in order, result dee
   expect(flagOf(pair, '--backend')).toBe('claude')
   expect(flagOf(pair, '--t3-reason')).toBe('demotion')
 
+  // a descriptor without `claude_measure` (the Task route, or an older hook) pairs without one
+  expect(pair.includes('--claude-measure-json')).toBe(false)
+
   expect(JSON.parse(files[RESP_FILE]!)).toEqual(OK)
   expect(seen.argv).toContainEqual(['/bin/chmod', '600', RESP_FILE])
   expect(seen.argv).toContainEqual(['/bin/rm', '-f', PENDING])
   expect(PENDING in files).toBe(false)
   // the request text never reaches an argv
   expect(JSON.stringify(seen.argv).includes(REQUEST_TEXT)).toBe(false)
+})
+
+const MEASURE = {
+  wall_ms: 9900,
+  duration_ms: 6168,
+  duration_api_ms: 2360,
+  tokens: { input_tokens: 2, output_tokens: 6, cache_read_input_tokens: 0, cache_creation_input_tokens: 53136 },
+  model: 'claude-sonnet-4-5-20250929',
+}
+
+test('a descriptor with claude_measure: pair gets it as validated compact JSON', WITH_VAULT, async ($, on) => {
+  const { seen } = world(on, { descriptor: { ...DESCRIPTOR, claude_measure: JSON.stringify(MEASURE) } })
+  await start($)
+  expect(await prompt($)).toEqual(RES)
+  const pair = seen.argv.find(a => a.includes('pair'))!
+  expect(JSON.parse(flagOf(pair, '--claude-measure-json')!)).toEqual(MEASURE)
+})
+
+test('a codex measure (wall_ms only) is completed with nulls, never zeros', WITH_VAULT, async ($, on) => {
+  const { seen } = world(on, { descriptor: { ...DESCRIPTOR, backend: 'codex', claude_measure: '{"wall_ms":4100}' } })
+  await start($)
+  expect(await prompt($)).toEqual(RES)
+  const pair = seen.argv.find(a => a.includes('pair'))!
+  expect(JSON.parse(flagOf(pair, '--claude-measure-json')!)).toMatchObject({ wall_ms: 4100, duration_api_ms: null, model: null })
+})
+
+for (const bad of ['not json', '{"wall_ms":-1}', '{"wall_ms":1.5}', '{"cost":1}', '{"model":"a b"}', '{"tokens":{"x":1}}']) {
+  test(`a malformed claude_measure (${bad}) never drops the pair: it is written without it`, WITH_VAULT, async ($, on) => {
+    const { files, seen } = world(on, { descriptor: { ...DESCRIPTOR, claude_measure: bad } })
+    await start($)
+    expect(await prompt($)).toEqual(RES)
+    expect(jevCalls(seen.argv)).toEqual(['data-dir', 'parse', 'pair'])
+    const pair = seen.argv.find(a => a.includes('pair'))!
+    expect(pair.includes('--claude-measure-json')).toBe(false)
+    expect(PENDING in files).toBe(false)
+  })
+}
+
+test('a non-string claude_measure makes the descriptor unreadable, and it is removed unsent', WITH_VAULT, async ($, on) => {
+  const { files, seen } = world(on, { descriptor: { ...DESCRIPTOR, claude_measure: MEASURE } })
+  await start($)
+  expect(await prompt($)).toEqual(RES)
+  expect(vault.classified).toHaveLength(0)
+  expect(PENDING in files).toBe(false)
+  expect(jevCalls(seen.argv)).toEqual(['data-dir'])
 })
 
 test('classify answers unavailable: parse still records it, result unchanged', WITH_VAULT, async ($, on) => {
