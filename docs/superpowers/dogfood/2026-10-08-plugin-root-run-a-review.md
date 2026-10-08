@@ -182,3 +182,17 @@ Open items, numbered:
 1. AC-4 is pending: a live post-merge check by the orchestrator (recipe above). The run is not DONE until it passes.
 2. Non-blocking follow-ups: observations 1-4 above (manifest `*.md` glob; stale comment in
    `evals/lib/cv-fixture-lib.sh:44`; ADR "stops" vs echo-only line 3; pipeline commit-subject shape).
+
+### AC-4 live check (orchestrator, 2026-10-08)
+
+After the merge, cv-dev rebuilt from HEAD and `superpowers-v@cv-dev` reinstalled; a fresh `claude -p` (2.1.294) loaded
+`superpowers-v:v-status` and printed its resolver lines:
+
+```
+CV="/Users/koristuvac/.claude/local-marketplaces/cv-dev/superpowers-v"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || CV="$PWD"
+[ -f "$CV/scripts/compound-v-preeval.py" ] || echo "Compound V: plugin root not found (...)" >&2
+```
+
+The token was substituted with the copy the harness loaded (for a directory marketplace, its `readFromFolder`, not the
+cache `installPath`). AC-4 met.
