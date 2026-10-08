@@ -32,7 +32,7 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: plugins/compound-v-vault/**
-    run: bash tests/test-vault-mod.sh
+    run: bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'
   - when: '*.md'
     run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
 jobs:

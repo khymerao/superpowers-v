@@ -53,3 +53,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
   misses them unless another changed file (e.g. `hooks/*.tsx`) pulls them in.
 - **Co-change marketplace.json -> plugin.json / CHANGELOG.md (~100% / ~97%)** is release-driven (release
   commits dominate support). For a "no version bump" run it is an expected WARN, not an omission.
+- **Out-of-lane drivers of `plugins/compound-v-vault/hooks/vault.tsx`:** `tests/test-jev-core.sh` (6b) greps
+  the vault's reason literals out of vault.tsx, and `tests/test-jev-t3-mod.sh` requires the vault's tests to pass.
+  An impacted_map of `plugins/compound-v-vault/** -> test-vault-mod.sh` misses both (seen 2026-10-08). The vault's
+  tests live in `.tests/` precisely so the root `claude plugin test .` does not recurse into them.
