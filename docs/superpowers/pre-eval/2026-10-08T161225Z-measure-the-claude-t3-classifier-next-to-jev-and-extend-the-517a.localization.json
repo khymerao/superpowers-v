@@ -1,0 +1,19 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:8d69d2b68d6084cf9983710078fb4fe58fe7d049d4943c03eca7e399650b1c26",
+  "fan_out": 5,
+  "flags": [
+    "content:config_literal",
+    "content:feature_flag",
+    "content:i18n_placeholder",
+    "content:legal_copy",
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "commands/v-triage.md",
+    "hooks/jev-t3.tsx",
+    "hooks/triage-prompt-nudge.sh",
+    "scripts/compound-v-classify-request.py",
+    "tests/fixtures/jev-t3-corpus.jsonl"
+  ]
+}
