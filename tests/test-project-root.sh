@@ -10,6 +10,9 @@
 #   - validate-manifest's _find_repo_root returns None instead of the cwd, and its CLI
 #     caller handles that explicitly
 #   - precompact-snapshot and brainstorm-trigger0-nudge walk up to the nearest .git
+#   - (run B2) integration-gate and update-memory take the project root from
+#     resolve_project_root, not __file__; validate-manifest's no-root note is true for a
+#     fast_path manifest too
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PY=/usr/bin/python3
@@ -150,6 +153,85 @@ PYF
   check "TRIGGER0 NUDGE: a subdirectory session passes the project root as --repo" \
     "$(printf '%s' "$out" | grep -qF "FAKE_REPO=[$HP]" && echo 1 || echo 0)"
 fi
+
+# --- 6. run B2: the last two __file__ project roots, and the no-root note --------------
+# Every row below runs the PLUGIN COPY ($TMP/plugin/scripts) from inside the fixture project,
+# so a root derived from the script's own location is $TMP/plugin -- never the project.
+REALPROJ="$(cd "$PROJ" && pwd -P)"
+NOGIT2="$TMP/nogit2"
+mkdir -p "$NOGIT2"
+
+# integration-gate: with no --repo-root the gate measures the PROJECT (the git toplevel of
+# the cwd). A direct-isolation job is gated at repo_root, so results[0].gate_root shows it.
+IG="$TMP/plugin/scripts/compound-v-integration-gate.py"
+IGRUN="$PROJ/docs/superpowers/execution/2026-01-01-ig"
+mkdir -p "$IGRUN"
+printf 'run_id: 2026-01-01-ig\njobs:\n- id: ig-a\n  isolation: direct\n  write_allowed:\n  - src/a.txt\n' \
+  >"$IGRUN/manifest.yaml"
+(cd "$PROJ/sub/deeper" && "$PY" -B "$IG" --run-dir "$IGRUN" --json >"$TMP/ig1.out" 2>"$TMP/ig1.err")
+got="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["results"][0]["gate_root"])' \
+  "$TMP/ig1.out" 2>/dev/null)"
+check "INTEGRATION-GATE: no --repo-root from a project subdirectory gates the project, not the plugin copy" \
+  "$([ "$got" = "$REALPROJ" ] && echo 1 || echo 0)"
+cp -R "$IGRUN" "$NOGIT2/run"
+(cd "$NOGIT2" && "$PY" -B "$IG" --run-dir "$NOGIT2/run" --json >/dev/null 2>"$TMP/ig2.err")
+rc=$?
+check "INTEGRATION-GATE: outside git with no --repo-root exits 2 with the gate's error JSON" \
+  "$([ "$rc" = 2 ] && grep -q '"integration": "error"' "$TMP/ig2.err" \
+     && grep -q 'not inside a git repository' "$TMP/ig2.err" && echo 1 || echo 0)"
+(cd "$NOGIT2" && "$PY" -B "$IG" --run-dir "$NOGIT2/run" --repo-root "$PROJ" --json >"$TMP/ig3.out" 2>/dev/null)
+got="$("$PY" -B -c 'import json,sys; print(json.load(open(sys.argv[1]))["results"][0]["gate_root"])' \
+  "$TMP/ig3.out" 2>/dev/null)"
+check "INTEGRATION-GATE: an explicit --repo-root is used as given (abspath, unchanged)" \
+  "$([ "$got" = "$PROJ" ] && echo 1 || echo 0)"
+rm -rf "$NOGIT2/run"
+
+# update-memory: the outcomes log is the PROJECT's, and outside git it refuses.
+UM="$TMP/plugin/scripts/compound-v-update-memory.py"
+OUTCOMES="$PROJ/docs/superpowers/memory/task-outcomes.jsonl"
+UMARGS="--type implement --backend claude --model opus --status success"
+# shellcheck disable=SC2086
+(cd "$PROJ/sub/deeper" && "$PY" -B "$UM" --run-id RUN-SUB $UMARGS >/dev/null 2>"$TMP/um1.err")
+rc=$?
+check "UPDATE-MEMORY: from a project subdirectory with no --out the line lands in <project>/docs/superpowers/memory/" \
+  "$([ "$rc" = 0 ] && grep -q 'RUN-SUB' "$OUTCOMES" 2>/dev/null && echo 1 || echo 0)"
+check "UPDATE-MEMORY: nothing is written beside the plugin copy" \
+  "$([ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
+# shellcheck disable=SC2086
+(cd "$NOGIT2" && "$PY" -B "$UM" --run-id RUN-NOGIT $UMARGS >/dev/null 2>"$TMP/um2.err")
+rc=$?
+check "UPDATE-MEMORY: outside git with no --repo and no --out fails closed and says why" \
+  "$([ "$rc" != 0 ] && grep -q 'not inside a git repository' "$TMP/um2.err" && echo 1 || echo 0)"
+check "UPDATE-MEMORY: ... and writes nothing (not in the cwd, not beside the copy)" \
+  "$([ -z "$(ls -A "$NOGIT2")" ] && [ ! -e "$TMP/plugin/docs" ] && echo 1 || echo 0)"
+# shellcheck disable=SC2086
+(cd "$NOGIT2" && "$PY" -B "$UM" --run-id RUN-REPO --repo "$PROJ" $UMARGS >/dev/null 2>&1)
+rc=$?
+check "UPDATE-MEMORY: an explicit --repo wins from outside git" \
+  "$([ "$rc" = 0 ] && grep -q 'RUN-REPO' "$OUTCOMES" 2>/dev/null && echo 1 || echo 0)"
+# (triage-outcomes' sibling load of this file is exercised by the TRIAGE rows in section 2,
+# which write through update-memory's append_line from the plugin copy.)
+
+# validate-manifest: the no-root note is true for a fast_path manifest too.
+printf 'run_id: x\nfast_path:\n  eligible: true\njobs: []\n' >"$NOGIT2/manifest.yaml"
+(cd "$REPO" && "$PY" -B "$VM" "$NOGIT2/manifest.yaml" >/dev/null 2>"$TMP/vm3.err")
+check "VALIDATE: a fast_path manifest with no root does not claim root checks are skipped" \
+  "$(grep -q 'checks that need a repository root are skipped' "$TMP/vm3.err" && echo 0 || echo 1)"
+# (That the fast_path validation itself fails closed with no root is the in-process
+# "VALIDATE: fast-path validation with no root fails closed" row in section 4.)
+check "VALIDATE: ... it says instead that the fast_path validation fails closed without a root" \
+  "$(grep -q 'note: .*fast_path block, whose validation needs a repository root and fails closed' \
+       "$TMP/vm3.err" && echo 1 || echo 0)"
+rm -f "$NOGIT2/manifest.yaml"
+
+# AC-2 (run B's grep, per file): no project root derived from __file__ outside a selftest.
+AC2='dirname\(os\.path\.dirname\(os\.path\.abspath\(__file__|dirname\(here\)|dirname\(HERE\)|os\.pardir|, *"\.\."'
+awk '/^# selftest/ { exit } { print }' "$REPO/scripts/compound-v-integration-gate.py" >"$TMP/head-ig.py"
+awk '/^def _selftest|^# Selftest/ { exit } { print }' "$REPO/scripts/compound-v-update-memory.py" >"$TMP/head-um.py"
+check "AC-2: integration-gate derives no project root from __file__ outside its selftest" \
+  "$(grep -qE "$AC2" "$TMP/head-ig.py" && echo 0 || echo 1)"
+check "AC-2: update-memory derives no project root from __file__ outside its selftest" \
+  "$(grep -qE "$AC2" "$TMP/head-um.py" && echo 0 || echo 1)"
 
 echo "test-project-root: $pass passed, $fail failed"
 [ "$fail" = 0 ]

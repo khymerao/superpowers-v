@@ -1397,7 +1397,9 @@ def build_parser():
         "until every job resolves to a gate verdict this script derived or verified.",
     )
     p.add_argument("--run-dir", help="docs/superpowers/execution/<run-id>")
-    p.add_argument("--repo-root", help="repo root (default: this script's repo)")
+    p.add_argument("--repo-root",
+                   help="project root (default: the git toplevel of the current "
+                        "directory; outside git without this flag: exit 2)")
     p.add_argument("--manifest", help="manifest path (default: <run-dir>/manifest.yaml)")
     p.add_argument("--scope-check", help="path to compound-v-scope-check.py")
     p.add_argument("--jobs", help="comma-separated job ids to evaluate (default: all)")
@@ -1411,6 +1413,19 @@ def build_parser():
     return p
 
 
+def _project_config(here):
+    """The sibling ``compound-v-project-config.py``, loaded by explicit path (never by
+    name: ``_harden_sys_path`` has dropped this directory from ``sys.path``), for its
+    ``resolve_project_root`` — the one project-root rule, not a second copy of it."""
+    import importlib.util
+
+    path = os.path.join(here, "compound-v-project-config.py")
+    spec = importlib.util.spec_from_file_location("_cv_project_config", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 def main(argv):
     args = build_parser().parse_args(argv[1:])
     if not args.run_dir:
@@ -1421,7 +1436,20 @@ def main(argv):
         return 2
 
     here = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.abspath(args.repo_root or os.path.dirname(here))
+    if args.repo_root:
+        repo_root = os.path.abspath(args.repo_root)
+    else:
+        # The PROJECT root by the one shared rule (ADR 0005): the git toplevel of the
+        # current directory. Never this script's own location — that is the PLUGIN root,
+        # and an installed plugin would verify its own cache tree. Outside git: exit 2.
+        try:
+            repo_root = _project_config(here).resolve_project_root()
+        except (ValueError, OSError, ImportError) as exc:
+            print(
+                json.dumps({"integration": "error", "error": str(exc)}),
+                file=sys.stderr,
+            )
+            return 2
     scope_check = os.path.abspath(
         args.scope_check or os.path.join(here, "compound-v-scope-check.py")
     )

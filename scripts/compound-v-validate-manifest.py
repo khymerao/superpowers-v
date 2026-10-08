@@ -3373,9 +3373,6 @@ def main(argv):
                   "--require-triage need a repository root (pass --repo-root DIR)"
                   % path, file=sys.stderr)
             return 2
-        if repo_root is None:
-            print("note: no git repository above %s and no --repo-root; checks that "
-                  "need a repository root are skipped" % path, file=sys.stderr)
     # Read the RAW bytes so the manifest_digest binding (CR5-6) content-addresses
     # to exactly what the producer digested; decode for YAML parsing separately.
     with open(path, "rb") as fh:
@@ -3386,6 +3383,22 @@ def main(argv):
         print(json.dumps({"verdict": "error", "error": "manifest is not UTF-8 "
                           "(%s)" % e}), file=sys.stderr)
         return 2
+    if repo_root is None:
+        # The note must be TRUE for the manifest in hand: a `fast_path` block is not
+        # skipped without a root, its validation fails closed (`_validate_fast_path`).
+        # The same presence test `validate` applies; an unparseable manifest gets no
+        # note (validate_text reports the parse error).
+        try:
+            _parsed = load_yaml(text)
+        except Exception:  # noqa: BLE001 - the parse error is reported below
+            _parsed = None
+        if isinstance(_parsed, dict) and _parsed.get("fast_path") is not None:
+            print("note: no git repository above %s and no --repo-root; this manifest "
+                  "has a fast_path block, whose validation needs a repository root and "
+                  "fails closed (pass --repo-root DIR)" % path, file=sys.stderr)
+        elif isinstance(_parsed, dict):
+            print("note: no git repository above %s and no --repo-root; checks that "
+                  "need a repository root are skipped" % path, file=sys.stderr)
     try:
         problems = validate_text(text, mode=mode, repo_root=repo_root,
                                  config_path=config_path,
