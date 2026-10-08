@@ -2,6 +2,50 @@
 
 Handoff for the next session. Branch `feat/jev-classifier-foundation`, PR khymerao/superpowers-v#1.
 
+## Update 2026-10-08: handoff items 1-5 done, Jev live
+
+Every item below ran as its own FULL Compound V change (triage record, pre-flight, plan, manifest, Engine C, three-pass
+review) and is merged on the branch. Run directories are under `docs/superpowers/execution/2026-10-08-*`.
+
+| Item | Result | Run(s) |
+|---|---|---|
+| 1. `jev_classify` refused every call | Fixed: the handler reads `request_file` flat from the `tool.call` event | `2026-10-08-vault-jev-classify-flat-arguments` |
+| 2. `/v:init` 1g version and desktop | Fixed: the `cv-host-version` block reads `"$CLAUDE_CODE_EXECPATH" --version`; `CLAUDE_CODE_ENTRYPOINT=claude-desktop` reports the vault inert; README says so; a new key needs a restart | `2026-10-08-v-init-vault-host-and-desktop` |
+| 3. Phase T never asked Jev | Fixed: one builder `compound-v-jev.py t3-request` for the hook and Phase T; Phase T records `t3` and runs the shadow step (`jev_classify`, `parse --mode shadow`, `pair`) | `2026-10-08-phase-t-jev-shadow` |
+| 4. Plugin-root resolver | Replaced, see ADR 0005: the 38 entry points take `CV="${CLAUDE_PLUGIN_ROOT}"` (harness-substituted, verified live), the project root is `--repo` or the git toplevel, never `__file__` | `2026-10-08-plugin-root-run-a`, `-project-root-run-b`, `-project-root-run-b2` |
+| 5. Downstream harness bugs | #1 the run-wide gate now applies `toolchain_artifacts` (one reader in scope-check); #2 triage-outcomes no longer writes into the plugin cache (run B); #3 = item 1; #4 `resolve-model` without `--config` reads `<project>/.claude/compound-v.json` | `2026-10-08-gate-toolchain-and-model-config` |
+| new | `detect_ui` was rejected with 400: Noul `criteria` must be `{"true": ..., "false": ...}`; fixed and verified live (`noul: 0.99`) | `2026-10-08-detect-ui-noul-criteria` |
+
+Facts established on 2026-10-08:
+
+- **Live calls work** from a terminal `claude` (2.1.294): 9/9 `ok` in `connect-cf7-to-hubspot` (`onboard_layer`), and in
+  the throwaway repo `~/jev_test` (a small Memory card game; egress allowed) every path: `onboard_layer`, `detect_ui`, the
+  hook T3 shadow and the Phase T shadow. Model id `typesafe/jev-1.13-20260917`, 290-690 ms typical, one 1.8 s answer.
+- **The vault reads its key at load.** After `/plugin configure` the running session keeps the old key: restart
+  `claude`. (A changed key gave nine `401` until the restart, then nine `ok`.)
+- **Desktop stays inert** on the bundled 2.1.293 too (`Jev: off (no_key)` with the key set), so the cause is not the
+  version; `/v:init` reports it as inert.
+- **Endpoint:** `POST https://openrouter.ai/api/v1/systemone`, key as `Authorization: Bearer`.
+- `calls.jsonl` is written by `compound-v-jev.py parse` (and by the onboard consumers), not by `jev_classify` itself.
+
+Data so far (not an eval): `~/jev_test` data dir has 11 `calls.jsonl` lines and 4 shadow pairs; T3 agreement with
+Claude 3/3 where both answered; corpus labels still 0/80 human, 0/80 Claude.
+
+Open, found during the work (each needs its own triage):
+
+1. `detect-ui --jev-responses <dir>` re-parses every file in the shared `resp/` directory: an old error is re-logged to
+   `calls.jsonl` with a new timestamp and old answers take part in the decision.
+2. The hook T3 budget (1,500 ms) timed out once while Jev answered in about 1.8 s.
+3. A vault `refused: ...` result in the Phase T shadow step leaves its request file behind (rare).
+4. `hooks/session-banner.sh:84` still reads `claude --version` (PATH CLI) for its floor warning.
+5. `resolve-model --repo-dir <non-git dir>` uses the built-in table; untested.
+6. Not done: a release (version bump, CHANGELOG); an issue for Anthropic about the desktop app and sensitive
+   `userConfig`.
+
+Next: item 6 of the original list. Label the corpus (`claude_label` by the Claude classifier, `human_label` by the
+maintainer), run `compound-v-jev.py eval --t3 --prepare`, send the requests through `jev_classify` from a terminal
+`claude`, then `eval --t3 --report`; decide spec 1.5 from the report.
+
 ## Where it stands
 
 Spec 1 (`docs/superpowers/specs/2026-10-05-jev-classifier-foundation-design.md`) is built, reviewed and merged on the
