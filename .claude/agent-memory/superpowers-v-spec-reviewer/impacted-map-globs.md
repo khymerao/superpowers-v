@@ -14,6 +14,14 @@ Seen in run 2026-10-08-plugin-root-run-a: the `*.md` rule carried the only `lint
 invocation; all 38 changed Markdown files resolved as "unmapped" to `full_command`, which does not
 lint. The job's `tests.command` had no lint run at all, and the gate receipt still read green.
 
+Recurred in run 2026-10-08-gate-toolchain-and-model-config: 4 nested `.md` paths "matched no `when`
+glob" (receipt `contract_notes`), so lint again ran only in the reviewer's AC-2 probe.
+
+Revert technique that kept the checkout untouched: tests that read a `*_SRC` override
+(`INTEGRATION_GATE_SRC` in `tests/test-integration-gate.sh`, `RESOLVE_MODEL_SRC` in
+`tests/test-resolve-model.sh`) take a pre-change script copied into the scratchpad beside a copy of
+`scripts/*.py` (siblings load by path), so the revert check needs no worktree.
+
 **Why:** a check placed only in a rule that never fires is a check that never runs, with no red
 signal anywhere.
 
