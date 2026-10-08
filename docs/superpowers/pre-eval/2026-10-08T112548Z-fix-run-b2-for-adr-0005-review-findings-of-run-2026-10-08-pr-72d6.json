@@ -1,0 +1,50 @@
+{
+  "base_commit": "1d8d607c2c6e75620751b4ffc153f31c8038c86a",
+  "confidence": "localization:new_file; tiers:localization,T1",
+  "decision": "FULL_PIPELINE",
+  "declared_paths": [
+    "scripts/compound-v-integration-gate.py:1423-1424",
+    "scripts/compound-v-project-config.py",
+    "scripts/compound-v-update-memory.py:67-74",
+    "scripts/compound-v-validate-manifest.py:3376-3378",
+    "tests/test-project-root.sh"
+  ],
+  "difficulty": {
+    "band": "high",
+    "display": 8
+  },
+  "digest": "sha256:b578a6145aee56fb6d429ea9b3ddbacbac7bbd12a66b828a1241a79bc494e9b4",
+  "impact": {
+    "band": "high",
+    "display": 8
+  },
+  "localization": {
+    "confidence": "new_file",
+    "fan_out": 5,
+    "flags": [
+      "new_file"
+    ],
+    "resolved_paths": [
+      "scripts/compound-v-integration-gate.py:1423-1424",
+      "scripts/compound-v-project-config.py",
+      "scripts/compound-v-update-memory.py:67-74",
+      "scripts/compound-v-validate-manifest.py:3376-3378",
+      "tests/test-project-root.sh"
+    ]
+  },
+  "min_sample_status": "insufficient",
+  "override_fired": null,
+  "pre_eval_id": "2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6",
+  "request_slug": "fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr",
+  "session_id": "f84cc98b-e3e7-46fd-8520-473e7d7661f2",
+  "status": "PRE_EVAL_DONE",
+  "taxonomy_digest": "sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a",
+  "taxonomy_ref": "docs/superpowers/pre-eval/2026-10-08T112548Z-fix-run-b2-for-adr-0005-review-findings-of-run-2026-10-08-pr-72d6.taxonomy-snapshot.yaml",
+  "taxonomy_version": 1,
+  "tier": "FULL",
+  "tiers_signalled": [
+    "localization",
+    "T1"
+  ],
+  "ts": "2026-10-08T11:25:48Z"
+}
