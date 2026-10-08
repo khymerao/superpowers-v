@@ -30,7 +30,7 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: scripts/compound-v-*.py
-    run: bash -c 'for s in scope-check integration-gate emit-workflow resolve-model; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo py-ok'
+    run: bash -c 'for s in scope-check integration-gate emit-workflow resolve-model; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && bash tests/test-agent-memory.sh >/dev/null && bash tests/test-lane-guard.sh >/dev/null && bash tests/test-transcript-watch.sh >/dev/null && echo py-ok'
   - when: tests/*.sh
     run: bash -c 'bash tests/test-integration-gate.sh >/dev/null && for t in tests/test-resolve-model.sh; do [ -f "$t" ] && bash "$t" >/dev/null; done; echo tests-ok'
   - when: '*.md'

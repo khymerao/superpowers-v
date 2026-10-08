@@ -73,3 +73,7 @@ Leads only - re-verify each against the current tree before citing it as a findi
 - **Out-of-lane drivers of integration-gate / update-memory / validate-manifest** (seen 2026-10-08): tests/test-integration-gate.sh,
   test-engine-c-contract.sh, test-agent-memory.sh, test-lane-guard.sh, test-transcript-watch.sh reference them. An impacted_map
   running only their selftests + one test file misses these; only full_command at merge catches a break.
+- **resolve-model CLI vs in-process callers** (seen 2026-10-08): dashboard, epic-arbiter, classify-request,
+  validate-manifest, discover-models import `compound-v-resolve-model.py` by path and call `resolve()`; only the
+  emitter (`resolve_job_model`) and `agents/parallel-dispatcher.md` shell out to the CLI. A change to the CLI's
+  `main()` defaults touches just those two plus the adapter docs (`skills/backend-launcher/adapter-*.md` show the CLI).

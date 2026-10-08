@@ -1,0 +1,20 @@
+{
+  "evidence": [
+    {
+      "file": "skills/compound-v/execution-manifest.md",
+      "reason": "test_failure",
+      "run": "2026-09-03-v3.4.1-triage-size/results/test-scope.json",
+      "status": "blocked"
+    },
+    {
+      "file": "scripts/compound-v-emit-workflow.py",
+      "reason": "scope_violation",
+      "run": "2026-09-02-df27-full-pass/results/spec-review.json",
+      "status": "blocked"
+    }
+  ],
+  "k": 2,
+  "match_count": 2,
+  "recall_check_ms": 205,
+  "verdict": "tighten"
+}
