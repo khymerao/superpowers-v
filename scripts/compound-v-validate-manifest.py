@@ -1617,7 +1617,10 @@ def _validate_fast_path(manifest, fp, mode, repo_root, config_path, receipt_path
     Returns a list of violation strings."""
     problems = []
     if repo_root is None:
-        repo_root = os.getcwd()
+        # Every fast-path invariant below reads the repository (run state, receipts,
+        # the config): no root is fail-closed, never the current directory as a guess.
+        return ["fast_path validation needs a repository root and none was given "
+                "(pass --repo-root DIR); fail-closed"]
     if not isinstance(fp, dict):
         return ["fast_path block must be a mapping"]
     if fp.get("eligible") is not True:
@@ -3284,14 +3287,15 @@ def validate_text(text, mode=None, repo_root=None, config_path=None,
 
 def _find_repo_root(start):
     """Walk up from ``start`` to the nearest dir containing ``.git`` (a dir OR a
-    worktree ``.git`` file); fall back to the CWD when none is found."""
+    worktree ``.git`` file); ``None`` when there is none. Never the current directory
+    as a guess (ADR 0005): the caller decides what a missing root means."""
     d = os.path.abspath(start)
     while True:
         if os.path.exists(os.path.join(d, ".git")):
             return d
         parent = os.path.dirname(d)
         if parent == d:
-            return os.getcwd()
+            return None
         d = parent
 
 
@@ -3362,6 +3366,16 @@ def main(argv):
         return 2
     if repo_root is None:
         repo_root = _find_repo_root(os.path.dirname(os.path.abspath(path)))
+        if repo_root is None and (mode is not None or require_triage):
+            # A fast-path mode and the triage check both REQUIRE a repository root
+            # (run state, receipts, the taxonomy, the pre-eval record): fail closed.
+            print("error: no git repository above %s and no --repo-root; --mode and "
+                  "--require-triage need a repository root (pass --repo-root DIR)"
+                  % path, file=sys.stderr)
+            return 2
+        if repo_root is None:
+            print("note: no git repository above %s and no --repo-root; checks that "
+                  "need a repository root are skipped" % path, file=sys.stderr)
     # Read the RAW bytes so the manifest_digest binding (CR5-6) content-addresses
     # to exactly what the producer digested; decode for YAML parsing separately.
     with open(path, "rb") as fh:

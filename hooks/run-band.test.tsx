@@ -113,6 +113,38 @@ test('draws nothing when no run is active', async ($, on) => {
   expect(await ui.drawn()).toMatchObject({ type: 'Text' })
 })
 
+test('a session started in a subdirectory reads the project root execution directory', async ($, on) => {
+  const clock = mock.clock(on)
+  const calls: string[][] = []
+  on('session.start', () => ({ cwd: '/repo/sub/deeper' }))
+  on('env.get', () => ({ value: undefined }))
+  on('session.cwd', () => ({ value: '/repo/sub/deeper' }))
+  on('fs.stat', ($$, e) => {
+    const p = String(e.path)
+    if (p === '/repo/.git') {
+      return { value: { kind: 'dir' as const, size: 1, mtimeMs: 1, isLink: false } }
+    }
+    if (p === '/repo/docs/superpowers/execution') {
+      return { value: { kind: 'dir' as const, size: 1, mtimeMs: 1, isLink: false } }
+    }
+    if (p.endsWith('.py')) {
+      return { value: { kind: 'file' as const, size: 1, mtimeMs: 1, isLink: false } }
+    }
+    throw new Error('ENOENT')
+  })
+  on('process.run', ($$, e) => {
+    calls.push([...e.argv])
+
+    return { value: { exitCode: 0, stdout: '{"run": null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+
+  await $.session.start({ cwd: '/repo/sub/deeper', surface: 'terminal', isInteractive: true })
+  await clock.advance(60_000)
+  const hud = calls.find(a => a.includes('hud')) ?? []
+  const i = hud.indexOf('--execution-root')
+  expect(i === -1 ? 'no --execution-root' : hud[i + 1]).toBe('/repo/docs/superpowers/execution')
+})
+
 test('CV_DISABLED_HOOKS=run-band starts no poller', async ($, on) => {
   const clock = mock.clock(on)
   let runs = 0

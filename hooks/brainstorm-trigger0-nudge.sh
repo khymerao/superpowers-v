@@ -72,6 +72,24 @@ skill_name=$(echo "$input" | jq -r '.tool_input.skill // empty' 2>/dev/null || e
 topic=$(echo "$input" | jq -r 'if (.tool_input.args|type) == "string" then .tool_input.args else empty end' 2>/dev/null || echo "")
 hook_cwd=$(echo "$input" | jq -r '.cwd // empty' 2>/dev/null || echo "")
 
+# The PROJECT root: walk UP from the hook cwd to the nearest ancestor holding `.git`
+# (a directory, or a linked worktree's `.git` file); fall back to the cwd itself.
+# Bounded to 40 levels — the same rule, bound and not-found result as
+# hooks/postcompact-resume.sh, duplicated because hooks share no library.
+_project_root() {
+  local d="$1" i=0
+  while [ "$i" -lt 40 ]; do
+    [ -e "$d/.git" ] && { printf '%s' "$d"; return 0; }
+    [ "$d" = "/" ] && break
+    d="$(dirname "$d")" || break
+    [ -n "$d" ] || break
+    i=$((i + 1))
+  done
+  printf '%s' "$1"
+}
+hook_root=""
+if [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then hook_root="$(_project_root "$hook_cwd")"; fi
+
 # Fire only for the Skill tool
 [ "$tool_name" = "Skill" ] || exit 0
 
@@ -131,7 +149,7 @@ if [ -n "$topic" ] && command -v python3 >/dev/null 2>&1; then
   if [ -f "$helper" ]; then
     set -- python3 -B "$helper" "--recall-query=$topic" --recall-engine "$engine" \
       --recall-top 3 --recall-timeout 3 --no-embed
-    if [ -n "$hook_cwd" ] && [ -d "$hook_cwd" ]; then set -- "$@" --repo "$hook_cwd"; fi
+    if [ -n "$hook_root" ] && [ -d "$hook_root" ]; then set -- "$@" --repo "$hook_root"; fi
     recall_block=$(PYTHONDONTWRITEBYTECODE=1 _bounded 40 "$@" || true)
   fi
 fi

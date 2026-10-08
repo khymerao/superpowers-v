@@ -131,6 +131,23 @@ snapshot_path() {
   printf '%s/snap-%s' "$(_store_dir)" "$key"
 }
 
+# From the canonicalized cwd, walk UP to the nearest ancestor holding `.git` (a
+# directory, or a linked worktree's `.git` file); fall back to the cwd itself.
+# Bounded to 40 levels. DUPLICATED from hooks/postcompact-resume.sh on purpose —
+# same bound, same not-found result — so a session started in a subdirectory
+# snapshots the same project that hook reads back.
+_project_root() {
+  local d="$1" i=0
+  while [ "$i" -lt 40 ]; do
+    [ -e "$d/.git" ] && { printf '%s' "$d"; return 0; }
+    [ "$d" = "/" ] && break
+    d="$(dirname "$d")" || break
+    [ -n "$d" ] || break
+    i=$((i + 1))
+  done
+  printf '%s' "$1"
+}
+
 hook_main() {
   trap - EXIT
   command -v jq >/dev/null 2>&1 || return 1
@@ -174,10 +191,15 @@ EOF
   local rootv
   rootv="$(cd "$cwdv" 2>/dev/null && pwd -P)" || return 1
   [ -n "$rootv" ] || return 1
+  # The snapshot stays KEYED on the canonical cwd (postcompact-resume.sh keys its
+  # read on the same value); the PROJECT it describes is the nearest `.git` above.
+  local projv
+  projv="$(_project_root "$rootv")"
+  [ -n "$projv" ] || return 1
 
   # Present-only, exactly like the dashboard: a project that never adopted
   # Compound V gets nothing written and nothing said.
-  [ -d "${cwdv}/docs/superpowers" ] || [ -f "${cwdv}/.claude/compound-v.json" ] || return 1
+  [ -d "${projv}/docs/superpowers" ] || [ -f "${projv}/.claude/compound-v.json" ] || return 1
 
   local py=""
   for c in python3 /usr/bin/python3; do
@@ -229,7 +251,7 @@ EOF
   # under the outer one, so the hook always gets to fail silently on its own terms.
   local line
   line="$(_bounded "$_PRECOMPACT_QUERY_TIMEOUT" "$py" "$dash" resume \
-            --execution-root "${cwdv}/docs/superpowers/execution")" || return 1
+            --execution-root "${projv}/docs/superpowers/execution")" || return 1
   line="$(printf '%s' "$line" | sed '/^$/d')"
   [ -n "$line" ] || return 1
 

@@ -252,13 +252,16 @@ def _tier_rank():
 # ---------------------------------------------------------------------------- #
 # Paths + config.
 # ---------------------------------------------------------------------------- #
-def _repo_root():
-    here = os.path.dirname(os.path.abspath(__file__))
-    return os.path.dirname(here)
+def _project_root(repo=None):
+    """The PROJECT root by the one shared rule (project-config ``resolve_project_root``):
+    an explicit ``repo`` wins, else the git toplevel of the current directory; outside a
+    git repository it raises ``ValueError``. Never this script's own location — that is
+    the plugin root, a different directory whenever the plugin is installed."""
+    return _project_config().resolve_project_root(repo)
 
 
-def default_stream_path():
-    return os.path.join(_repo_root(), STREAM_RELPATH)
+def default_stream_path(repo=None):
+    return os.path.join(_project_root(repo), STREAM_RELPATH)
 
 
 def resolve_min_sample_count(repo=None, override=None):
@@ -269,9 +272,9 @@ def resolve_min_sample_count(repo=None, override=None):
         return int(override)
     pc = _project_config()
     try:
-        cfg = pc.load_project_config(repo if repo is not None else _repo_root())
+        cfg = pc.load_project_config(_project_root(repo))
     except ValueError:
-        cfg = {}  # malformed config → safe defaults (caller may warn separately)
+        cfg = {}  # malformed config / no project root → safe defaults (never fail open)
     values, _warnings = pc.resolve_pre_eval(cfg)
     return int(values["min_sample_count"])
 
@@ -636,7 +639,7 @@ def _make_git_ctx(exec_dir, stream_path=None):
     root = _git_toplevel(exec_dir)
     ctx["repo_root"] = root
     if root:
-        sp = os.path.abspath(stream_path or default_stream_path())
+        sp = os.path.abspath(stream_path or default_stream_path(root))
         ctx["stream_committed"] = _git_path_committed(ctx, sp)
     return ctx
 
@@ -746,8 +749,7 @@ def _resolve_exec_dir(stream_path=None, exec_dir=None, repo=None):
     if stream_path:
         sp = os.path.abspath(stream_path)
         return os.path.join(os.path.dirname(os.path.dirname(sp)), "execution")
-    base = repo if repo is not None else _repo_root()
-    return os.path.join(base, _EXEC_RELPATH)
+    return os.path.join(_project_root(repo), _EXEC_RELPATH)
 
 
 def _read_run_state(ctx, exec_dir, run_id):
@@ -875,7 +877,7 @@ def _cohorts(stream_path=None, exec_dir=None, repo=None):
     """
     exec_dir = _resolve_exec_dir(stream_path, exec_dir, repo)
     ctx = _make_git_ctx(exec_dir, stream_path)
-    stream_abspath = os.path.abspath(stream_path or default_stream_path())
+    stream_abspath = os.path.abspath(stream_path or default_stream_path(repo))
     # CRIT-1: reduce the COMMITTED blob at HEAD, never the mutable working-tree file — an
     # uncommitted appended / overriding event must not affect precision / Tier-2.
     state = _reduce_committed(ctx, stream_abspath)
@@ -1133,9 +1135,9 @@ def resolve_breaker_policy(repo=None, window=None, max_rate=None):
         return _coerce_window(window), _coerce_max_rate(max_rate)
     pc = _project_config()
     try:
-        cfg = pc.load_project_config(repo if repo is not None else _repo_root())
+        cfg = pc.load_project_config(_project_root(repo))
     except ValueError:
-        cfg = {}  # malformed config → the safe declared defaults, never fail open
+        cfg = {}  # malformed config / no project root → the safe declared defaults
     block = cfg.get("pre_eval")
     if not isinstance(block, dict):
         block = {}
@@ -1347,12 +1349,14 @@ def main(argv):
     p_pred.add_argument("--taxonomy-sha")
     p_pred.add_argument("--field", action="append", help="extra k=v (repeatable)")
     p_pred.add_argument("--stream")
+    p_pred.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
 
     p_bind = sub.add_parser("bind")
     p_bind.add_argument("--pre-eval-id", required=True)
     p_bind.add_argument("--run-id", required=True)
     p_bind.add_argument("--escalation-child", action="store_true")
     p_bind.add_argument("--stream")
+    p_bind.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
 
     p_act = sub.add_parser("actual")
     p_act.add_argument("--pre-eval-id", required=True)
@@ -1372,6 +1376,7 @@ def main(argv):
     p_act.add_argument("--demotion-reason")
     p_act.add_argument("--field", action="append", help="extra k=v (repeatable)")
     p_act.add_argument("--stream")
+    p_act.add_argument("--repo", help="project root (default: git toplevel of the cwd)")
 
     for name in ("precision", "tier2", "cohorts"):
         q = sub.add_parser(name)
@@ -1406,6 +1411,12 @@ def main(argv):
         return 2
 
     try:
+        # The stream belongs to the PROJECT (explicit --repo, else the git toplevel of
+        # the cwd), resolved once, before anything is read or written. Outside a git
+        # repository with neither --repo nor --stream this raises, and the command exits
+        # non-zero having written nothing.
+        if args.stream is None:
+            args.stream = default_stream_path(args.repo)
         if args.cmd == "predicted":
             obj = append_predicted(
                 args.pre_eval_id, decision=args.decision,
@@ -2356,6 +2367,41 @@ def _selftest():
             _ev_lines = [l for l in fh.read().splitlines() if l.strip()]
         expect("every event is one appended JSON line", len(_ev_lines) == 3
                and all(json.loads(l)["event"] in EVENTS for l in _ev_lines))
+
+    # ADR 0005: the default stream is the PROJECT's (explicit repo / git toplevel of the
+    # cwd), never derived from this script's location, and outside git it refuses.
+    with tempfile.TemporaryDirectory() as td:
+        _ceil = os.environ.get("GIT_CEILING_DIRECTORIES")
+        os.environ["GIT_CEILING_DIRECTORIES"] = os.path.realpath(td)
+        try:
+            expect("no _repo_root derived from the script's location",
+                   "_repo_root" not in globals())
+            expect("default_stream_path(repo) is <repo>/" + STREAM_RELPATH,
+                   default_stream_path(td)
+                   == os.path.join(os.path.realpath(td), STREAM_RELPATH))
+            _nog = os.path.join(td, "nogit")
+            os.makedirs(_nog)
+            _cwd = os.getcwd()
+            os.chdir(_nog)
+            try:
+                _err = io.StringIO()
+                _saved_err = sys.stderr
+                sys.stderr = _err
+                try:
+                    _rc = main(["compound-v-triage-outcomes.py", "predicted",
+                                "--pre-eval-id", "PID-NOGIT"])
+                finally:
+                    sys.stderr = _saved_err
+                expect("outside git with no --repo/--stream: non-zero, nothing written",
+                       _rc != 0 and os.listdir(_nog) == []
+                       and "not inside a git repository" in _err.getvalue())
+            finally:
+                os.chdir(_cwd)
+        finally:
+            if _ceil is None:
+                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+            else:
+                os.environ["GIT_CEILING_DIRECTORIES"] = _ceil
 
     if failures:
         print("\nSELFTEST FAILED: %d case(s)" % len(failures))

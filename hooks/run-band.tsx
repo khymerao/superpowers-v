@@ -46,12 +46,47 @@ async function scriptPath($: EngineInterface, name: string): Promise<string | nu
   }
 }
 
-async function readHud($: EngineInterface, runId?: string): Promise<{ run: HudRun | null } | null> {
+// The PROJECT root: walk UP from the session cwd to the nearest ancestor holding `.git` (a
+// directory, or a linked worktree's `.git` file); fall back to the cwd itself. Bounded to
+// 40 levels — the same rule, bound and not-found result as hooks/postcompact-resume.sh.
+const ROOT_WALK_MAX = 40
+
+async function projectRoot($: EngineInterface, cwd: string): Promise<string> {
+  let d = cwd
+  for (let i = 0; i < ROOT_WALK_MAX; i++) {
+    try {
+      await $.fs.stat(`${d === '/' ? '' : d}/.git`)
+
+      return d
+    } catch {
+      // not here: keep walking
+    }
+    if (d === '/' || d === '') {
+      break
+    }
+    const cut = d.lastIndexOf('/')
+    d = cut <= 0 ? '/' : d.slice(0, cut)
+  }
+
+  return cwd
+}
+
+function parentDir(path: string): string {
+  const cut = path.lastIndexOf('/')
+
+  return cut <= 0 ? '' : path.slice(0, cut)
+}
+
+async function readHud($: EngineInterface, executionRoot: string, runId?: string): Promise<{ run: HudRun | null } | null> {
   const script = await scriptPath($, 'compound-v-dashboard.py')
   if (script === null) {
     return null
   }
-  const argv = ['python3', '-B', script, 'hud', ...(runId ? ['--run', runId] : [])]
+  const argv = [
+    'python3', '-B', script, 'hud',
+    ...(executionRoot ? ['--execution-root', executionRoot] : []),
+    ...(runId ? ['--run', runId] : []),
+  ]
   try {
     const { exitCode, stdout } = await $.process.run(argv, { timeoutMs: READER_TIMEOUT_MS })
     if (exitCode !== 0) {
@@ -158,7 +193,8 @@ function closingLine(run: HudRun): string {
 
 // The poller's own bookkeeping. Module variables start over on a hot reload, which is
 // what we want: the next tick re-reads everything.
-const mem = { isBusy: false, ticks: 0, stateMtime: -1, livenessAt: 0 }
+// `rootCwd`/`root` cache the walk-up per session cwd, so the idle cost stays one stat.
+const mem = { isBusy: false, ticks: 0, stateMtime: -1, livenessAt: 0, rootCwd: '', root: '' }
 
 async function step($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
@@ -174,16 +210,23 @@ async function step($: EngineInterface): Promise<void> {
       return
     }
     // A repository that never ran Compound V has no execution directory: one stat every
-    // 30 s, and no reader process at all.
+    // 30 s, and no reader process at all. The directory is the PROJECT's, found by walking
+    // up from the cwd, so a session started in a subdirectory still sees its run.
+    let executionRoot = ''
     try {
-      const root = `${await $.session.cwd()}/docs/superpowers/execution`
-      if ((await $.fs.stat(root)).kind !== 'dir') {
+      const cwd = await $.session.cwd()
+      if (mem.rootCwd !== cwd || mem.root === '') {
+        mem.root = await projectRoot($, cwd)
+        mem.rootCwd = cwd
+      }
+      executionRoot = `${mem.root}/docs/superpowers/execution`
+      if ((await $.fs.stat(executionRoot)).kind !== 'dir') {
         return
       }
     } catch {
       return
     }
-    const doc = await readHud($)
+    const doc = await readHud($, executionRoot)
     if (doc?.run) {
       mem.stateMtime = -1
       mem.livenessAt = 0
@@ -212,7 +255,7 @@ async function step($: EngineInterface): Promise<void> {
   let run: HudRun = tracked
   if (hasChanged) {
     mem.stateMtime = mtime
-    const doc = await readHud($)
+    const doc = await readHud($, parentDir(tracked.run_dir))
     if (doc === null) {
       await update($, band, b => ({ ...(b ?? EMPTY), error: 'run state unreadable' }))
 
@@ -220,7 +263,7 @@ async function step($: EngineInterface): Promise<void> {
     }
     if (doc.run === null || doc.run.id !== tracked.id) {
       // The tracked run left the active set: say how it ended, for a minute.
-      const last = (await readHud($, tracked.id))?.run ?? tracked
+      const last = (await readHud($, parentDir(tracked.run_dir), tracked.id))?.run ?? tracked
       mem.stateMtime = -1
       mem.livenessAt = 0
       await update($, band, () => ({

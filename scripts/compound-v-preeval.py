@@ -1617,17 +1617,13 @@ def triage_request(request, repo=".", session_id=None, base_commit=None,
     sid = (session_id or "").strip() or None
     base = (base_commit or "").strip() or None
 
-    # THE OUTCOME STREAM BELONGS TO THE REPO THE RECORD BELONGS TO, and it has to be
-    # said out loud here: `compound-v-triage-outcomes.default_stream_path()` derives its
-    # path from the MODULE's location (the parent of `scripts/`), not from `repo`. In a
-    # dogfooding checkout those are the same directory and the difference is invisible;
-    # for `hooks/triage-prompt-nudge.sh`, which runs an installed plugin's engine against
-    # a different project, they are not, and the `predicted` event would land in the
-    # plugin checkout while the record it keys landed in the project. Pinning it from
-    # `repo` keeps the pair together. A caller that knows better still wins.
+    # THE OUTCOME STREAM BELONGS TO THE REPO THE RECORD BELONGS TO. Pinning it from
+    # `repo` keeps the record and its `predicted` event together even when this engine
+    # runs from an installed plugin against a different project (as
+    # `hooks/triage-prompt-nudge.sh` does). The relative path is triage-outcomes' own
+    # `STREAM_RELPATH`, the single definition. A caller that knows better still wins.
     kwargs.setdefault("stream_path",
-                      os.path.join(repo or ".", "docs", "superpowers", "memory",
-                                   "triage-outcomes.jsonl"))
+                      os.path.join(repo or ".", _triage_mod().STREAM_RELPATH))
 
     binding = {"session_id": sid, "base_commit": base}
 
@@ -2528,8 +2524,7 @@ def _selftest():
         tax_file = os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml")
         with open(tax_file, "w", encoding="utf-8") as fh:
             fh.write(_EXAMPLE_TAXONOMY_TEXT)
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
 
         # (a) AC-1 end-to-end: shared-token 'make button red' → FULL via override #3.
         fk = fake_localize_factory(_loc(["src/ui/button.css", "src/ui/card.css"],
@@ -2580,8 +2575,7 @@ def _selftest():
         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
                   encoding="utf-8") as fh:
             fh.write(_EXAMPLE_TAXONOMY_TEXT)
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
 
         # (c) FASTPATH_ELIGIBLE end-to-end: trivial local CSS → eligible record validates,
         # and carries a non-null taxonomy_ref/digest (the schema if/then requirement).
@@ -2822,8 +2816,7 @@ def _selftest():
 
     # (e) Absent-taxonomy end-to-end: no taxonomy file → FULL, null taxonomy fields, valid.
     with tempfile.TemporaryDirectory() as repo:
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
         fk_any = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
         resa = run_preeval("make button red", repo=repo, _localize=fk_any,
                            t3_category="plumbing", ts="2026-07-12T10:19:00Z",
@@ -2880,8 +2873,7 @@ def _selftest():
         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
                   encoding="utf-8") as fh:
             fh.write(malformed_tax_text)
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
         fk = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
         resm = run_preeval("tweak local button padding", repo=repo, _localize=fk,
                            t3_category="plumbing", ts="2026-07-12T10:20:00Z",
@@ -2903,7 +2895,7 @@ def _selftest():
         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
                   encoding="utf-8") as fh:
             fh.write(_EXAMPLE_TAXONOMY_TEXT)
-        return os.path.join(repo, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
+        return os.path.join(repo, _triage_mod().STREAM_RELPATH)
 
     # (a) enabled:false → the whole stage is a no-op → FULL_PIPELINE, NO artifacts written.
     with tempfile.TemporaryDirectory() as repo:
@@ -3035,8 +3027,7 @@ def _selftest():
         with open(os.path.join(tax_dir, "compound-v-impact-taxonomy.yaml"), "w",
                   encoding="utf-8") as fh:
             fh.write(_EXAMPLE_TAXONOMY_TEXT)
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
         fk_fp = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
 
         # (a) No run_dir => advisor sensor OFF (fail-open) => trivial change stays FASTPATH
@@ -3092,8 +3083,7 @@ def _selftest():
             fh.write(_EXAMPLE_TAXONOMY_TEXT
                      + "\nauto_route_allow:\n  - \"src/ui/**/*.css\"\n"
                      + "auto_route_max_lines: 20\n")
-        stream = os.path.join(repo, "docs", "superpowers", "memory",
-                              "triage-outcomes.jsonl")
+        stream = os.path.join(repo, _triage_mod().STREAM_RELPATH)
 
         fk_t = fake_localize_factory(_loc(["src/ui/button.css"], flags=[], fan_out=1))
         t = triage_request("tweak local button padding", repo=repo,
@@ -3217,7 +3207,7 @@ def _selftest():
         with open(os.path.join(repo, ".claude", "compound-v-impact-taxonomy.yaml"), "w",
                   encoding="utf-8") as fh:
             fh.write(text)
-        return os.path.join(repo, "docs", "superpowers", "memory", "triage-outcomes.jsonl")
+        return os.path.join(repo, _triage_mod().STREAM_RELPATH)
 
     def _t3_run(text, paths, flags, cat, pid, request, **kw):
         """One run_preeval in a fresh repo. Returns (result, stream lines)."""

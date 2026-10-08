@@ -33,6 +33,7 @@ Usage:
 
 import json
 import os
+import subprocess
 import sys
 
 # Config file location relative to the repo root.
@@ -117,6 +118,36 @@ def load_config_file(config_path):
 
 def config_path_for_repo(repo):
     return os.path.join(repo or ".", CONFIG_RELPATH)
+
+
+def resolve_project_root(repo=None, start=None):
+    """The project root, by one rule (ADR 0005, rules 5-8).
+
+    An explicit ``repo`` wins: its real path, which must be a directory. Otherwise the
+    git toplevel of ``start`` (default: the current directory), via
+    ``git -C <start> rev-parse --show-toplevel``, as a real path — that also resolves a
+    linked worktree, whose ``.git`` is a file. Outside a git repository this raises
+    ``ValueError`` naming the problem. It never consults this module's own location and
+    never returns the current directory as a guess: a script's location is the PLUGIN
+    root, which is a different directory whenever the plugin is installed."""
+    if repo is not None:
+        real = os.path.realpath(str(repo))
+        if not os.path.isdir(real):
+            raise ValueError("project root %r is not a directory" % (repo,))
+        return real
+    base = start if start is not None else os.getcwd()
+    try:
+        proc = subprocess.run(["git", "-C", str(base), "rev-parse", "--show-toplevel"],
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              universal_newlines=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise ValueError("cannot resolve the project root from %s: git did not run (%s); "
+                         "pass --repo <project-root>" % (base, e))
+    top = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not top:
+        raise ValueError("%s is not inside a git repository; pass --repo <project-root>"
+                         % (base,))
+    return os.path.realpath(top)
 
 
 def load_project_config(repo):
@@ -571,6 +602,58 @@ def _selftest():
                rc == 0 and out.get("jev", {}).get("t3", {}).get("mode") == "shadow")
         expect("CLI surfaces the jev warnings",
                any("1.5" in w for w in out.get("warnings", [])))
+
+    # resolve_project_root: one rule (ADR 0005). GIT_CEILING_DIRECTORIES keeps git from
+    # finding a repository ABOVE the temp dir, so "outside git" means outside git.
+    _env_saved = os.environ.get("GIT_CEILING_DIRECTORIES")
+    with tempfile.TemporaryDirectory() as td:
+        os.environ["GIT_CEILING_DIRECTORIES"] = os.path.realpath(td)
+        try:
+            proj = os.path.join(td, "proj")
+            sub = os.path.join(proj, "a", "b")
+            os.makedirs(sub)
+            real_proj = os.path.realpath(proj)
+            expect("explicit repo wins (real path)",
+                   resolve_project_root(repo=proj, start=td) == real_proj)
+            expect("explicit repo that is not a directory raises",
+                   raises(lambda: resolve_project_root(repo=os.path.join(td, "nope"))))
+            expect("outside git with no repo raises",
+                   raises(lambda: resolve_project_root(start=sub)))
+            try:
+                resolve_project_root(start=sub)
+                msg = ""
+            except ValueError as e:
+                msg = str(e)
+            expect("outside git: the message names the problem",
+                   "not inside a git repository" in msg)
+            gq = ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                  "-c", "commit.gpgsign=false"]
+            subprocess.run(gq + ["init", "-q", proj], check=True)
+            expect("git toplevel from a subdirectory",
+                   resolve_project_root(start=sub) == real_proj)
+            expect("never the start directory as a guess",
+                   resolve_project_root(start=sub) != os.path.realpath(sub))
+            subprocess.run(gq + ["-C", proj, "commit", "-q", "--allow-empty", "-m", "x"],
+                           check=True)
+            wt = os.path.join(td, "wt")
+            subprocess.run(gq + ["-C", proj, "worktree", "add", "-q", wt],
+                           check=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+            expect("a linked worktree (.git is a file) resolves to the worktree",
+                   os.path.isfile(os.path.join(wt, ".git"))
+                   and resolve_project_root(start=wt) == os.path.realpath(wt))
+            cwd_saved = os.getcwd()
+            try:
+                os.chdir(sub)
+                expect("start defaults to the current directory",
+                       resolve_project_root() == real_proj)
+            finally:
+                os.chdir(cwd_saved)
+        finally:
+            if _env_saved is None:
+                os.environ.pop("GIT_CEILING_DIRECTORIES", None)
+            else:
+                os.environ["GIT_CEILING_DIRECTORIES"] = _env_saved
 
     if failures:
         print("\nSELFTEST FAILED: %d case(s)" % len(failures))
