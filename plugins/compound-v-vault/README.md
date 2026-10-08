@@ -23,7 +23,12 @@ it does with no Jev at all.
    dialog may also ask for it. The field is marked sensitive, so Claude Code keeps it in secure storage, not in a
    settings file, and you type it into Claude Code's own masked field, never into the chat.
    It is not listed in `/config`, by design: sensitive options never are.
+   A new or changed key takes effect in a new session: the vault reads the key once, when it loads, so restart
+   `claude` after entering it.
 3. In each repository where you want Jev, run `/egress allow` once (see Egress below).
+
+The vault is inert in the Claude desktop app's Code tab: observed on 2026-10-08 with the app's bundled Claude Code
+2.1.293, the vault does not receive its key there, so use Jev from a terminal `claude`.
 
 Use a dedicated OpenRouter key with a credit limit set on the OpenRouter side. The vault cannot cap spending; the
 limit on the key can.

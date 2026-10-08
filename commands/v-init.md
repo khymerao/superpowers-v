@@ -249,14 +249,13 @@ configure; just confirm `python3` is present (the workers already require it).
 **Version gate first.** `/skill-doctor` needs Claude Code **v2.1.261 or later** — the version the
 official `CHANGELOG.md` names for the feature. (`skills.md` itself says 2.1.252; the two
 Anthropic-owned sources disagree and this step cites the stricter one so the probe never fires on
-a build that lacks the command.) Check with:
+a build that lacks the command.) Check the version of the Claude Code that runs this session with
+the host-version block of Step 1g (the fenced block that starts `# cv-host-version`), not with a
+bare `claude --version`: the desktop app runs its own bundled build, which can differ from the CLI
+on `PATH`. Run that block once here and reuse its output in Step 1g.
 
-```bash
-claude --version
-```
-
-Below 2.1.261 → skip this step (say so plainly — "skipped, below the 1f version floor" — rather
-than attempting the command).
+Below 2.1.261, or `unknown` → skip this step (say so plainly — "skipped, below the 1f version
+floor" or "skipped, host version unknown" — rather than attempting the command).
 
 At or above the floor, run it headless, as text, with no stdin:
 
@@ -296,7 +295,8 @@ editing plugin config directly, never by this walkthrough.
 ### 1g. Jev vault (optional)
 
 Jev, TypeSafe's System One classifier, is reached only through the separate `compound-v-vault` plugin, which holds
-the OpenRouter key. Without it nothing changes. This step reports one of three states and never touches the key.
+the OpenRouter key. Without it nothing changes. This step reports one of the states listed at its end and never
+touches the key.
 
 First, is the vault installed, and is it enabled?
 
@@ -312,7 +312,46 @@ on = [p for p in v if p.get("enabled")]
 print(on[0]["id"] if on else ("disabled:" + v[0]["id"] if v else "absent"))'
 ```
 
-Only when that printed a bare id (not `absent`, not `disabled:<id>`), ask whether the key is set, without its value:
+Only when that printed a bare id (not `absent`, not `disabled:<id>`), go on. Is this session the desktop app?
+
+```bash
+if [ "${CLAUDE_CODE_ENTRYPOINT:-}" = claude-desktop ]; then echo desktop; else echo not-desktop; fi
+```
+
+`desktop` (only the exact value `claude-desktop` counts) means the vault is reported as inert in the desktop app,
+whatever its version or key state, and the rest of this step, the key probe included, is skipped. This is observed
+behaviour, not a documented guarantee: on 2026-10-08 a desktop Code tab session on the bundled Claude Code 2.1.293,
+above the floor, showed `Jev: off (no_key)` while the same key worked in a terminal `claude`. `CLAUDE_CODE_ENTRYPOINT`
+is undocumented; unset, empty or any other value counts as `not-desktop`.
+
+Otherwise read the version of the Claude Code that runs this session (Step 1f may already have run this block; reuse
+its output):
+
+```bash
+# cv-host-version: the running host's version and its source, on one line: "<x.y.z> host", "<x.y.z> path" or "unknown"
+CV_HOST_VER=""; CV_HOST_SRC=""
+if [ -n "${CLAUDE_CODE_EXECPATH:-}" ] && [ -f "$CLAUDE_CODE_EXECPATH" ] && [ -x "$CLAUDE_CODE_EXECPATH" ]; then
+  CV_HOST_VER="$(python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 5 -- "$CLAUDE_CODE_EXECPATH" --version </dev/null 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+  CV_HOST_SRC=host
+fi
+if [ -z "$CV_HOST_VER" ]; then
+  CV_HOST_VER="$(python3 "$CV/scripts/compound-v-run-with-timeout.py" --timeout 5 -- claude --version </dev/null 2>/dev/null | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+  CV_HOST_SRC=path
+fi
+if [ -n "$CV_HOST_VER" ]; then echo "$CV_HOST_VER $CV_HOST_SRC"; else echo unknown; fi
+```
+
+`CLAUDE_CODE_EXECPATH` is the binary of the running Claude Code (the desktop app's bundled build lives under
+`~/Library/Application Support/Claude/claude-code/<version>/`). It is undocumented, so the block never fails on it:
+unset, empty, not an executable file, or no `x.y.z` at the start of a line of its output, and the block falls back to
+the `claude` on `PATH` (`path`), which can be a different build from the host. The version is always what the binary
+prints, never read from its directory name.
+
+Then check the floor: the vault is a hooks module, and modules load only on Claude Code 2.1.287 or newer. Compare the
+version the `cv-host-version` block printed. `unknown` never passes the floor; below it, the vault is inert whatever
+its key state. In either case skip the key probe.
+
+Only when the host version is 2.1.287 or newer, ask whether the key is set, without its value:
 
 ```bash
 claude plugin configure "<id>" --json 2>/dev/null | python3 -c '
@@ -328,19 +367,21 @@ print("set" if isinstance(c, list) and "openrouter_key" in c else "not set")'
 `configured` lists the names of the options that hold a value. The output also includes an `inputs` map: never run
 this command without the filter, never print its output raw, and never read or echo `inputs`. The filter prints only
 `set`, `not set` or `unknown`. `claude plugin configure` needs Claude Code 2.1.285 or newer; below that, report the
-key state as `unknown`.
+key state as `unknown`. This probe runs the `claude` on `PATH`, not the host; that is correct, it is a separate
+command that reads the stored option, not the session that loads the vault.
 
-Then check the floor: the vault is a hooks module, and modules load only on Claude Code 2.1.287 or newer
-(`claude --version`). Below that the vault is inert whatever its key state.
-
-Report one of:
+Report the first of these that applies, in this order:
 
 - `absent`;
 - `disabled` (installed but turned off; Step 2 offers `/plugin enable <id>`, never a second install);
-- `installed, inert (Claude Code < 2.1.287)`;
+- `installed, inert in the desktop app (observed 2026-10-08 on the bundled 2.1.293: the vault does not receive its key there) - use Jev from a terminal claude`;
+- `installed, host version unknown (the vault needs Claude Code 2.1.287 or newer)`;
+- `installed, inert (Claude Code < 2.1.287)` (name the host version and its source, `host` or `path`);
 - `installed, key not set` (or `installed, key state unknown`);
 - `installed, key set`. Jev is still off in a repository until the user runs `/egress allow` there; `/egress status`
-  shows the current answer, and the status line reads `Jev: on` once it is allowed. Say so in the report.
+  shows the current answer, and the status line reads `Jev: on` once it is allowed. A key entered or changed with
+  `/plugin configure` takes effect in a new session: the vault reads it once, when it loads, so restart `claude`
+  after setting it. Say both in the report.
 
 ---
 
@@ -357,14 +398,17 @@ worked, then move to the next.** Never chain installs.
   After they confirm, re-run the Step 1b namespace grep.
 - **Plugin surface incomplete:** direct them to reinstall `superpowers-v`; stop and
   resume `/v:init` once it is whole.
-- **Jev vault absent, disabled, or its key not set** (and the user wants Jev): ask once whether they want it. If yes:
+- **Jev vault absent, disabled, inert in the desktop app, or its key not set** (and the user wants Jev): ask once whether they want it. If yes:
   when it is `absent`, they run `/plugin install compound-v-vault@procoders` (the vault needs Claude Code 2.1.287 or
   newer); when it is `disabled`, they run `/plugin enable <id>` with the id the probe printed after `disabled:`. Then
   `/plugin configure <id>` with the id Step 1g printed (`compound-v-vault@procoders` after a fresh install from this
   marketplace; `configure` accepts only the full `name@marketplace` id) to enter the key in Claude Code's own masked
   field (2.1.285 or newer), then `/egress allow` in each repository where they want Jev. Re-run the Step 1g probe after each and report
   the new state. Never ask for the key in chat, never pass it on a command line, never point the user at `/config`
-  for it. Declining leaves Jev off and changes nothing else.
+  for it. Declining leaves Jev off and changes nothing else. A key entered or changed takes effect in a new session:
+  tell the user to restart `claude` after `/plugin configure`. On a desktop host (Step 1g printed `desktop`), do not
+  offer `/plugin configure` here: the vault is inert in the desktop app, so tell the user to run
+  `/plugin configure <id>` and `/egress allow` in a terminal `claude` and use Jev from there.
 
 After each install, **re-probe that one capability** and report the new state before
 touching the next. Codex is **optional** — if the user declines it, proceed Claude-only.

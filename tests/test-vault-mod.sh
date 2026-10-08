@@ -143,5 +143,103 @@ PY
 )"
 if [ "$init_check" = ok ]; then ok "v-init 1g: filtered probes, egress, 2.1.287, disabled and probed id covered"; else bad "v-init 1g: $init_check"; fi
 
+# /v:init step 1g host-version block: it reports the Claude Code that runs the session (CLAUDE_CODE_EXECPATH), not
+# the `claude` on PATH, and falls back to PATH only when the host gives no version. The block is extracted from the
+# step by its marker comment and run with stubs and an explicit environment (this test may itself run inside Claude
+# Code, where both variables are set).
+hv_dir="$(mktemp -d)"
+hv_block="$hv_dir/block.sh"
+python3 -B - "$REPO_ROOT/commands/v-init.md" "$hv_block" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"^### 1g\..*?(?=^## |^### 1h|\Z)", t, re.S | re.M)
+blocks = [b for b in re.findall(r"```bash\n(.*?)```", m.group(0) if m else "", re.S) if "# cv-host-version" in b]
+open(sys.argv[2], "w", encoding="utf-8").write(blocks[0] if len(blocks) == 1 else "")
+PY
+mkdir -p "$hv_dir/path" "$hv_dir/nover"
+printf '#!/bin/sh\necho "2.1.289 (Claude Code)"\n' > "$hv_dir/path/claude"
+printf '#!/bin/sh\necho "2.1.286 (Claude Code)"\n' > "$hv_dir/host"
+printf '#!/bin/sh\necho "Claude Code"\n' > "$hv_dir/nover/claude"
+cp "$hv_dir/nover/claude" "$hv_dir/host-nover"
+cp "$hv_dir/host" "$hv_dir/host-noexec"
+chmod 755 "$hv_dir/path/claude" "$hv_dir/host" "$hv_dir/nover/claude" "$hv_dir/host-nover"
+chmod 644 "$hv_dir/host-noexec"
+hv_run() { # <claude-dir on PATH> [CLAUDE_CODE_EXECPATH]
+  local pathdir="$1"; shift
+  if [ "$#" -gt 0 ]; then
+    env -i HOME="$HOME" PATH="$pathdir:$PATH" CV="$REPO_ROOT" CLAUDE_CODE_EXECPATH="$1" bash "$hv_block" 2>/dev/null
+  else
+    env -i HOME="$HOME" PATH="$pathdir:$PATH" CV="$REPO_ROOT" bash "$hv_block" 2>/dev/null
+  fi
+}
+hv_problems=""
+if [ ! -s "$hv_block" ]; then
+  hv_problems="no single '# cv-host-version' bash block in step 1g"
+else
+  got="$(hv_run "$hv_dir/path" "$hv_dir/host")";        [ "$got" = "2.1.286 host" ] || hv_problems="$hv_problems; host stub gave '$got'"
+  got="$(hv_run "$hv_dir/path")";                       [ "$got" = "2.1.289 path" ] || hv_problems="$hv_problems; unset gave '$got'"
+  got="$(hv_run "$hv_dir/path" "$hv_dir/host-nover")";  [ "$got" = "2.1.289 path" ] || hv_problems="$hv_problems; versionless host gave '$got'"
+  got="$(hv_run "$hv_dir/path" "$hv_dir/host-noexec")"; [ "$got" = "2.1.289 path" ] || hv_problems="$hv_problems; non-executable host gave '$got'"
+  got="$(hv_run "$hv_dir/path" "$hv_dir")";             [ "$got" = "2.1.289 path" ] || hv_problems="$hv_problems; directory as host gave '$got'"
+  got="$(hv_run "$hv_dir/nover" "$hv_dir/host-nover")"; [ "$got" = "unknown" ]      || hv_problems="$hv_problems; no version anywhere gave '$got'"
+  got="$(hv_run "$hv_dir/path" "")";                    [ "$got" = "2.1.289 path" ] || hv_problems="$hv_problems; empty host gave '$got'"
+fi
+rm -rf "$hv_dir"
+if [ -z "$hv_problems" ]; then ok "v-init 1g host-version block: host first, PATH fallback, unknown"; else bad "v-init 1g host-version block: ${hv_problems#; }"; fi
+
+# /v:init 1g desktop and host-unknown states, the floor read from the host block (1g and 1f), the restart note, and
+# the vault README's desktop and restart sentences.
+desk_check="$(python3 -B - "$REPO_ROOT/commands/v-init.md" "$PLUGIN/README.md" <<'PY'
+import re, sys
+t = open(sys.argv[1], encoding="utf-8").read()
+readme = open(sys.argv[2], encoding="utf-8").read()
+def section(head, stop):
+    m = re.search(r"^### " + head + r".*?(?=^## |^### " + stop + r"|\Z)", t, re.S | re.M)
+    return m.group(0) if m else ""
+g, f = section(r"1g\.", r"1h"), section(r"1f\.", r"1g")
+problems = []
+if not g:
+    print("no step 1g"); raise SystemExit
+for word, why in (
+    ("CLAUDE_CODE_ENTRYPOINT", "1g does not read CLAUDE_CODE_ENTRYPOINT"),
+    ('= claude-desktop ]', "1g does not compare the entrypoint with claude-desktop exactly"),
+    ("installed, inert in the desktop app (observed 2026-10-08 on the bundled 2.1.293: the vault does not receive "
+     "its key there) - use Jev from a terminal claude", "no desktop-inert state"),
+    ("installed, host version unknown (the vault needs Claude Code 2.1.287 or newer)", "no host-unknown state"),
+):
+    if word not in g:
+        problems.append(why)
+for word in ("CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION"):
+    if word in g:
+        problems.append("1g reads " + word)
+if "three states" in g:
+    problems.append("1g intro still says three states")
+paras = [p for p in re.split(r"\n\s*\n", re.sub(r"```.*?```", "", g, flags=re.S)) if "2.1.287" in p and "floor" in p]
+if not paras:
+    problems.append("no floor paragraph in 1g")
+elif any("claude --version" in p or "cv-host-version" not in p for p in paras):
+    problems.append("the 1g floor paragraph does not read the host block")
+fcode = "\n".join(re.findall(r"```bash\n(.*?)```", f, re.S))
+if not f or "claude --version" in fcode or "cv-host-version" not in f:
+    problems.append("1f does not read the host block")
+key_set = g[g.find("`installed, key set`"):]
+if "restart" not in key_set[:600]:
+    problems.append("the key-set state has no restart note")
+step2 = t[t.find("## Step 2"):]
+item = step2[step2.find("Jev vault"):]
+item = item[:item.find("\n\n")] if "\n\n" in item else item
+if "restart" not in item or "terminal" not in item or "desktop" not in item:
+    problems.append("Step 2 vault bullet lacks the desktop or restart note")
+flat = re.sub(r"\s+", " ", readme)
+sentences = re.split(r"(?<=[.!?])\s+", flat)
+if not any("desktop" in s and "2026-10-08" in s and "terminal" in s for s in sentences):
+    problems.append("README has no dated desktop sentence")
+if not any("restart" in s and "key" in s for s in sentences):
+    problems.append("README has no restart sentence")
+print("ok" if not problems else "; ".join(problems))
+PY
+)"
+if [ "$desk_check" = ok ]; then ok "v-init 1g: desktop and host-unknown states, host floor (1g, 1f), restart; README desktop and restart"; else bad "v-init 1g desktop/restart: $desk_check"; fi
+
 echo "tests/test-vault-mod.sh: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
