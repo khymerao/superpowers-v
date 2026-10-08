@@ -1,0 +1,13 @@
+{
+  "confidence": "exact",
+  "digest": "sha256:5dad955b4238e11a91f2ad0af3e75d19d744ac4c05ca470a2e933752af1163b4",
+  "fan_out": 3,
+  "flags": [
+    "sensitive_path"
+  ],
+  "resolved_paths": [
+    "commands/v-init.md",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ]
+}
