@@ -1,0 +1,82 @@
+run_id: 2026-10-08-phase-t-jev-shadow
+feature: 'Phase T records the t3 block and asks Jev in shadow; one T3 request builder for the hook and Phase T'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-phase-t-jev-shadow-design.md
+plan_path: docs/superpowers/plans/2026-10-08-phase-t-jev-shadow.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-phase-t-jev-shadow-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-phase-t-jev-shadow-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-08T055405Z-phase-t-in-v-triage-never-asks-jev-commands-v-triage-md-step-e332
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-08T05:54:05Z'
+global_constraints:
+- 'Python 3.9 stdlib only; no `match`, no `X | Y` annotations. Every fix ships a test row that fails when reverted.'
+- '`t3-request --repo R --request-env NAME --prompt-file P --context hook|offline`: request text only through the environment, never argv; empty request refused; config via `resolve_jev(load_project_config(repo))`; prints `{"status": "off", "reason": ...}` and writes nothing unless `jev.enabled` and `t3.mode` resolves to `shadow` (`active` coerced to `shadow`); otherwise the same JSON `build --point t3` prints.'
+- 'Extraction byte-equivalent to the hook''s jq (`hooks/triage-prompt-nudge.sh:467-482`): codepoint cap 2,000, LAST `RESOLVED FILE PATHS` header, blank-line terminator, `(none resolved)` dropped from paths only, 20 paths, 40 hints. Caps imported from `compound-v-classify-request.py` where defined.'
+- 'Hook: `_write_t3_descriptor` calls `t3-request --context hook`; descriptor keys, gating and stdout unchanged; the prompt temp file removed on every exit path; `_T3_STATE_MAX_CHARS` removed; existing hook rows in `tests/test-native-points.sh` stay green, `cv-jev-state.*` asserts repointed to the new temp file, not deleted.'
+- 'Phase T prose (`commands/v-triage.md`): carry `t3_reason` from the first `needs_t3` result (default `unbanded`); re-invoke with `--t3-category` and `--t3-engine <claude|codex|parent>` (never with `backend: none` or a timeout); on a "DIFFERENT content" refusal re-run without `--t3-engine`, say so, skip the Jev step.'
+- 'Phase T Jev step, after T2 and before T3''s commit, only when T3 decided: ToolSearch for `mcp__compound-v-vault__jev_classify`; `t3-request --context offline`; call the tool; a result that is not an absolute path to an existing file ends the step; `parse --mode shadow --request-file`; `unavailable` with `no_key`, `egress` or `disabled` deletes the request file and writes no pair; every other status runs `pair` with the carried category, backend and reason. Same `--repo` throughout. One-line report; never skips T3''s commit. No response body or key in the transcript.'
+- '`hooks/jev-t3.tsx` and the vault are not changed.'
+- 'No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 compound-v-jev.py --selftest covers t3-request (state matches the hook extraction, off when disabled or t3.mode off, active coerced, empty request refused, request never on argv).
+- AC-2 The hook T3 shadow rows pass with _write_t3_descriptor calling t3-request; the descriptor keeps its seven keys; a row compares the old jq extraction with t3-request on one fixture.
+- AC-3 commands/v-triage.md passes --t3-engine on the re-invocation and its Jev step names t3-request, jev_classify, parse --mode shadow and pair; a test row checks both and fails when either is removed.
+- AC-4 The prose re-invocation with --t3-category and --t3-engine, run against a fixture repo, writes a record with a t3 block.
+- AC-5 Full suite, lint-frontmatter.py and shellcheck hooks/*.sh green.
+test_contract:
+  floor_command: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo floor-ok'
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: scripts/compound-v-jev.py
+    run: bash -c '/usr/bin/python3 -B scripts/compound-v-jev.py --selftest >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo jev-ok'
+  - when: hooks/triage-prompt-nudge.sh
+    run: bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hook-ok'
+  - when: commands/*.md
+    run: bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-jev-core.sh >/dev/null && echo cmd-ok'
+  - when: tests/*.sh
+    run: bash -c 'bash tests/test-jev-core.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && echo tests-ok'
+jobs:
+- id: phase-t-shadow
+  title: Task A — t3-request builder, hook switch, Phase T t3 block and Jev shadow step
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - scripts/compound-v-jev.py
+  - hooks/triage-prompt-nudge.sh
+  - commands/v-triage.md
+  - tests/test-native-points.sh
+  - tests/test-jev-core.sh
+  read_allowed:
+  - '**'
+  acceptance:
+  - All new rows pass and each fails when its change is reverted; compound-v-jev.py and compound-v-preeval.py selftests, test-native-points.sh, test-jev-core.sh, test-jev-t3-mod.sh, lint-frontmatter and shellcheck green.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-phase-t-jev-shadow.md, every step in order (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-phase-t-jev-shadow-design.md, especially its Pre-flight amendments, and both audits (section 7) first; they and the plan Global Constraints bind. Tests first. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec, its amendments and AC-1..AC-5
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - phase-t-shadow
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-phase-t-jev-shadow-review.md with the section skeleton. Review the job against docs/superpowers/specs/2026-10-08-phase-t-jev-shadow-design.md (its amendments override the body) and the plan. Check in particular: the hook output and descriptor are unchanged; the request text never reaches argv; the no_key/egress/disabled branch writes no pair; a Jev-step failure cannot skip the record commit. Revert checks only in a scratch copy. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

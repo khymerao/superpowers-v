@@ -2,4 +2,5 @@
 - [Jev seams map](jev-seams-map.md) — vault reasons vs parse, prune/pending descriptors, detect_ui sample couplings
 - [Vault tool.call map](vault-tool-call-map.md) — vault tool.call hook, test helper, CLI pin/floor couplings
 - [/v:init 1g map](v-init-1g-map.md) — step 1g prose, its one test row, sibling PATH-version readers, unobserved env vars
+- [Phase T Jev shadow map](phase-t-jev-shadow-map.md) — t3_reason only on needs_t3 output, write-once t3 digest, shadow gate vs vault tool, caps duplicated
 - [Finalize + lane-guard map](finalize-and-laneguard-map.md) — finalize-wave order, state.waves, cwd->worktree resolution, test-source greps

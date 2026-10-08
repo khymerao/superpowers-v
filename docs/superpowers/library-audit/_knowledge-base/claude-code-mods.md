@@ -26,3 +26,12 @@ Sources: https://code.claude.com/docs/en/plugins/mods/events and /reference (ref
 - `tool.call` returns `next(e)`, `{ deny }` or `{ result }`.
 - Not found in any source: whether a registered tool's `inputSchema` (`additionalProperties: false`) is validated before the `tool.call` hook. Unverified.
 - 2.1.292: "a hook now sees the arguments the tool will run with" (misnamed-parameter repair, built-in tools). 2.1.293 added `isDeferred` to `$.tool.register`. Typings header: EARLY ACCESS, may change without notice.
+
+## Updated 2026-10-08 - phase-t-jev-shadow-design
+
+Sources: https://code.claude.com/docs/en/changelog (newest 2.1.294, 2026-10-08; only the first 100k chars read), `plugins/compound-v-vault/hooks/vault.tsx` at this checkout. Context7 needed OAuth.
+
+- 2.1.293 `isDeferred` on `$.tool.register`: `false` lists the schema in the prompt from the start "instead of behind tool search", so a registered tool defaults to deferred. `vault.tsx:354` registers `jev_classify` without it; a caller must find it through `ToolSearch`.
+- `vault.tsx:214-215`: network cap comes from the request file's `context` (`hook` 1,500 ms, `offline` 5,000 ms). A caller outside a hook that builds a `hook` request gets 1.5 s.
+- `serveTool` returns `refused: ...` strings in the same channel as a response-file path.
+- Still unverified (no changelog entry found): whether a registered tool's `inputSchema` is enforced before `tool.call`.

@@ -1,0 +1,19 @@
+{
+  "phase": "PARTITION_VERIFIED",
+  "updated_at": "2026-10-08T07:55:00Z",
+  "pre_eval_id": "2026-10-08T055405Z-phase-t-in-v-triage-never-asks-jev-commands-v-triage-md-step-e332",
+  "jobs": {
+    "phase-t-shadow": {
+      "status": "pending",
+      "isolation": "worktree",
+      "worktree": null,
+      "session_id": null
+    },
+    "spec-review": {
+      "status": "pending",
+      "isolation": "direct",
+      "worktree": null,
+      "session_id": null
+    }
+  }
+}
