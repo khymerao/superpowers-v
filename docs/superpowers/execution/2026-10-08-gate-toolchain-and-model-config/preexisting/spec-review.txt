@@ -1,0 +1,16 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/.run.lock
+d803c8cb94f5e1c3f8c8cc4e8783a228a836e2099adbb1a7b2c19bb6d34c7be4  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/lane-map.json
+807441c2f0824498f3e4d16912e2fc5e5ae508184f6c4681b2b49442ccca3288  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/dispatch.workflow.js
+693c31853601bd2018dae35bc12980881c6d2cc44869b3d6e27a87bc1aed4186  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/gate-model.baseline
+c5cd8cc27e6dfab3cd124e3803a632e8ab23940fc138089a3f45a21c78f3dd05  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/gate-model.patch
+a0f010ee45b578953bd91612b6675eb71d5cec417decc1a2281140d263effb47  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/gate-model.prompt.md
+9f7bed50bf913f11005f8ce5530cea712c0bfadc05e207a97d1378b4b7365287  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/gate-model.recall-check.json
+98c8b6015b7755d5b89ce436051d875bb77e0ac10ea4fca50050e395c5170397  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/gate-model.test-contract.json
+a38071446e340544c8e5a27585bb4b3169bacdd14d7fec98fcda23d46463c345  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/spec-review.baseline
+2a2065d024e986907be85c14e4f17e9cb4ef27c26ae946f681cbd889298abe01  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/spec-review.prompt.md
+297bb76acd40e121098d73f5fd5c80e481ff7a245c39571174bcec5b7b08d060  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/jobs/spec-review.test-contract.json
+cc03e40e3cd8ff7906b37161b8f079d094b0e956c4623ceee55158b1b8fbdafa  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/manifest.yaml
+2be8093f8c0baa57adb60eebeded70d2b0aa9733c0f88f7a15c67638078f8b2e  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/preexisting/spec-review.txt
+6b36a192f740d05caf64cdb4b5ef4b77d3df7593f65abb658e5177091d9b0116  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/receipts/gate-model.gate.json
+4ba8b3a310b27cc483ac5654a70a8e15736920c06b1b771a92b31b092025dcf9  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/results/gate-model.json
+db4667520fa20ad8d2d9b036081e1ab0c6f48d20c0cbd0c1db35d036197eea2a  docs/superpowers/execution/2026-10-08-gate-toolchain-and-model-config/state.json

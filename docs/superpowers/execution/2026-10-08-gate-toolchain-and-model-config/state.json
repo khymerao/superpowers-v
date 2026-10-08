@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T13:15:00Z",
   "pre_eval_id": "2026-10-08T123419Z-item-5-harness-bugs-reproduced-1-scripts-compound-v-integrat-5605",
   "jobs": {
@@ -38,10 +38,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "e0e392eadca13d615ec5d7032d7e53e8d6ea1c70",
+      "realised_commit": "e0e392eadca13d615ec5d7032d7e53e8d6ea1c70",
+      "merged": {
+        "realised_commit": "e0e392eadca13d615ec5d7032d7e53e8d6ea1c70",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "ff43bdca3b2b84c66960b13ac72cf266908cbbfb"
+      }
     }
   },
   "waves": {
@@ -54,6 +62,22 @@
       ],
       "commit": "2a488e7e05655bc61a91f2625b0b6c9f75fb57df",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "ff43bdca3b2b84c66960b13ac72cf266908cbbfb",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T123419Z-item-5-harness-bugs-reproduced-1-scripts-compound-v-integrat-5605",
+    "run_id": "2026-10-08-gate-toolchain-and-model-config"
+  },
+  "merged_at": "2026-10-08T13:15:00Z"
 }
