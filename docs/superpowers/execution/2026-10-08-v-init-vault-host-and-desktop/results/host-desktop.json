@@ -1,0 +1,31 @@
+{
+  "blocked": false,
+  "exit_code": 0,
+  "failure_class": null,
+  "files_changed": [
+    "commands/v-init.md",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ],
+  "gate_receipt": {
+    "baseline_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+    "diff_digest": "sha256:f4da3a8a9dce3dda584bbd25c1e7744575339abb3b295c2facc2049aa1c0c45c",
+    "exit_code": 0,
+    "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4b876c0682374c38c134e32421750f1746e6c17d\",\n  \"changed\": [\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+    "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+    "verdict": "pass"
+  },
+  "retry_after_seconds": 0,
+  "session_id": "",
+  "status": "success",
+  "summary": "Task A \u2014 1g host version, desktop inert, restart note",
+  "tests": {
+    "command": "bash tests/test-vault-mod.sh\nbash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-vault-mod.sh >/dev/null && echo init-ok'\nbash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'",
+    "exit_code": 0,
+    "failures": [],
+    "scope": "impacted",
+    "selected_count": 3
+  },
+  "violations": [],
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_5faaf59f-f79-2"
+}

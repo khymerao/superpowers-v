@@ -1,0 +1,58 @@
+{
+  "baseline_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+  "diff_digest": "sha256:f4da3a8a9dce3dda584bbd25c1e7744575339abb3b295c2facc2049aa1c0c45c",
+  "exit_code": 0,
+  "job_id": "host-desktop",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/jobs/host-desktop.patch",
+  "patch_paths": [
+    "commands/v-init.md",
+    "plugins/compound-v-vault/README.md",
+    "tests/test-vault-mod.sh"
+  ],
+  "patch_sha256": "sha256:f4da3a8a9dce3dda584bbd25c1e7744575339abb3b295c2facc2049aa1c0c45c",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"4b876c0682374c38c134e32421750f1746e6c17d\",\n  \"changed\": [\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"allowed\": [\n    \"commands/v-init.md\",\n    \"plugins/compound-v-vault/README.md\",\n    \"tests/test-vault-mod.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "commands/v-init.md",
+      "plugins/compound-v-vault/README.md",
+      "tests/test-vault-mod.sh"
+    ],
+    "checks": [
+      {
+        "checker": "bash tests/test-vault-mod.sh",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c '/usr/bin/python3 -B scripts/lint-frontmatter.py . >/dev/null && bash tests/test-vault-mod.sh >/dev/null && echo init-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-vault-mod.sh >/dev/null && bash tests/test-jev-core.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo vault-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 3 command(s) from 3 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_5faaf59f-f79-2"
+}

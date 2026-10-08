@@ -1,19 +1,39 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T06:50:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T06:55:00Z",
   "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
   "jobs": {
     "host-desktop": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_5faaf59f-f79-2",
+      "session_id": null,
+      "baseline": "4b876c0682374c38c134e32421750f1746e6c17d",
+      "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+      "merged": {
+        "realised_commit": "4b876c0682374c38c134e32421750f1746e6c17d",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "d0fb32cb747efba0e57afa924d964119269c7148"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "host-desktop"
+      ],
+      "merged": [
+        "host-desktop"
+      ],
+      "commit": "d0fb32cb747efba0e57afa924d964119269c7148",
+      "integrated": true
     }
   }
 }
