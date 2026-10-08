@@ -1,0 +1,16 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-project-root-run-b/.run.lock
+39ef9db3f777ae79fd27784630e308d7f936da18c49daee4930be7c264543bdc  docs/superpowers/execution/2026-10-08-project-root-run-b/lane-map.json
+042342e092906854a735cf1255d64aa2bf1d4945976028ad2e2b82d267fac396  docs/superpowers/execution/2026-10-08-project-root-run-b/dispatch.workflow.js
+49fa86b4d8ef0ade7dad8a572387caf5071317a5b46173bf217b593b2b9b7081  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.baseline
+d607794aa1a81f045ea44105c9e3769e9fbca41f305f3bd901dc9e7f5d2d9a2e  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.patch
+a30822043113edb0f6a811cef823b8335c382f48e7dbab371644367bbe5695e9  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.prompt.md
+b486a901ebb30f49458c1d135bac5baaf0eab4d2620da3bf45b94fc527d22fcd  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.recall-check.json
+f8625ae4778516e4a1506854666d35361f3e942ecda8cd5c4fa46ae4ee10554c  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.test-contract.json
+bdfbb37d92d0117f5714ce7806ccfd6951f5280438d628a973c06f4a335157e0  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/spec-review.baseline
+05eff0652d3cc09ae2b07d7848ed845b6e47c32f69917b8efdfa4b577a4178d6  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/spec-review.prompt.md
+a51d95fcbc8238ff3287a147be2b73ff07e2217327ed114410a0b56c3d46cbfc  docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/spec-review.test-contract.json
+0a31d2dca8b043683c1a4794e4036dfc8dd28faaf4cd4a40c68606a1d5ce16e0  docs/superpowers/execution/2026-10-08-project-root-run-b/manifest.yaml
+9fd32622a438a39a28fe94ba9bae25f5da08cca34df53ea88624c6eed16cca14  docs/superpowers/execution/2026-10-08-project-root-run-b/preexisting/spec-review.txt
+b8acc36b23fed1bb0c62b6db627e78e1783d63860003af3bf549ec6bee07cbd9  docs/superpowers/execution/2026-10-08-project-root-run-b/receipts/project-root.gate.json
+4e36489b472cbc8a872c19149ea9a742e4c78c3d11f1efef89e17218cff8db80  docs/superpowers/execution/2026-10-08-project-root-run-b/results/project-root.json
+a261c534d25f249131eb0276505503a4349a251856178f7b34a46294e79f003e  docs/superpowers/execution/2026-10-08-project-root-run-b/state.json

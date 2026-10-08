@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T11:15:00Z",
   "pre_eval_id": "2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f",
   "jobs": {
@@ -44,10 +44,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "689e1dbc887eea5d4be107b49760751a1fb79c63",
+      "realised_commit": "689e1dbc887eea5d4be107b49760751a1fb79c63",
+      "merged": {
+        "realised_commit": "689e1dbc887eea5d4be107b49760751a1fb79c63",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "75ed8b0b942270f0920ec605f98c37aca32d1160"
+      }
     }
   },
   "waves": {
@@ -60,6 +68,22 @@
       ],
       "commit": "feba269ad68e4b718c1527c6538f7f7c54e9d69c",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "75ed8b0b942270f0920ec605f98c37aca32d1160",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f",
+    "run_id": "2026-10-08-project-root-run-b"
+  },
+  "merged_at": "2026-10-08T11:15:00Z"
 }
