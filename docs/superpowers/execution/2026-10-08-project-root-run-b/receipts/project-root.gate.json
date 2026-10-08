@@ -1,0 +1,78 @@
+{
+  "baseline_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+  "diff_digest": "sha256:d607794aa1a81f045ea44105c9e3769e9fbca41f305f3bd901dc9e7f5d2d9a2e",
+  "exit_code": 0,
+  "job_id": "project-root",
+  "patch_path": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-project-root-run-b/jobs/project-root.patch",
+  "patch_paths": [
+    "hooks/brainstorm-trigger0-nudge.sh",
+    "hooks/precompact-snapshot.sh",
+    "hooks/run-band.test.tsx",
+    "hooks/run-band.tsx",
+    "scripts/compound-v-fastpath-materialize.py",
+    "scripts/compound-v-preeval.py",
+    "scripts/compound-v-project-config.py",
+    "scripts/compound-v-triage-outcomes.py",
+    "scripts/compound-v-validate-manifest.py",
+    "tests/test-project-root.sh"
+  ],
+  "patch_sha256": "sha256:d607794aa1a81f045ea44105c9e3769e9fbca41f305f3bd901dc9e7f5d2d9a2e",
+  "raw_stdout": "{\n  \"verdict\": \"pass\",\n  \"mode\": \"worktree\",\n  \"baseline\": \"d9e544a8ac47ebe5abc8763051e55d2ab9106c3c\",\n  \"changed\": [\n    \"hooks/brainstorm-trigger0-nudge.sh\",\n    \"hooks/precompact-snapshot.sh\",\n    \"hooks/run-band.test.tsx\",\n    \"hooks/run-band.tsx\",\n    \"scripts/compound-v-fastpath-materialize.py\",\n    \"scripts/compound-v-preeval.py\",\n    \"scripts/compound-v-project-config.py\",\n    \"scripts/compound-v-triage-outcomes.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"tests/test-project-root.sh\"\n  ],\n  \"allowed\": [\n    \"scripts/compound-v-project-config.py\",\n    \"scripts/compound-v-triage-outcomes.py\",\n    \"scripts/compound-v-preeval.py\",\n    \"scripts/compound-v-fastpath-materialize.py\",\n    \"scripts/compound-v-validate-manifest.py\",\n    \"hooks/precompact-snapshot.sh\",\n    \"hooks/run-band.tsx\",\n    \"hooks/run-band.test.tsx\",\n    \"hooks/brainstorm-trigger0-nudge.sh\",\n    \"commands/v-orchestrate.md\",\n    \"commands/v-collect.md\",\n    \"commands/v-dispatch.md\",\n    \"commands/v-status.md\",\n    \"agents/parallel-dispatcher.md\",\n    \"tests/test-project-root.sh\",\n    \"tests/test-native-points.sh\",\n    \"tests/test-skill-nudges.sh\"\n  ],\n  \"violations\": [],\n  \"toolchain_artifacts\": []\n}\n",
+  "realised_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+  "source": "gate-receipt",
+  "tests": {
+    "changed_paths": [
+      "hooks/brainstorm-trigger0-nudge.sh",
+      "hooks/precompact-snapshot.sh",
+      "hooks/run-band.test.tsx",
+      "hooks/run-band.tsx",
+      "scripts/compound-v-fastpath-materialize.py",
+      "scripts/compound-v-preeval.py",
+      "scripts/compound-v-project-config.py",
+      "scripts/compound-v-triage-outcomes.py",
+      "scripts/compound-v-validate-manifest.py",
+      "tests/test-project-root.sh"
+    ],
+    "checks": [
+      {
+        "checker": "bash -c 'bash tests/test-project-root.sh >/dev/null && /usr/bin/python3 -B scripts/compound-v-triage-outcomes.py --selftest >/dev/null && echo floor-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'shellcheck hooks/*.sh && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && bash tests/test-run-band-mod.sh >/dev/null && bash tests/test-disabled-hooks.sh >/dev/null && bash tests/test-hook-recursion-guard.sh >/dev/null && bash tests/test-jev-t3-mod.sh >/dev/null && echo hooks-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'for s in project-config triage-outcomes preeval fastpath-materialize validate-manifest; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && echo py-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      },
+      {
+        "checker": "bash -c 'bash tests/test-project-root.sh >/dev/null && bash tests/test-native-points.sh >/dev/null && bash tests/test-skill-nudges.sh >/dev/null && echo tests-ok'",
+        "rc": 0,
+        "status": "pass",
+        "tier": 1
+      }
+    ],
+    "contract_notes": [
+      "floor: floor_command runs at every tier and comes first",
+      "impacted: 10 command(s) from 10 changed path(s) (every matching rule unions)",
+      "previously-failing: 0 command(s) from the last run's tests.failures[]",
+      "newly-added: 0 command(s) from 0 added path(s) (git diff --diff-filter=A)"
+    ],
+    "failures": [],
+    "merge_blocked": false,
+    "passed": true,
+    "phase": "test_floor",
+    "reasons": [],
+    "tier_used": 1
+  },
+  "toolchain_artifacts": [],
+  "verdict": "pass",
+  "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_34f4ed9a-8ab-2"
+}

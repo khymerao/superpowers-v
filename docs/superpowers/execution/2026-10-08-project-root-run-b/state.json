@@ -1,19 +1,65 @@
 {
-  "phase": "PARTITION_VERIFIED",
-  "updated_at": "2026-10-08T11:10:00Z",
+  "phase": "DISPATCHED",
+  "updated_at": "2026-10-08T11:15:00Z",
   "pre_eval_id": "2026-10-08T100626Z-run-b-of-adr-0005-project-root-the-project-root-is-an-explic-544f",
   "jobs": {
     "project-root": {
-      "status": "pending",
+      "status": "done",
       "isolation": "worktree",
-      "worktree": null,
-      "session_id": null
+      "worktree": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_34f4ed9a-8ab-2",
+      "session_id": null,
+      "baseline": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+      "recall_check": {
+        "evidence": [
+          {
+            "file": "scripts/compound-v-preeval.py",
+            "reason": "test_failure",
+            "run": "2026-10-05-jev-classifier-foundation/attempt1-wrong-base/results/record-t3.json",
+            "status": "blocked"
+          },
+          {
+            "file": "scripts/compound-v-validate-manifest.py",
+            "reason": "test_failure",
+            "run": "2026-09-03-v3.4.6-triage-test-scoping-fixes-r3/results/validator.json",
+            "status": "blocked"
+          },
+          {
+            "file": "tests/test-native-points.sh",
+            "reason": "test_failure",
+            "run": "2026-09-02-v3.4-native-first-r3/results/deletions-fixup.json",
+            "status": "blocked"
+          }
+        ],
+        "k": 2,
+        "match_count": 3,
+        "recall_check_ms": 197,
+        "verdict": "tighten"
+      },
+      "realised_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+      "merged": {
+        "realised_commit": "d9e544a8ac47ebe5abc8763051e55d2ab9106c3c",
+        "mode": "worktree",
+        "integrated": true,
+        "commit": "feba269ad68e4b718c1527c6538f7f7c54e9d69c"
+      }
     },
     "spec-review": {
       "status": "pending",
       "isolation": "direct",
       "worktree": null,
       "session_id": null
+    }
+  },
+  "waves": {
+    "1": {
+      "jobs": [
+        "project-root"
+      ],
+      "merged": [
+        "project-root"
+      ],
+      "commit": "feba269ad68e4b718c1527c6538f7f7c54e9d69c",
+      "integrated": true
     }
   }
 }
