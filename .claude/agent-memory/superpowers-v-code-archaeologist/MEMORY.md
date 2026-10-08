@@ -5,4 +5,5 @@
 - [Phase T Jev shadow map](phase-t-jev-shadow-map.md) — t3_reason only on needs_t3 output, write-once t3 digest, shadow gate vs vault tool, caps duplicated
 - [Root-resolution map](root-resolution-map.md) — CV snippet carriers, triage-outcomes plugin-dir-as-project-root, hook walk-up copies
 - [Finalize + lane-guard map](finalize-and-laneguard-map.md) — finalize-wave order, state.waves, cwd->worktree resolution, test-source greps
+- [T3 measure/eval map](t3-measure-eval-map.md) — headless classify output, hook tab protocol, pinned test key sets, jev.py eval aggregation
 - [Gate toolchain + resolve-model map](gate-toolchain-resolve-model-map.md) — toolchain_artifacts readers, gate verdict branches, resolver config callers

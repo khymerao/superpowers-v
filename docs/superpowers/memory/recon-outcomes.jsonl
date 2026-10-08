@@ -16,3 +16,4 @@
 {"ts": "2026-10-08T09:55:00Z", "topic": "plugin-root-resolver", "outcome": "kb_skip", "reason": "strong hit: handoff section on the plugin-root resolver bug, with the 2026-10-05 field observation; repo-internal plumbing, the inventory is code archaeology"}
 {"ts": "2026-10-08T12:45:00Z", "topic": "detect-ui-noul-criteria", "outcome": "kb_skip", "reason": "strong hit: the API reference read live today plus the jev_test smoke-test request and response"}
 {"ts": "2026-10-08T12:45:00Z", "topic": "gate-toolchain-and-model-config", "outcome": "kb_skip", "reason": "strong hit: handoff harness-bug section, code confirmation and a fixture reproduction today"}
+{"ts": "2026-10-08T16:20:00Z", "topic": "t3-measurement-and-eval", "outcome": "kb_skip", "reason": "web research done in-session today (LiteLLM, Classmethod, Wavect, reviews); findings folded into the spec"}
