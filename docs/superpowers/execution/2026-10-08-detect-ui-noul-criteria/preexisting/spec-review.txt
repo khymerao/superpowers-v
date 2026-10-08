@@ -1,0 +1,15 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/.run.lock
+7925a55d807bc5d4eb6f84c7e4eb54ddbc70c25c550b1a2ac79eaac46187a15f  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/lane-map.json
+dcfbf0423f3c865f685aa5d5e143e514bed75ea9a306cea2b01f5f69d920a39a  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/dispatch.workflow.js
+b622b60744a1657e28c0d3a189d05347f7aeb01efcd8b1bab894a3354b2a08ad  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/noul.baseline
+dbfa7654cfdd9ea1af6b2e1cc8ad74ea0fdca8a1f440f21187e40548e9997de4  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/noul.patch
+9990655d212a5d56bc7a4d04387f674e04c74a27943c92e85e5c47a66a97bb60  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/noul.prompt.md
+8edd6b6b3fcc05ff77e907647d095e0e699dc26b777671a3c1aeb1803d78ba7a  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/noul.test-contract.json
+d2c80b8a6e9de88988e8bc03bebeb83494699bd84fdce70c5815382c2ed442ed  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/spec-review.baseline
+b080db0398e49363942d9dbd1d2da07543af2a515a29fbcfb54f56dfcf2f3c77  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/spec-review.prompt.md
+975e3a781bf02b209073d96c1c9463c1447895d6cf3ec2dc3f948fee9b826c71  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/jobs/spec-review.test-contract.json
+4b9ac1d333256af08d415311ee7d11afbefd437d9b81a737f4ece77834c73fef  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/manifest.yaml
+545c888e4cf9a196075581c17176e2e3c4111ef07bc967426e81dd044373133c  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/preexisting/spec-review.txt
+b20bd825a1376fd3e3ec20495a1b75fd3948f4d3d6694c5f55c183bfcae0fb35  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/receipts/noul.gate.json
+d785c4db2ec77090fcaa263c2145c0464b297ae0394d2207840414db099f9055  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/results/noul.json
+ee1d4d4871c2308d10480ee6dda1edc2e8ba08bc6dd14183d19212dc5e5490f3  docs/superpowers/execution/2026-10-08-detect-ui-noul-criteria/state.json
