@@ -1,6 +1,6 @@
 ---
 name: impacted-map-globs
-description: An impacted_map `when: '*.md'` rule matches only root-level files, so a check that lives only in that rule silently never runs for nested Markdown
+description: "An impacted_map `when: '*.md'` rule matches only root-level files, so a check that lives only in that rule silently never runs for nested Markdown"
 metadata:
   type: project
 ---

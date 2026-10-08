@@ -23,3 +23,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Marker-anchored mutations](verifying-acceptance-criteria.md) — anchor on fence + marker; prose may quote the marker.
 - [Jev tool refusals](jev-tool-refusals.md) — cleanup keyed on parse status misses jev_classify `refused:` strings.
 - [impacted_map globs](impacted-map-globs.md) — `when: '*.md'` never matches nested paths; a check living only there never runs.
+- [Memory frontmatter / universal ACs](memory-frontmatter-and-universal-acs.md) — quote memory descriptions (lint); grep all of scripts/ for a repo-wide AC.

@@ -1,0 +1,218 @@
+# Review Gate — run 2026-10-08-project-root-run-b (ADR 0005 run B, project root)
+
+Reviewer: `superpowers-v:spec-reviewer`, job `spec-review`, direct isolation, 2026-10-08.
+Reviewed: job `project-root`, baseline `d9e544a`, merged as `feba269`; review tree HEAD `689e1db`.
+Against: `docs/superpowers/specs/2026-10-08-project-root-run-b-design.md`, ADR 0005 rules 5-8,
+the plan, the archaeology audit (rows 15-28, constraints 9-15) and manifest AC-1..AC-3.
+
+**VERDICT: ISSUES.** SPEC passes. QUALITY has one low-severity finding. INTEGRATION: AC-1 is met, and
+AC-3 is green once the in-lane memory fix below is applied. **AC-2 is not met on the merged tree.**
+The two scripts that break it are outside the job's lane, and neither the audit nor the spec named
+them. See the numbered list under `## Verdict`.
+
+## Recall
+
+- The prompt carried a `## Prior context` V-memory block (8 rows). The relevant ones are earlier dogfood
+  review records for the shape of the AC table and the revert proofs. None of them constrains this diff.
+- `compound-v-memory.py recall-check --files <the six changed scripts and hooks>` returned
+  `recall-check: none (1/2 match ...)`. No file pattern has repeated job-attributed failures, so no
+  escalation applies.
+- Reviewer memory leads, re-verified against the current tree:
+  - `impacted-map-globs.md` still holds: this manifest's `when: '*.md'` rule is the only place
+    `lint-frontmatter.py .` lives. The job changed no Markdown, so the gap did not matter here.
+  - The same memory file is itself the cause of the lint failure on HEAD (AC-3 below).
+- No directive was found in any memory file.
+
+## SPEC
+
+Scope gate: `receipts/project-root.gate.json` gives verdict `pass`. All 10 changed paths are in the job's
+`write_allowed`, and there are no violations.
+
+| Spec item | Implemented in | Status |
+|---|---|---|
+| 1. `resolve_project_root(repo=None, start=None)`: explicit repo (realpath, must be a dir), else `git -C <start> rev-parse --show-toplevel` (realpath); outside git raises `ValueError` with a message; never `__file__`, never cwd as a guess | `scripts/compound-v-project-config.py:123-150`; selftest `:606-656` (explicit repo, non-dir raises, outside git raises with message, subdir toplevel, worktree `.git` file, default start) | yes |
+| 2. triage-outcomes: `_repo_root()` removed; `default_stream_path`, `resolve_min_sample_count`, `resolve_breaker_policy`, `_resolve_exec_dir` take the helper; CLI `--repo`; outside git with no `--repo` and no `--stream` exits non-zero and writes nothing | `scripts/compound-v-triage-outcomes.py:255-264, 275, 638, 752, 880, 1138`; `--repo` added on `predicted`/`bind`/`actual` (`:1352, :1359, :1379`); the others already had it. `main` resolves the stream once, before any read or write (`:1418-1419`); a `ValueError` becomes exit 1 (`:1473-1475`) | yes |
+| 3. One stream path: preeval and fastpath-materialize use `STREAM_RELPATH` | preeval `:1625-1626` plus the 8 selftest sites, via `_triage_mod()` (an existing sibling loader). fastpath-materialize `TRIAGE_STREAM_REL` removed; `_stream_rel()` at `:141-144` | yes |
+| 4. `_find_repo_root` returns `None`; each caller handles it | `scripts/compound-v-validate-manifest.py:3288-3299`. The only caller is `main` (`:3368-3378`): it fails closed with exit 2 when `--mode` or `--require-triage` needs a root, and otherwise prints a note. `_validate_fast_path` (`:1619-1623`) fails closed on `None` | yes (see QUALITY issue 3) |
+| 5. Hooks walk up to `.git` like postcompact-resume (40 levels, fall back to start) | `hooks/precompact-snapshot.sh` `_project_root` plus `projv` for the presence check and `--execution-root`; `hooks/brainstorm-trigger0-nudge.sh` `_project_root` → `--repo "$hook_root"`; `hooks/run-band.tsx` `projectRoot()` (40-level bound) → `--execution-root` | yes |
+| 5b. The precompact and postcompact keys agree for a subdirectory | Both hooks key on the canonical cwd (`pwd -P`), which constraint 12 allows ("both or neither": neither changed). The walk-up decides only which project is described. Test row `PRECOMPACT/POSTCOMPACT: same key from a subdirectory` writes with one hook and reads with the other | yes |
+| 6. Prose callers change only if they run outside the project root | All 5 read: `commands/v-orchestrate.md:155`, `commands/v-collect.md:133`, `commands/v-dispatch.md:345`, `agents/parallel-dispatcher.md:369`, `commands/v-status.md:107`. Each runs from the project root: each is followed by a root-relative `git add docs/superpowers/memory/...`, and `precision --repo .` is an explicit repo. No edit was needed, and none was made | yes |
+| 7. Written justification of what stays | Section below | yes |
+| Tests section | `tests/test-project-root.sh` (22 rows), the project-config and triage-outcomes selftests, `hooks/run-band.test.tsx` subdirectory case | yes |
+
+Audit constraints (archaeology section 7):
+
+| # | Constraint | Status |
+|---|---|---|
+| 9 | No `__file__`-derived default in triage-outcomes; "the five CLI call sites MUST then pass the project explicitly" | The first half is met. The second half was overridden by spec item 6: the call sites now resolve to the git toplevel of a project-root cwd, which is the same directory, and `precision --repo .` already passes it. The spec is the later, user-approved document, so this is recorded as a divergence and is not a violation |
+| 10 | One definition of the stream relpath | met (revert rows below) |
+| 11 | One "not found" definition | met for validate-manifest (`None`). `compound-v-memory.py` still falls back to its start directory, which is out of scope (item 7) |
+| 12 | Subdirectory cwd: walk up in all three hooks; snapshot key changes in both or neither | met (neither changed; the walk-up is used for the project) |
+| 13 | `compound-v-jev.py` is not touched | met (not in the diff) |
+| 15 | Justify what stays | below |
+
+**Over-build:** `run-band.tsx` caches the walk-up per cwd (`mem.rootCwd`/`mem.root`). That keeps the
+idle cost at one stat, as the header promises, so it is justified and is not over-build. Nothing else
+in the diff goes beyond the spec. **Job acceptance:** met (INTEGRATION below).
+
+## QUALITY
+
+- **Regression:** the full suite is green on the merged tree once the memory fix is applied (AC-3). No
+  removed export is still referenced: `grep -rn "_repo_root()\|TRIAGE_STREAM_REL"` over `scripts hooks`
+  finds nothing outside the triage-outcomes selftest assertion. Hook output for a cwd that is the
+  project root is unchanged, because `_project_root` returns the cwd itself there.
+- **Test alignment / revert proofs:** each production file was reverted to `d9e544a` in a scratch
+  worktree (never this checkout), and `tests/test-project-root.sh` was re-run against it:
+
+```text
+== merged tree (HEAD 689e1db)
+test-project-root: 22 passed, 0 failed
+== revert scripts/compound-v-project-config.py
+FAIL HELPER: resolve_project_root exists in project-config
+FAIL TRIAGE: run from a project subdirectory with no --stream succeeds
+... test-project-root: 17 passed, 5 failed
+== revert scripts/compound-v-triage-outcomes.py
+FAIL TRIAGE: the event lands in <project>/docs/superpowers/memory/triage-outcomes.jsonl
+FAIL TRIAGE: nothing is written beside the plugin copy
+FAIL TRIAGE: outside git with no --repo and no --stream exits non-zero
+... test-project-root: 15 passed, 7 failed
+== revert scripts/compound-v-preeval.py
+test-project-root: 20 passed, 2 failed   (both ONE STREAM PATH rows for preeval)
+== revert scripts/compound-v-fastpath-materialize.py
+test-project-root: 19 passed, 3 failed   (ONE STREAM PATH rows + "no second constant")
+== revert scripts/compound-v-validate-manifest.py
+test-project-root: 18 passed, 4 failed   (all four VALIDATE rows)
+== revert hooks/precompact-snapshot.sh
+FAIL PRECOMPACT: a subdirectory session takes a snapshot of the project
+FAIL PRECOMPACT/POSTCOMPACT: same key from a subdirectory (postcompact reports the snapshot)
+== revert hooks/brainstorm-trigger0-nudge.sh
+FAIL TRIGGER0 NUDGE: a subdirectory session passes the project root as --repo
+== revert hooks/run-band.tsx (test kept)
+test-run-band-mod rc=1
+(fail) a session started in a subdirectory reads the project root execution directory
+test-run-band-mod on merged rc=0
+```
+
+  The project-config selftest row itself stays green when that file is reverted, because its new cases
+  are reverted with it. The `resolve_project_root exists` row and four triage rows catch the revert
+  instead.
+- **Fabricated metrics:** none. The diff adds no number of any kind.
+- **Reward-hacking:** none. Every touched test file only gains rows or cases, and nothing is skipped or
+  loosened. The fastpath-materialize and preeval selftests swap a literal for the constant and assert
+  the same paths as before.
+- **Issue 3 (low): the validate-manifest note says checks are skipped, but some fail instead.**
+  - With no repository root and no `--mode`, `main` prints `note: ... checks that need a repository
+    root are skipped` (`scripts/compound-v-validate-manifest.py:3376-3378`).
+  - But `validate_text` calls `_validate_fast_path` whenever a `fast_path` block is present, whether or
+    not a mode was given (`:2987-2992`). That call now returns `fast_path validation needs a repository
+    root ... fail-closed` (`:1619-1623`).
+  - So a fast-path manifest validated outside git with no flags is reported as failed, right after the
+    note said those checks were skipped.
+  - Failing closed is the spec's choice. Only the note's wording is wrong, and no test row covers a
+    manifest that has a `fast_path` block and no root.
+- **Observation (not an issue):** `run-band.tsx` caches a not-found walk-up, which resolves to the cwd
+  itself. If a `.git` appears above the cwd later in the same session, it is not seen until the cwd
+  changes. Before the change the band used the raw cwd every time, so nothing regressed.
+
+## INTEGRATION
+
+- **Partition / seams:** there is one implementation job, so no seam exists between jobs.
+  - Its scope receipt passes.
+  - The helper is defined once (project-config) and used through triage-outcomes' sibling loader.
+  - `STREAM_RELPATH` is defined once (`compound-v-triage-outcomes.py:120`) and loaded by preeval and
+    fastpath-materialize.
+  - `emit-workflow` already used the module constant (archaeology row 18).
+- **Test evidence (from the job result, not its prose):** `tests.command` lists 4 commands, with
+  `tests.exit_code: 0`, `tests.scope: impacted` and `selected_count: 4`.
+  - Tier is FULL, and the manifest declares an `impacted_map`.
+  - Every changed path matches a rule: `scripts/compound-v-*.py`, `hooks/*` (which includes
+    `hooks/run-band.test.tsx`), and `tests/*.sh`.
+  - So the floor plus the union of matched rules is what the tier owes, `full_command` was not owed,
+    and all of it ran.
+
+| AC | Command (merged tree `689e1db`, scratch worktree) | Output | Status |
+|---|---|---|---|
+| AC-1 | `bash tests/test-project-root.sh`, plus the per-file revert loop above, plus `bash tests/test-run-band-mod.sh` with `run-band.tsx` reverted | `test-project-root: 22 passed, 0 failed`; every change has at least one row that FAILs on revert (quoted above) | met |
+| AC-2 | `grep -n "__file__" scripts/*.py` and `grep -nE 'dirname\(os\.path\.dirname\(os\.path\.abspath\(__file__\|dirname\(here\)\|dirname\(HERE\)\|os\.pardir\|, *"\.\."' scripts/*.py`, each hit classified | Two hits are a project root derived from `__file__` outside any selftest: `scripts/compound-v-integration-gate.py:1423-1424` `repo_root = os.path.abspath(args.repo_root or os.path.dirname(here))`, handed to `git -C repo_root` as the project; `scripts/compound-v-update-memory.py:67-74` `_default_outcomes_path()` = `<dirname(scripts/)>/docs/superpowers/memory/task-outcomes.jsonl`, used at `:275` when `--out` is absent | **NOT met** |
+| AC-3 | full suite (`full_command`); `/usr/bin/python3 -B scripts/lint-frontmatter.py .`; `shellcheck hooks/*.sh` | As committed: `FAIL tests/test-agent-memory.sh` (`FAIL the repo's own frontmatter passes the linter`), `full rc=1`, `lint rc=1` (`.claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md: YAML parse error: mapping values are not allowed here ... line 2, column 35`), `shellcheck rc=0`. With the in-lane memory fix: `all-tests-ok`, `full rc=0` (11:10:18 to 11:15:28 UTC), `✅ All frontmatter clean`, `lint rc=0`, `shellcheck rc=0`, `floor-ok` | met with the fix applied in this job's lane |
+
+How every AC-2 hit was classified:
+
+- **P (plugin resource; ADR rule 4 allows these):**
+  - Sibling-loader `here`/`HERE`/`_here()`/`_script_dir()` uses, about 45 of them.
+  - Schema reads: `collect-results.py:515`, `emit-workflow.py:8575`, `fastpath-run.py:2760`,
+    `preeval.py:3367, 3423`, `taxonomy.py:1149`, `validate-manifest.py:1231, 1254`.
+  - The plugin's example taxonomy, read by `validate-manifest.py:4191` (`_fp_taxonomy_bytes`, outside
+    both selftest functions but reading a file the plugin ships).
+  - `PLUGIN_ROOT` in `emit-preflight.py:81` and `emit-workflow.py:937, 956`, and the plugin manifest
+    probes at `emit-workflow.py:9718-9783`.
+- **Selftest-only:** `taxonomy.py:1010`, `validate-manifest.py:6085`, `validate-taxonomy.py:579, 597`.
+- **Project root, outside a selftest:** the two AC-2 hits named in the table.
+
+**AC-3 provenance.**
+
+- `impacted-map-globs.md` was committed in `b79cd46`, run A's spec-review, which predates this job's
+  baseline `d9e544a`. The red is not a regression by the implementer.
+- The job's `tests.command` correctly had no lint step, because no `*.md` file is in its diff.
+- The file is in this review's `write_allowed`. Its `description:` is now quoted, and AC-3 is green on
+  the tree the caller will commit.
+
+## What stays, and why (spec item 7)
+
+- **The `__file__`-relative sibling loads (about 45 in `scripts/*.py`).** ADR rule 4: a Python script
+  finds its siblings, schemas and shipped examples from `__file__`. That is the plugin root, which is
+  exactly what those loads want (archaeology row 13). The listed `PLUGIN_ROOT` constants in emit-preflight
+  and emit-workflow fall under the same rule.
+- **The two selftest-only repo derivations:** `compound-v-validate-manifest.py:6085` (`_repo3`, inside
+  `_selftest`, which starts at `:5086`) and `compound-v-taxonomy.py:1010` (inside `_selftest`, from
+  `:882`). ADR rule 6 allows a derivation inside a selftest that dogfoods this checkout.
+  `compound-v-validate-taxonomy.py:579, 597` are in the same class (inside `_selftest`, from `:508`).
+- **`evals/lib/cv-fixture-lib.sh` `cv_plugin_root`.** It answers the plugin-root question, not the
+  project-root one, and eval fixtures run from a source checkout (ADR rule 2's `$PWD` fallback; archaeology
+  row 2). `evals/` is out of this run's scope.
+- **`hooks/lane-guard.sh:721-746` `project_roots`.** It answers "which live run's lane map owns this
+  path" and walks up to a directory holding `docs/superpowers/execution`. That is a different question
+  from "where is the project root" (archaeology row 25). The hook is also on every tool call, so it
+  must not be changed casually.
+- **`scripts/compound-v-memory.py` `find_repo_root` falling back to its start directory**
+  (archaeology row 20). This triage did not include it, and it is recorded as a follow-up.
+- **`scripts/compound-v-jev.py`.** It takes `--repo` (required) and derives nothing from `__file__`
+  beyond sibling loads (archaeology constraint 13), so it needs no change.
+- **Not justified to stay:** `compound-v-integration-gate.py:1424` and
+  `compound-v-update-memory.py:67-74`.
+  - Both are project-root uses, not sibling loads. The second carries the same defect this run closed
+    for the triage stream (F8): installed as a plugin, `task-outcomes.jsonl` would land in the plugin
+    cache.
+  - Neither was in the archaeology matrix (rows 1-31), so neither reached the spec or the job's lane.
+
+## Verdict
+
+**ISSUES.** PASS 1 SPEC: passes. PASS 2 QUALITY: issue 3. PASS 3 INTEGRATION: issues 1 and 2 (issue 2
+is resolved in this lane).
+
+1. **ACCEPTANCE_GAP (PASS 3, AC-2), blocking.** Two scripts derive a project root from `__file__`
+   outside a selftest:
+   - `scripts/compound-v-integration-gate.py:1423-1424` uses `os.path.dirname(here)` when
+     `--repo-root` is omitted.
+   - `scripts/compound-v-update-memory.py:67-74, 275` defaults `task-outcomes.jsonl` to
+     `<plugin>/docs/superpowers/memory/`.
+   - Both are outside the `project-root` job's `write_allowed`, so the implementer could not have
+     fixed them. The gap is upstream, in the archaeology inventory and the spec.
+   - Remedy: a follow-up job whose lane covers both files. Make `--repo-root` required in
+     integration-gate, following `emit-workflow`'s pattern (archaeology row 19). Route update-memory's
+     default through `resolve_project_root`. Give each a revert-failing test row.
+   - The alternative is an amendment that re-scopes AC-2, with this written justification. Re-reviewing
+     this diff will not close the gap.
+2. **BUILD_RED, pre-existing (PASS 3, AC-3). Resolved in this review's lane.**
+   - At `689e1db`, `lint-frontmatter.py .` and `tests/test-agent-memory.sh` were red on
+     `.claude/agent-memory/superpowers-v-spec-reviewer/impacted-map-globs.md`: an unquoted
+     `description:` containing `: `, committed in `b79cd46`.
+   - Its value is now quoted, and the full suite, lint and shellcheck are green with it (quoted above).
+   - The caller must commit that file together with this record, or AC-3 stays red.
+3. **QUALITY (PASS 2), low.** The validate-manifest no-root note, `checks that need a repository root
+   are skipped` (`scripts/compound-v-validate-manifest.py:3376-3378`), is false for a manifest carrying
+   a `fast_path` block. For that manifest, `validate_text` (`:2987-2992`) still calls
+   `_validate_fast_path`, which now fails closed (`:1619-1623`). Reword the note, or gate it on the
+   manifest having no `fast_path` block, and add a test row.
+
+Scope lock: respected (gate `pass`, confirmed at the seam). Floor and tier-owed tests: ran, exit 0.
