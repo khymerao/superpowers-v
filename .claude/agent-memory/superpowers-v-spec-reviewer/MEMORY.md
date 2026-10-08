@@ -22,3 +22,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Test helper shape](test-helper-shape.md) — a plugin test helper built in the handler's assumed event shape hid a contract bug.
 - [Marker-anchored mutations](verifying-acceptance-criteria.md) — anchor on fence + marker; prose may quote the marker.
 - [Jev tool refusals](jev-tool-refusals.md) — cleanup keyed on parse status misses jev_classify `refused:` strings.
+- [impacted_map globs](impacted-map-globs.md) — `when: '*.md'` never matches nested paths; a check living only there never runs.
