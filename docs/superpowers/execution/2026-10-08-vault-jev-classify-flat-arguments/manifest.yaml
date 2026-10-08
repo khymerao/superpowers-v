@@ -1,0 +1,74 @@
+run_id: 2026-10-08-vault-jev-classify-flat-arguments
+feature: 'jev_classify reads its request_file argument flat from the tool.call event, as Claude Code delivers it'
+routing_stance: balanced
+max_parallel: 1
+spec_path: docs/superpowers/specs/2026-10-08-vault-jev-classify-flat-arguments-design.md
+plan_path: docs/superpowers/plans/2026-10-08-vault-jev-classify-flat-arguments.md
+audits:
+  archaeology: docs/superpowers/archaeology/2026-10-08-2026-10-08-vault-jev-classify-flat-arguments-design.md
+  library: docs/superpowers/library-audit/2026-10-08-2026-10-08-vault-jev-classify-flat-arguments-design.md
+triage:
+  tier: FULL
+  pre_eval_id: 2026-10-06T134630Z-fix-the-compound-v-vault-jev-classify-tool-its-tool-call-han-74e1
+  taxonomy_digest: sha256:73763c8ac80e3a5b5438a8330b0bb26dbb98125dc9804d3e650ec938bc13425a
+  decided_at: '2026-10-06T13:46:42Z'
+global_constraints:
+- 'Contract source: the engine types (`ToolCallInput`: the tool''s arguments spread beside `tool`, `e.command` for Bash); `$.tool.call` takes the same flat shape.'
+- 'No fallback to `e.input` in the handler. The hook passes `e.request_file` (the narrow form); `serveTool` takes the value, drops the `isRecord` unwrap, and keeps its own `typeof === ''string''` and absolute-path checks, because whether the engine enforces `inputSchema` before `tool.call` is unverified (1C §6.2).'
+- '`isDisabled` still runs before the argument is read (1A §7.3). `tool.check` handling, if any, is untouched.'
+- 'The registration `tool.call{tool=mcp__compound-v-vault__jev_classify}` stays as is (`tests/test-vault-mod.sh:41`).'
+- 'No version bump: the vault stays `0.1.0`; the cv-dev refresh is an uninstall and install, which drops the cached copy.'
+- 'The pinned CLI (`PIN=2.1.289`) must also pass the suite (CI uses it); run it once through npx on a staged copy. If it fails only on the flat shape, stop and report instead of moving the pin.'
+- 'No key-shaped literal in `plugins/compound-v-vault` (the existing grep row).'
+- 'No version bump, CHANGELOG or release. Commit subjects are plain sentences, no Co-Authored-By trailer.'
+acceptance_criteria:
+- AC-1 tests/test-vault-mod.sh passes, with every tool-call test passing the argument flat.
+- AC-2 With change 1 reverted and the tests kept, tests/test-vault-mod.sh fails.
+- AC-3 A call with the argument under input is refused; a call with it flat reaches the path checks.
+- AC-4 No other vault behaviour changes; all 32 existing tests still pass, and no key-shaped literal is added.
+test_contract:
+  floor_command: bash tests/test-vault-mod.sh
+  full_command: bash -c 'for s in scripts/compound-v-*.py; do grep -q -- "--selftest" "$s" || continue; /usr/bin/python3 -B "$s" --selftest >/dev/null 2>&1 || { echo "FAIL $s"; exit 1; }; done; for t in tests/*.sh; do bash "$t" >/dev/null 2>&1 || { echo "FAIL $t"; exit 1; }; done; echo all-tests-ok'
+  timeout_s: 540
+  impacted_map:
+  - when: plugins/compound-v-vault/**
+    run: bash tests/test-vault-mod.sh
+  - when: '*.md'
+    run: /usr/bin/python3 -B scripts/lint-frontmatter.py .
+jobs:
+- id: flat-args
+  title: Task A — jev_classify reads request_file flat
+  type: implement
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: worktree
+  run: serial
+  depends_on: []
+  test_scope: impacted
+  write_allowed:
+  - plugins/compound-v-vault/hooks/vault.tsx
+  - plugins/compound-v-vault/.tests/vault.test.tsx
+  read_allowed:
+  - '**'
+  acceptance:
+  - test-vault-mod.sh green with the flat helper and the new regression row; the suite fails with e.input restored; the pinned CLI 2.1.289 passes the staged suite; no sk-or- literal added.
+  body: 'Implement Task A of docs/superpowers/plans/2026-10-08-vault-jev-classify-flat-arguments.md, every step in order (A1..A6). Read the spec docs/superpowers/specs/2026-10-08-vault-jev-classify-flat-arguments-design.md and both audits first; their section 7 constraints bind. Tests first: watch the suite fail on the old handler before fixing. Touch only your lane. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'
+- id: spec-review
+  title: Review Gate — deep, three passes against the spec and AC-1..AC-4
+  type: review
+  backend: claude
+  tier: deep
+  effort: high
+  isolation: direct
+  run: serial
+  depends_on:
+  - flat-args
+  write_allowed:
+  - docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md
+  - .claude/agent-memory/superpowers-v-spec-reviewer/**
+  read_allowed:
+  - '**'
+  acceptance:
+  - 'The review file exists with ## Recall, ## SPEC, ## QUALITY, ## INTEGRATION, ## Verdict; each AC run on the merged tree with command and output quoted; verdict APPROVED or ISSUES with a numbered list.'
+  body: 'Your agent definition carries the three-pass Review Gate and a Step 0 (V-memory recall). HARD BUDGET of 40 tool calls; FIRST action after Step 0: create docs/superpowers/dogfood/2026-10-08-vault-jev-classify-flat-arguments-review.md with the section skeleton. Review the job against docs/superpowers/specs/2026-10-08-vault-jev-classify-flat-arguments-design.md and the plan. Check in particular AC-2 by reverting the handler to e.input in a scratch copy (never in the tree) and confirming the suite fails, and that no e.input fallback exists. Your memory directory is .claude/agent-memory/superpowers-v-spec-reviewer/. Run python with -B; register your lane with a literal --cwd. You are unattended: decide and return.'

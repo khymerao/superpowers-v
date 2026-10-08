@@ -16,3 +16,13 @@ Sources: https://code.claude.com/docs/en/plugins/mods/{overview,api,events,refer
 - `classic.<Event>` hooks wrap settings hook events (`e` = stdin JSON). Answering without `next` skips the settings hooks.
 - Limits: hook own-time 10 s (excl. mods API calls), `$.fs` 4 MiB, `$.store` 4 MiB.
 - `userConfig` `sensitive: true`: masked, stored in secure credential store, not shown in `/config`. `CLAUDE_PLUGIN_OPTION_<KEY>` is exported to **hook processes for every option**; not substituted into skill/agent content for sensitive values; monitors do not receive it.
+
+## Updated 2026-10-08 - vault-jev-classify-flat-arguments-design
+
+Sources: https://code.claude.com/docs/en/plugins/mods/events and /reference (reference says "as of v2.1.290"), https://code.claude.com/docs/en/changelog (newest 2.1.294, 2026-10-08), engine typings `.claude-plugin/types/claude-code/index.d.ts` "Written by Claude Code 2.1.293" (all read 2026-10-08). Context7 unavailable (needs OAuth).
+
+- `tool.call`: the tool's arguments are FLAT fields of `e` (`e.command` for Bash; a registered tool's `e.spec` in the d.ts example). `tool` and `tool_use_id` are reserved; core ignores a rewrite of them. `$.tool.call({ tool, ...args })` takes the same flat shape.
+- `tool.check` is the opposite: `e.input` holds the arguments. Mixing the two is the jev_classify bug.
+- `tool.call` returns `next(e)`, `{ deny }` or `{ result }`.
+- Not found in any source: whether a registered tool's `inputSchema` (`additionalProperties: false`) is validated before the `tool.call` hook. Unverified.
+- 2.1.292: "a hook now sees the arguments the tool will run with" (misnamed-parameter repair, built-in tools). 2.1.293 added `isDeferred` to `$.tool.register`. Typings header: EARLY ACCESS, may change without notice.

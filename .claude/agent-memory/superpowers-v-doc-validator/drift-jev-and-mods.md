@@ -13,4 +13,5 @@ Leads only; re-verify before reuse. Detail in `docs/superpowers/library-audit/_k
 - 2026-10-05: `$.process.run` takes argv; official docs show `init` = cwd, timeoutMs only (env unconfirmed).
 - 2026-10-05: `userConfig` sensitive values still export as `CLAUDE_PLUGIN_OPTION_<KEY>` to all plugin hook processes.
 - 2026-10-05: Context7 tools were not surfaced by ToolSearch in this Workflow-spawned run (only a failed tessl server was named); fallback was WebFetch. Same result in the later review-fixes run (two ToolSearch queries, empty); Bash was clamped to memory/git forms, so use Read/Grep.
+- 2026-10-08: mods `tool.call` args are flat on `e`; `e.input` belongs to `tool.check`. Newest Claude Code 2.1.294, typings seen 2.1.293. Context7 needed OAuth this run; WebFetch + local `.claude-plugin/types/claude-code/index.d.ts` worked.
 - 2026-10-05: `compound-v-jev.py` parser ignores vault `reason` when `http_status` is non-2xx (routes by `_classify_http`); `prune` unlinks old symlinks via lstat. Check lines before reuse.
