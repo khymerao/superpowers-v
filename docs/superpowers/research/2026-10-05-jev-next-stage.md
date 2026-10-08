@@ -42,7 +42,18 @@ Open, found during the work (each needs its own triage):
 6. Not done: a release (version bump, CHANGELOG); an issue for Anthropic about the desktop app and sensitive
    `userConfig`.
 
-Next: item 6 of the original list. Label the corpus (`claude_label` by the Claude classifier, `human_label` by the
+**Measurement and eval run (2026-10-08, later).** Run `2026-10-08-t3-measurement-and-eval` merged: the headless
+Claude T3 classify now records `wall_ms`, `duration_api_ms` and tokens (`claude -p --output-format json`) into every
+shadow pair, and `eval --t3` gained `--freeze`, `--label-claude`, `--merge-human`, 6 Jev calls per row and the decision
+report. Its review returned ISSUES (open, fix run not started at the maintainer's request): (1) the trust rule's
+`subtype`/`type` conjuncts have no isolated test rows; (2) the report's flip counter has no fixture with a flip; (3)
+`--label-claude` counts a failed Claude run as an `unknown` vote and codex answers as Claude labels, and the report
+prints codex `wall_ms` as Claude's. The maintainer confirmed decision threshold (c): `SKIPPABLE_SHARE_MIN = 0.25`. A live
+probe showed the headless classify loading the whole Claude Code context: one one-word answer took 9.9 s wall, 2.4 s
+API, 53,136 input tokens (cache creation). The blind labelling sheet is
+`docs/superpowers/research/2026-10-08-jev-t3-labelling-sheet.md` (80 rows, codes `p m M u`).
+
+Next: fix run for the three review issues, then item 6 of the original list. Label the corpus (`claude_label` by the Claude classifier, `human_label` by the
 maintainer), run `compound-v-jev.py eval --t3 --prepare`, send the requests through `jev_classify` from a terminal
 `claude`, then `eval --t3 --report`; decide spec 1.5 from the report.
 
