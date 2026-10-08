@@ -210,3 +210,15 @@ the Anthropic issue) is touched.
   ran with exit 0 (`results/host-desktop.json` `tests`); full suite `all-tests-ok`; AC-1..AC-4 4/4.
 
 No numbered issues. Three follow-ups are listed above; none is a defect of this run.
+
+### Terminal capture (follow-up 3, closed 2026-10-08 09:18 local)
+
+A terminal `claude` 2.1.294 in this worktree, `!printenv | grep -E '^CLAUDE_CODE_(ENTRYPOINT|EXECPATH)='`:
+
+```
+CLAUDE_CODE_ENTRYPOINT=cli
+CLAUDE_CODE_EXECPATH=/Users/koristuvac/.local/share/claude/versions/2.1.294
+```
+
+Status line in the same session: `compound-v-vault: Jev: on`. So in a terminal the `cv-host-version` block takes the
+host branch (`2.1.294 host`), and the desktop state is not selected.
