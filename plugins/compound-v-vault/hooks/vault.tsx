@@ -22,7 +22,9 @@
 //   across sessions, the plugin's own file under the user's config directory).
 // - $.tool.register({ name, description, inputSchema }) => Promise<{ tool }>, listed as
 //   mcp__<plugin>__<name>, served by a `tool.call` hook returning `{ result }`; rejects before
-//   session.start binds the session.
+//   session.start binds the session. The tool's arguments arrive flat on the `tool.call` event,
+//   beside `tool` (`e.request_file`, not `e.input.request_file`; typings 2.1.293, early access),
+//   and `$.tool.call` takes the same flat shape.
 // - $.command.register({ name, description, argumentHint? }) => Promise<{ command }>, served by a
 //   `command.run` hook returning `{ text }`.
 // - $.ui.status(text | undefined): void; $.ui.toast(text, { timeoutMs? }): void.
@@ -275,9 +277,10 @@ async function showStatus($: any, vault: Vault): Promise<void> {
 }
 
 // jev_classify: one request file under ~/.claude/compound-v-jev/<dir>/req/, checked by real path.
-async function serveTool($: any, vault: Vault, input: unknown): Promise<string> {
+// `given` is the event's flat request_file, still checked here: whether the engine enforces the
+// inputSchema before tool.call is unverified.
+async function serveTool($: any, vault: Vault, given: unknown): Promise<string> {
   if (await isDisabled($)) return 'refused: disabled'
-  const given = isRecord(input) ? input.request_file : undefined
   if (typeof given !== 'string' || !given.startsWith('/')) return 'refused: request_file must be an absolute path'
   if (given.split('/').some(part => part === '..' || part === '.')) return 'refused: request_file must not contain . or .. segments'
   const home = await $.env.get('HOME')
@@ -397,8 +400,9 @@ export function register(on: any, options: Record<string, unknown> = {}) {
     return started
   })
 
+  // The tool's arguments sit flat on the event beside `tool` (there is no `e.input`).
   on('tool.call', { tool: 'mcp__compound-v-vault__jev_classify' }, async ($: any, e: any) => ({
-    result: await serveTool($, vault, e.input),
+    result: await serveTool($, vault, e.request_file),
   }))
 
   on('command.run', { command: COMMAND_NAME }, async ($: any, e: any) => ({

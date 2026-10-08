@@ -27,8 +27,10 @@ async function jev($: any, method: 'classify' | 'status', arg: unknown): Promise
   return value
 }
 // Every answer the plugin gives a test (tool results, command text) is recorded for the key check.
+// A tool's arguments sit flat on the call, beside `tool`, as Claude Code delivers them to the
+// `tool.call` event (engine types, ToolCallInput); there is no `input` wrapper.
 async function toolCall($: any, request_file: string): Promise<any> {
-  const out = await $.tool.call({ tool: TOOL, input: { request_file } })
+  const out = await $.tool.call({ tool: TOOL, request_file })
   current?.results.push(out)
 
   return out
@@ -389,6 +391,23 @@ vtest('jev_classify: an error body is never written to the response file', WITH_
   expect(JSON.parse(text)).toMatchObject({ status: 'error', reason: 'bad_input', http_status: 400 })
   expect(text.includes('user_SECRET42')).toBe(false)
   expectNoKeyOutsideFetchAuth(seen, [out])
+})
+
+// The regression the live run hit: the handler read `e.input`, which Claude Code never sets, and
+// refused every call. An argument nested under `input` is now refused by the handler's own
+// absolute-path check (it finds no flat request_file), and the same file passed flat is served.
+vtest('jev_classify reads request_file flat; an argument nested under input is refused', WITH_KEY, async ($: any, on: any) => {
+  const { seen } = world(on)
+  await start($)
+  const nested = await $.tool.call({ tool: TOOL, input: { request_file: REQ_FILE } })
+  current?.results.push(nested)
+  expect(nested.result).toBe('refused: request_file must be an absolute path')
+  expect(seen.fetches).toHaveLength(0)
+  expect(seen.writes).toHaveLength(0)
+  const flat = await toolCall($, REQ_FILE)
+  expect(flat.result).toBe(RESP_FILE)
+  expect(seen.fetches).toHaveLength(1)
+  expect(seen.writes.map(w => w.path)).toEqual([RESP_FILE])
 })
 
 const REFUSALS: Array<[string, string, Record<string, File>]> = [
