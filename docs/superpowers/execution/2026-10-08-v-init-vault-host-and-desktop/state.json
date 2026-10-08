@@ -1,5 +1,5 @@
 {
-  "phase": "DISPATCHED",
+  "phase": "MERGED",
   "updated_at": "2026-10-08T06:55:00Z",
   "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
   "jobs": {
@@ -18,10 +18,18 @@
       }
     },
     "spec-review": {
-      "status": "pending",
+      "status": "done",
       "isolation": "direct",
-      "worktree": null,
-      "session_id": null
+      "worktree": "",
+      "session_id": null,
+      "baseline": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+      "realised_commit": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+      "merged": {
+        "realised_commit": "e67a93d2ffc171918da0eff8b192f790282f9e4b",
+        "mode": "direct",
+        "integrated": true,
+        "commit": "7e7c63269190d5b034abb248eee329115f892efd"
+      }
     }
   },
   "waves": {
@@ -34,6 +42,22 @@
       ],
       "commit": "d0fb32cb747efba0e57afa924d964119269c7148",
       "integrated": true
+    },
+    "2": {
+      "jobs": [
+        "spec-review"
+      ],
+      "merged": [
+        "spec-review"
+      ],
+      "commit": "7e7c63269190d5b034abb248eee329115f892efd",
+      "integrated": true
     }
-  }
+  },
+  "triage_actual": {
+    "merge_pending": true,
+    "pre_eval_id": "2026-10-08T055210Z-v-init-step-1g-read-the-running-host-claude-code-version-fro-0d3a",
+    "run_id": "2026-10-08-v-init-vault-host-and-desktop"
+  },
+  "merged_at": "2026-10-08T06:55:00Z"
 }

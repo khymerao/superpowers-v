@@ -1,8 +1,0 @@
-{
-  "agents": {},
-  "manifest": "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/practical-nightingale-b06689/docs/superpowers/execution/2026-10-08-v-init-vault-host-and-desktop/manifest.yaml",
-  "run_id": "2026-10-08-v-init-vault-host-and-desktop",
-  "worktrees": {
-    "/Users/koristuvac/compound/superpowers-v/.claude/worktrees/wf_5faaf59f-f79-2": "host-desktop"
-  }
-}
