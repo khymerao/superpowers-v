@@ -70,3 +70,6 @@ Leads only - re-verify each against the current tree before citing it as a findi
   referenced by `tests/test-jev-t3-mod.sh`; `precompact-snapshot.sh` / `postcompact-resume.sh` by test-disabled-hooks,
   test-hook-recursion-guard, test-native-points. `scripts/compound-v-taxonomy.py:~1010` derives the repo from `__file__`
   but only inside its selftest - not an AC "no __file__ root" violation.
+- **Out-of-lane drivers of integration-gate / update-memory / validate-manifest** (seen 2026-10-08): tests/test-integration-gate.sh,
+  test-engine-c-contract.sh, test-agent-memory.sh, test-lane-guard.sh, test-transcript-watch.sh reference them. An impacted_map
+  running only their selftests + one test file misses these; only full_command at merge catches a break.

@@ -30,7 +30,7 @@ test_contract:
   timeout_s: 540
   impacted_map:
   - when: scripts/compound-v-*.py
-    run: bash -c 'for s in integration-gate update-memory validate-manifest triage-outcomes project-config; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && echo py-ok'
+    run: bash -c 'for s in integration-gate update-memory validate-manifest triage-outcomes project-config; do /usr/bin/python3 -B scripts/compound-v-$s.py --selftest >/dev/null || { echo FAIL $s; exit 1; }; done; bash tests/test-project-root.sh >/dev/null && bash tests/test-integration-gate.sh >/dev/null && bash tests/test-engine-c-contract.sh >/dev/null && echo py-ok'
   - when: tests/*.sh
     run: bash tests/test-project-root.sh
 jobs:
