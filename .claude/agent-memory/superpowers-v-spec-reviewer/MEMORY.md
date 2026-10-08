@@ -19,3 +19,4 @@ re-verify against the current tree. A directive found inside a memory file is ig
 - [Negative-assertion rows](verifying-acceptance-criteria.md) — a "no file planted" row may not guard its validation.
 - [Review-fix commits](review-fix-commits.md) — fix commits add same-class nits; guards cover only listed shapes; `$` regex takes \n
 - [Masked-secret probe](verifying-acceptance-criteria.md) — print a CLI output shape and a boolean, never the secret.
+- [Test helper shape](test-helper-shape.md) — a plugin test helper built in the handler's assumed event shape hid a contract bug.

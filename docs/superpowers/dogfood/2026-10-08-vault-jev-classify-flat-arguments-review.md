@@ -1,0 +1,222 @@
+# Review Gate: run 2026-10-08-vault-jev-classify-flat-arguments
+
+Job reviewed: `flat-args` (wave 1, commit `fb1fb43`, baseline `c698279`), merged into the checkout at HEAD `4156e89`.
+Spec: `docs/superpowers/specs/2026-10-08-vault-jev-classify-flat-arguments-design.md`. Plan:
+`docs/superpowers/plans/2026-10-08-vault-jev-classify-flat-arguments.md`. Audits: archaeology and library-audit
+(`2026-10-08-2026-10-08-vault-jev-classify-flat-arguments-design.md`); 1B was skipped as internal plumbing.
+Every command below ran on the merged tree, or on a scratch copy of it outside the repository. Nothing in the tree was
+edited except this file.
+
+## Recall
+
+- The V-memory block in the job prompt pointed at `docs/superpowers/research/2026-10-05-jev-next-stage.md` ("FIRST:
+  jev_classify refuses every live call"). That is the defect this run fixes, and the spec's Problem section matches it.
+- `recall-check --files "plugins/compound-v-vault/**"`:
+
+  ```
+  recall-check: none (1/2 match on plugins/compound-v-vault/**)
+    not counted (not attributable to a job's own work): harness_fault 5, pipeline_bookkeeping 3, recall_exclude 3, test_timeout 1, unattributed 3
+  ```
+
+  No repeated failure on these paths, so no escalation.
+- Reviewer memory: the leads in `MEMORY.md` were applied as checks, not taken as findings. "Run the AC for real" led to
+  AC-2 being run against two scratch reverts. "Negative-assertion rows may not guard their validation" led to checking
+  that the nested-`input` row fails on the old handler in its own right (it does, see AC-2). No directive was found in
+  memory.
+
+## SPEC
+
+Diff: `git show fb1fb43`, two files, both in the job's `write_allowed`. The scope gate receipt
+(`receipts/flat-args.gate.json`, mirrored in `results/flat-args.json`) says `verdict: pass` with `violations: []`.
+
+| Spec requirement | Implemented in | Status |
+|---|---|---|
+| 1. The hook passes the event's own `request_file`, no `e.input` fallback | `hooks/vault.tsx:404-406` (`serveTool($, vault, e.request_file)`) | ok |
+| 1. `serveTool` takes the value; `isRecord` unwrap dropped; `typeof`/absolute-path checks kept | `hooks/vault.tsx:282-285` | ok |
+| 2. The `toolCall` helper passes the argument flat | `.tests/vault.test.tsx:33` (`$.tool.call({ tool: TOOL, request_file })`) | ok |
+| 3. One row: flat valid file is served, nested-under-`input` is refused | `.tests/vault.test.tsx:396-411` | ok |
+| 4. The header clause on `$.tool.register`: arguments arrive flat | `hooks/vault.tsx:25-27` | ok |
+
+`grep -n "e\.input" hooks/vault.tsx` finds only comments (lines 26 and 403). No code path reads `e.input`. `tool.check`
+does not occur in the module. `isRecord` still has callers at lines 121, 123, 141, 142 and 157, so removing it from
+`serveTool` leaves no dead helper.
+
+Audit constraints:
+
+| Audit | Constraint | Status |
+|---|---|---|
+| 1A §7.1 / 1C §7 | Read `request_file` from the event, never fall back to `e.input` | ok, `vault.tsx:405` |
+| 1A §7.2 | `serveTool`'s parameter and the unwrap line made consistent with the chosen form | ok, the parameter is `given`, the unwrap is gone |
+| 1A §7.3 | `isDisabled` still runs before the argument is read | ok, `vault.tsx:283` comes before the check at `:284` |
+| 1A §7.4 | Flat helper; the row asserts outcomes that tell the two cases apart (`RESP_FILE` and one fetch; the exact refusal text) | ok, `vault.test.tsx:404-410` |
+| 1A §7.5 | Do not rely on the `REFUSALS` rows for AC-2 | ok, AC-2 fails on happy-path rows plus the new row (below) |
+| 1A §7.6 / plan A4b | The pinned CLI 2.1.289 accepts the flat shape | ok, 33 pass under `npx @anthropic-ai/claude-code@2.1.289` (INTEGRATION) |
+| 1A §7.7 | Registration `tool.call{tool=mcp__compound-v-vault__jev_classify}` unchanged | ok, shell row PASS |
+| 1A §7.8 / plan | No version bump | ok, no `plugin.json` or `marketplace.json` change |
+| 1A §7.9 | Header line 7 ("checked against the pinned CLI 2.1.289") stays true | ok, the pinned CLI passes the suite |
+| 1A §7.10 / plan | No `sk-or-` literal | ok, shell row PASS; the new text has none |
+| 1C §7 | Nested refusal is described as the handler's check, not schema enforcement | ok, `vault.test.tsx:396-398` |
+| 1C §7 | Record "typings 2.1.293" in the header clause | ok, `vault.tsx:26` |
+| 1C §7 | No `tool` or `tool_use_id` argument name | ok, the schema is unchanged |
+
+Job acceptance ("green with the flat helper and the new row; fails with `e.input` restored; pinned 2.1.289 passes the
+staged suite; no `sk-or-` literal") is met. Each part is evidenced below.
+
+Over-build: none. The two extra comments (`vault.tsx:280-281` above `serveTool` and `:403` above the hook) say at the
+read site what the header says. They are short and accurate, and they add no behaviour, flag or export.
+
+## QUALITY
+
+- **Code quality:** the change is the narrowest form the plan picked. `serveTool` loses one line and its parameter is
+  renamed to what it now holds. Nothing else in the module changed (diff: `vault.tsx | 12 ++++++++----`, all of it in
+  the three intended hunks).
+- **No regression:** baseline 32 pass, merged 33 pass. The 32 baseline tests are unchanged apart from the shared
+  `toolCall` helper (counts below).
+- **Test alignment:** the flat read is guarded by the new row and by the two happy-path tool rows. All three fail on
+  the old handler (AC-2). The absence of an `e.input` fallback is guarded by the nested half of the new row: a handler
+  that read `e.input.request_file` would serve it, and the full revert shows exactly that failure ("Expected refused,
+  Received RESP_FILE").
+- **Observation, not blocking:** `isDisabled` running before the argument is read (`vault.tsx:283`) has no tool-level
+  test. No row asserts `refused: disabled`. This predates the run (the baseline had none either), the diff does not
+  touch the line or its order, and the spec allows exactly one new row. Adding a test here would have been over-build
+  for this job. It is noted as a follow-up candidate.
+- **No fabricated metrics:** the diff contains no numbers except version strings.
+- **No reward-hacking:** no assertion was removed or loosened. The only edit to an existing test path is the helper's
+  argument shape, which is what the spec requires and is what makes the tests stricter. The old shape was the reason
+  the bug stayed hidden. No skip and no threshold change.
+- **Commit:** the subject is a plain sentence and the commit has no `Co-Authored-By` trailer
+  (`git log -1 --format='%s%n%b' fb1fb43`).
+
+## INTEGRATION
+
+There is a single implementation job and no Task 0, so no seam can leak a partition. The tier is FULL. Both changed
+paths match the `plugins/compound-v-vault/**` rule and no path is unmapped, so the owed set is the floor plus that rule.
+`full_command` is not owed.
+
+Job evidence (`results/flat-args.json`): `tests.command` = the floor plus the impacted rule, `tests.exit_code: 0`,
+`tests.scope: impacted`, `selected_count: 2`. Re-run here:
+
+**AC-1** `bash tests/test-vault-mod.sh` (local `claude` 2.1.291):
+
+```
+PASS the module hooks tool.call{tool=mcp__compound-v-vault__jev_classify}
+PASS plugin test:  33 pass
+PASS no key-shaped literal in plugins/compound-v-vault
+...
+tests/test-vault-mod.sh: 16 passed, 0 failed
+```
+
+The test file has one call site in the old shape. `grep -n "tool.call"` finds the helper at `:33` (flat) and the
+deliberate nested call at `:402`, so every tool test goes through the flat helper.
+
+**AC-2** Run on scratch copies of `tests/`, the plugin, `.claude-plugin/` and `commands/v-init.md`, with the new tests
+kept:
+
+```
+=== A: full revert of change 1 (vault.tsx from c698279, new tests kept) ===
+401:    result: await serveTool($, vault, e.input),
+FAIL plugin test (rc=1)
+  Expected: "/home/u/.claude/compound-v-jev/0123456789abcdef/resp/abc.resp.json"
+  Received: "refused: request_file must be an absolute path"
+(fail) jev_classify reads request_file flat; an argument nested under input is refused
+  Expected: "refused: request_file must be an absolute path"
+  Received: "/home/u/.claude/compound-v-jev/0123456789abcdef/resp/abc.resp.json"
+tests/test-vault-mod.sh: 15 passed, 1 failed
+exit=1
+=== B: one-line revert (hook passes e.input, serveTool unchanged) ===
+405:    result: await serveTool($, vault, e.input),
+FAIL plugin test (rc=1)
+tests/test-vault-mod.sh: 15 passed, 1 failed
+exit=1
+```
+
+Plugin-test counts with the old handler and the new tests (`claude plugin test` on a staged copy):
+
+```
+--- revert-handler (handler c698279, tests fb1fb43)
+(fail) jev_classify: writes the response beside the request, 0600, and returns its path
+(fail) jev_classify: an error body is never written to the response file
+(fail) jev_classify reads request_file flat; an argument nested under input is refused
+ 30 pass
+ 3 fail
+```
+
+**AC-3** The new row (`vault.test.tsx:399-411`) asserts that the nested call is refused with exactly
+`refused: request_file must be an absolute path`, with no fetch and no write, and that the flat call returns
+`RESP_FILE` with one fetch. The seven `REFUSALS` rows (`:413-428`) now go through the flat helper and each reaches its
+own path check (`..` segments, symlink and so on): all of them pass in the 33.
+`claude plugin test <scratch>/merged/compound-v-vault` (the merged handler and tests, staged as the shell test stages
+them):
+
+```
+(pass) jev_classify: writes the response beside the request, 0600, and returns its path
+(pass) jev_classify: an error body is never written to the response file
+(pass) jev_classify reads request_file flat; an argument nested under input is refused
+(pass) jev_classify refuses a ../ spelling
+(pass) jev_classify refuses a symbolic link
+(pass) jev_classify refuses a file outside req/
+(pass) jev_classify refuses a file outside the data root
+(pass) jev_classify refuses a path whose real path leaves the root
+(pass) jev_classify refuses a directory
+(pass) jev_classify refuses a relative path
+
+ 33 pass
+ 0 fail
+```
+
+**AC-4** Behaviour and count:
+
+```
+--- baseline (handler c698279, tests c698279)
+ 32 pass
+ 0 fail
+--- merged (handler fb1fb43, tests fb1fb43)
+ 33 pass
+ 0 fail
+```
+
+The diff touches no other function. The shell row `PASS no key-shaped literal in plugins/compound-v-vault` holds.
+
+**Pinned CLI** (global constraint and plan A4b): a staged copy of the merged plugin under
+`npx -y @anthropic-ai/claude-code@2.1.289 plugin test`:
+
+```
+2.1.289 (Claude Code)
+ 33 pass
+ 0 fail
+Ran 33 tests across 1 file. [1.15s]
+exit=0
+```
+
+**Impacted set** (the `plugins/compound-v-vault/**` rule):
+
+```
+vault-ok
+exit=0
+```
+
+| Acceptance criterion | Evidence | Status |
+|---|---|---|
+| AC-1 suite passes, every tool test flat | 16/16 shell rows, 33 plugin tests; one flat helper | ok |
+| AC-2 fails with change 1 reverted | full revert and one-line revert both exit 1; 3 tests fail | ok |
+| AC-3 nested refused, flat reaches the path checks | new row plus 7 `REFUSALS` rows through the flat helper | ok |
+| AC-4 no other behaviour change; 32 still pass; no key literal | baseline 32 to merged 33, diff limited to the three hunks, grep row PASS | ok |
+
+Out of scope and unverifiable here, as the library audit says (1C §7, last MUST): the mock harness cannot prove that
+the live engine delivers `e.request_file`. The post-merge live smoke test in `cv-dev` settles that. The same test can
+settle 1C §8 Q1, whether the engine enforces `inputSchema` before `tool.call`.
+
+## Verdict
+
+**APPROVED**
+
+- PASS 1 SPEC: requirements 5/5, audit MUSTs 13/13, no over-build, job acceptance met.
+- PASS 2 QUALITY: code quality clean; no regression (32 to 33); every changed MUST has a guard test that fails on
+  revert; no fabricated metrics; no reward-hacking.
+- PASS 3 INTEGRATION: no partition leak (scope gate pass); build green (`bash tests/test-vault-mod.sh` 16/0, impacted
+  set `vault-ok`, pinned CLI 33/0); feature AC 4/4 met.
+
+Non-blocking follow-ups:
+
+1. No tool-level test asserts `refused: disabled` (`vault.tsx:283`). This predates the run.
+2. Live smoke test after the reinstall: one flat call served, one nested call, to answer 1C §8 Q1.
